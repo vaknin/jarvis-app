@@ -64,6 +64,7 @@ import com.kivan.tether.dibs.ui.theme.AppType
 import com.kivan.tether.dibs.ui.theme.Eyebrow
 import com.kivan.tether.dibs.ui.theme.Palette
 import com.kivan.tether.dibs.ui.theme.Space
+import kotlinx.coroutines.delay
 
 /** The four tabs, by the key an intent names them with. */
 internal enum class Tab(val key: String, val label: String, val icon: Int) {
@@ -196,6 +197,13 @@ private fun LendToggles(lends: Lends) {
 private fun LendToggleCard(t: LendToggle, title: String, icon: Int, modifier: Modifier) {
     // Between the tap and dibs's next view: say so, and don't send it twice.
     var sent by remember(t.lent, t.action) { mutableStateOf(false) }
+    // A tap dibs refused (a locked laptop, a phone out of reach) changes nothing: free it again.
+    LaunchedEffect(sent) {
+        if (sent) {
+            delay(15_000)
+            sent = false
+        }
+    }
     val sub = when {
         sent -> if (t.lent) "Taking it back…" else "Lending…"
         t.lent -> t.text.ifBlank { "Lent to dibs" }
