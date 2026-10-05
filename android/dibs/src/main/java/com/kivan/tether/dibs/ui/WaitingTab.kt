@@ -76,6 +76,7 @@ private fun QuestionCard(q: Question, now: Long, modifier: Modifier) {
     Column(modifier.card().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (q.kind == "phone") Icon(painterResource(R.drawable.lucide_smartphone), "Phone request", Modifier.size(14.dp), tint = Palette.Muted)
+            if (q.kind == "laptop") Icon(painterResource(R.drawable.lucide_laptop), "Laptop request", Modifier.size(14.dp), tint = Palette.Muted)
             val who = if (q.kind == "update") "Update" else q.from
             Eyebrow(listOfNotNull(who.ifBlank { null }, q.repo, age(now - q.ts)).joinToString(" · "))
         }

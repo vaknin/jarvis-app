@@ -78,6 +78,12 @@ data class FeedItem(val ts: Long, val kind: String, val who: String, val text: S
 
 data class Lend(val until: Long?, val holder: String?, val text: String)
 
+/** One lend toggle (task #29): lent to dibs or the user's, what it says, and the action that flips it. */
+data class LendToggle(val lent: Boolean, val text: String, val action: String)
+
+/** The phone's and the laptop's toggles; null in a payload from a dibs without them. */
+data class Lends(val phone: LendToggle?, val laptop: LendToggle?)
+
 data class State(val brain: String?, val busy: Boolean, val line: String?, val usage: String?)
 
 data class Badges(val waiting: Int, val work: Int, val recap: Int)
@@ -96,6 +102,7 @@ data class DibsView(
     val away: Away?,
     val feed: List<FeedItem>,
     val lend: Lend?,
+    val lends: Lends?,
     val badges: Badges,
 ) {
     companion object {
@@ -129,9 +136,13 @@ data class DibsView(
                 },
                 feed = recap.optJSONArray("feed").objects().map { FeedItem(it.optLong("ts"), it.optString("kind"), it.optString("who"), it.optString("text")) },
                 lend = o.optJSONObject("lend")?.let { Lend(it.optLong("until").takeIf { u -> u > 0 }, it.str("holder"), it.optString("text")) },
+                lends = o.optJSONObject("lends")?.let { l -> Lends(l.optJSONObject("phone")?.let(::lendToggle), l.optJSONObject("laptop")?.let(::lendToggle)) },
                 badges = Badges(b.optInt("waiting"), b.optInt("work"), b.optInt("recap")),
             )
         }
+
+        private fun lendToggle(o: JSONObject): LendToggle? =
+            o.optString("action").takeIf { it.isNotBlank() }?.let { LendToggle(o.optBoolean("lent"), o.optString("text"), it) }
 
         private fun talkLine(o: JSONObject) = TalkLine(
             id = o.optString("id"),

@@ -80,6 +80,17 @@ class PayloadTest {
     }
 
     @Test
+    fun lendTogglesParse() {
+        val d = DibsView.parse(JSONObject("""{"lends": {
+          "phone": {"lent": false, "text": "", "until": null, "action": "phone-lend"},
+          "laptop": {"lent": true, "text": "Until you take it back · rami-0f is on it", "until": 1791240000, "action": "laptop-back"}}}"""))
+        assertEquals(LendToggle(false, "", "phone-lend"), d.lends?.phone)
+        assertEquals(LendToggle(true, "Until you take it back · rami-0f is on it", "laptop-back"), d.lends?.laptop)
+        assertNull("an older dibs sends no toggles", DibsView.parse(JSONObject("""{"v": 1}""")).lends)
+        assertNull("a toggle without an action isn't drawn", DibsView.parse(JSONObject("""{"lends": {"phone": {"lent": true}}}""")).lends?.phone)
+    }
+
+    @Test
     fun aViewWithoutThePayloadIsNull() {
         assertNull(DibsView.ofView(JSONObject("""{"v": 1, "blocks": []}""")))
         assertNull(DibsView.ofView(null))

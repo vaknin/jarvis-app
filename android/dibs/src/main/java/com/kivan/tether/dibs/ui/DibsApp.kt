@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -42,13 +43,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kivan.tether.dibs.Badges
 import com.kivan.tether.dibs.Dibs
 import com.kivan.tether.dibs.DibsView
 import com.kivan.tether.dibs.Lend
+import com.kivan.tether.dibs.LendToggle
+import com.kivan.tether.dibs.Lends
 import com.kivan.tether.dibs.Link
 import com.kivan.tether.dibs.R
 import com.kivan.tether.dibs.State
@@ -97,7 +104,9 @@ fun DibsApp() {
                 Empty(hasView = json != null)
                 return@Column
             }
-            view.lend?.let { LendBar(it) }
+            // Two toggles from a dibs that sends them; the older "dibs has your phone" bar otherwise.
+            val lends = view.lends
+            if (lends != null && (lends.phone != null || lends.laptop != null)) LendToggles(lends) else view.lend?.let { LendBar(it) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
                     Tab.CHAT -> ChatTab(view)
@@ -168,6 +177,47 @@ private fun LendBar(lend: Lend) {
             if (lend.text.isNotBlank()) Text(lend.text, style = AppType.small, color = Palette.Text)
         }
         ActButton("Take it back", "primary") { Dibs.host.act("phone-back") }
+    }
+}
+
+/** Lend the phone and the laptop to dibs, or take them back (task #29): one tap each, above every tab. */
+@Composable
+private fun LendToggles(lends: Lends) {
+    Row(
+        Modifier.padding(horizontal = Space.L).padding(bottom = Space.S).fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Space.S),
+    ) {
+        lends.phone?.let { LendToggleCard(it, "Phone", R.drawable.lucide_smartphone, Modifier.weight(1f)) }
+        lends.laptop?.let { LendToggleCard(it, "Laptop", R.drawable.lucide_laptop, Modifier.weight(1f)) }
+    }
+}
+
+@Composable
+private fun LendToggleCard(t: LendToggle, title: String, icon: Int, modifier: Modifier) {
+    // Between the tap and dibs's next view: say so, and don't send it twice.
+    var sent by remember(t.lent, t.action) { mutableStateOf(false) }
+    val sub = when {
+        sent -> if (t.lent) "Taking it back…" else "Lending…"
+        t.lent -> t.text.ifBlank { "Lent to dibs" }
+        else -> "Yours"
+    }
+    Row(
+        modifier.clip(MaterialTheme.shapes.medium)
+            .background(if (t.lent) Palette.AccentDim else Palette.SurfaceLow)
+            .toggleable(value = t.lent, enabled = !sent, role = Role.Switch) {
+                sent = true
+                Dibs.host.act(t.action)
+            }
+            .semantics { stateDescription = if (t.lent) "lent to dibs" else "yours" }
+            .padding(horizontal = Space.M, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(painterResource(icon), null, Modifier.size(18.dp), tint = if (t.lent) Palette.Accent else Palette.Muted)
+        Column(Modifier.weight(1f)) {
+            Text(if (t.lent) "$title lent to dibs" else title, style = AppType.label, color = Palette.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(sub, style = AppType.small, color = if (t.lent) Palette.Text else Palette.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
