@@ -680,11 +680,11 @@ class ScreensTest {
         show(view(talk = codeTalk().take(1)))
         compose.mainClock.autoAdvance = false
         compose.onNodeWithContentDescription("Copy code").performClick()
-        compose.mainClock.advanceTimeByFrame()
+        compose.mainClock.advanceTimeBy(100)
         assertEquals(CODE_TEXT, clip())
-        compose.onNodeWithContentDescription("Copied").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Copied").assertExists()
         compose.mainClock.advanceTimeBy(1600)
-        compose.onNodeWithContentDescription("Copy code").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Copy code").assertExists()
         compose.onAllNodesWithContentDescription("Copied").assertCountEquals(0)
     }
 

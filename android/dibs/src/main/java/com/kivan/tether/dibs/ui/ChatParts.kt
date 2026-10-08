@@ -878,13 +878,13 @@ private fun PartsColumn(parts: List<TextPart>, mine: Boolean, meta: @Composable 
             when {
                 p is Code -> {
                     CodeBlock(p.text, mine, fade)
-                    if (last && fold == null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { meta() }
+                    if (last && fold == null) Box(Modifier.align(Alignment.End)) { meta() }
                 }
                 last && fold == null -> TextWithMeta(remember(p.text) { linkified(p.text) }, Palette.Text, bodyStyle, CLAMP_NONE, {}, meta)
                 else -> Text(remember(p.text) { linkified(p.text) }, fade, color = Palette.Text, style = bodyStyle)
             }
         }
-        if (parts.isEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { meta() }
+        if (parts.isEmpty()) Box(Modifier.align(Alignment.End)) { meta() }
         if (fold != null) MoreRow(fold.first, fold.second, meta)
     }
 }
