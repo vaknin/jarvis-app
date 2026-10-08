@@ -26,7 +26,11 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import com.kivan.tether.dibs.Code
 import com.kivan.tether.dibs.ReplyRef
+import com.kivan.tether.dibs.TextPart
+import com.kivan.tether.dibs.foldParts
+import com.kivan.tether.dibs.textParts
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
@@ -683,7 +687,7 @@ private fun Bubble(row: LineRow, outcome: String?, look: ChatLook) {
                 l.reply?.let { ReplyQuote(it, l.mine, look) }
                 for (f in l.files) FileView(f, l.mine)
                 if (l.text.isNotEmpty() || row.last) {
-                    LineText(l.id, l.text, if (row.last) time(l.ts) else null, meta)
+                    LineText(l.id, l.text, if (row.last) time(l.ts) else null, meta, l.mine)
                 }
                 // Where it came from: "From your conversation about the home server".
                 l.under?.let { Text(it, style = AppType.small, color = Palette.Muted) }
@@ -729,8 +733,11 @@ private fun EchoBubble(p: Pending, row: EchoRow) {
 // The echo's text with its meta tucked in, or just the meta when there is no text.
 @Composable
 private fun ColumnScope.EchoText(text: String, meta: @Composable () -> Unit) {
+    val parts = remember(text) { textParts(text) }
     if (text.isEmpty()) {
         Box(Modifier.align(Alignment.End)) { meta() }
+    } else if (parts.any { it is Code }) {
+        PartsColumn(parts, mine = true, meta = meta)
     } else {
         TextWithMeta(remember(text) { linkified(text) }, Palette.Text, bodyStyle, CLAMP_NONE, {}, meta)
     }
@@ -800,11 +807,16 @@ private fun FileChip(name: String, size: String?, mine: Boolean) {
  * soft fade and "More", which opens it in place ([Dibs.open] by [id]).
  */
 @Composable
-private fun LineText(id: String, text: String, time: String?, metaColor: Color) {
+private fun LineText(id: String, text: String, time: String?, metaColor: Color, mine: Boolean) {
     val open = Dibs.open[id] == true
     var long by remember(text) { mutableStateOf(false) }
-    val annotated = remember(text) { linkified(text) }
+    val parts = remember(text) { textParts(text) }
     val meta: @Composable () -> Unit = { if (time != null) Text(time, style = AppType.mono, color = metaColor) }
+    if (parts.any { it is Code }) {
+        CodeLineText(id, parts, mine, meta)
+        return
+    }
+    val annotated = remember(text) { linkified(text) }
     if (!long) {
         TextWithMeta(annotated, Palette.Text, bodyStyle, CLAMP, { long = true }, meta)
         return
@@ -817,23 +829,108 @@ private fun LineText(id: String, text: String, time: String?, metaColor: Color) 
             maxLines = if (open) Int.MAX_VALUE else CLAMP,
             modifier = if (open) Modifier else Modifier.fadeOut(),
         )
-        Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                Modifier.clip(MaterialTheme.shapes.small).clickable { Dibs.toggle(id) }.padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(if (open) "Less" else "More", style = AppType.label, color = Palette.Accent)
-                Icon(
-                    painterResource(if (open) R.drawable.lucide_chevron_up else R.drawable.lucide_chevron_down),
-                    null,
-                    Modifier.size(16.dp),
-                    tint = Palette.Accent,
-                )
-            }
-            Spacer(Modifier.weight(1f).width(Space.S))
-            meta()
+        MoreRow(id, open, meta)
+    }
+}
+
+/** The "More"/"Less" row under a folded line, with the meta at its end. */
+@Composable
+private fun MoreRow(id: String, open: Boolean, meta: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.clip(MaterialTheme.shapes.small).clickable { Dibs.toggle(id) }.padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(if (open) "Less" else "More", style = AppType.label, color = Palette.Accent)
+            Icon(
+                painterResource(if (open) R.drawable.lucide_chevron_up else R.drawable.lucide_chevron_down),
+                null,
+                Modifier.size(16.dp),
+                tint = Palette.Accent,
+            )
         }
+        Spacer(Modifier.weight(1f).width(Space.S))
+        meta()
+    }
+}
+
+/** A line with ``` blocks ([parts] by [textParts]): a long one folds to [FOLD_ROWS] rows with "More". */
+@Composable
+private fun CodeLineText(id: String, parts: List<TextPart>, mine: Boolean, meta: @Composable () -> Unit) {
+    val open = Dibs.open[id] == true
+    val fold = remember(parts) { foldParts(parts) }
+    PartsColumn(if (fold.cut && !open) fold.parts else parts, mine, meta, fold = if (fold.cut) id to open else null)
+}
+
+/**
+ * The parts one under the other. With [fold] (the line's id and whether it is open) a "More"/"Less"
+ * row follows, and a closed one fades its last part; else the meta tucks into the last plain part
+ * or sits under the last block.
+ */
+@Composable
+private fun PartsColumn(parts: List<TextPart>, mine: Boolean, meta: @Composable () -> Unit, fold: Pair<String, Boolean>? = null) {
+    val folded = fold != null && !fold.second
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        for ((i, p) in parts.withIndex()) {
+            val last = i == parts.lastIndex
+            val fade = if (folded && last) Modifier.fadeOut() else Modifier
+            when {
+                p is Code -> {
+                    CodeBlock(p.text, mine, fade)
+                    if (last && fold == null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { meta() }
+                }
+                last && fold == null -> TextWithMeta(remember(p.text) { linkified(p.text) }, Palette.Text, bodyStyle, CLAMP_NONE, {}, meta)
+                else -> Text(remember(p.text) { linkified(p.text) }, fade, color = Palette.Text, style = bodyStyle)
+            }
+        }
+        if (parts.isEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { meta() }
+        if (fold != null) MoreRow(fold.first, fold.second, meta)
+    }
+}
+
+private val codeStyle = AppType.mono.merge(TextStyle(textDirection = TextDirection.Ltr))
+
+/** Code in a small box: it scrolls sideways, and a copy button sits at its top-right corner. */
+@Composable
+private fun CodeBlock(code: String, mine: Boolean, modifier: Modifier = Modifier) {
+    Row(modifier.background(if (mine) Palette.Bg.copy(alpha = 0.35f) else Palette.SurfaceLow, MaterialTheme.shapes.small)) {
+        Text(
+            code,
+            Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()).padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
+            color = Palette.Text,
+            style = codeStyle,
+            softWrap = false,
+        )
+        CopyButton(code)
+    }
+}
+
+/** Copies [code]; the icon is a tick for a moment after. */
+@Composable
+private fun CopyButton(code: String) {
+    val context = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1500)
+            copied = false
+        }
+    }
+    val label = if (copied) "Copied" else "Copy code"
+    Box(
+        Modifier.size(40.dp).clip(MaterialTheme.shapes.small).clickable(onClickLabel = "Copy code") {
+            copy(context, code)
+            copied = true
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painterResource(if (copied) R.drawable.lucide_check else R.drawable.lucide_copy),
+            label,
+            Modifier.size(16.dp),
+            tint = if (copied) Palette.Success else Palette.Muted,
+        )
     }
 }
 

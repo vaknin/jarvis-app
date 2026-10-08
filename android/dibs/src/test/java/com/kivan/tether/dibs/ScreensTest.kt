@@ -1,10 +1,12 @@
 package com.kivan.tether.dibs
 
+import android.content.ClipboardManager
 import android.net.Uri
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.swipeRight
@@ -638,6 +640,95 @@ class ScreensTest {
         compose.onNodeWithText("QUEUE · 1").assertIsDisplayed()
         compose.onNodeWithText("No room for another task", substring = true).assertIsDisplayed()
         shot("tasks-queue")
+    }
+
+    private val fence = "```"
+    private val CODE_TEXT = "val a = 1\nval much = \"a line that is a good deal wider than the bubble can ever be\"\nprintln(a)"
+
+    private fun codeTalk() = listOf(
+        JSONObject().put("id", "s100").put("n", 100).put("who", "dibs").put("ts", NOW - 120)
+            .put("text", "Run this first:\n${fence}kotlin\n$CODE_TEXT\n$fence\nthen read https://example.com/page ok"),
+        JSONObject().put("id", "u-101").put("n", 101).put("who", "user").put("ts", NOW - 60)
+            .put("text", "Like so?\n$fence\nls -l\n$fence"),
+    )
+
+    private fun clip() = compose.activity.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
+
+    @Test
+    fun aFencedBlockShowsAsCodeWithoutItsFences() {
+        show(view(talk = codeTalk()))
+        compose.onNodeWithText("Run this first:").assertIsDisplayed()
+        compose.onNodeWithText(CODE_TEXT).assertIsDisplayed()
+        compose.onNodeWithText("then read https://example.com/page ok", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithText(fence, substring = true).assertCountEquals(0)
+        compose.onAllNodesWithText("kotlin", substring = true).assertCountEquals(0)
+        compose.onNodeWithText("ls -l").assertIsDisplayed()
+        shot("chat-code")
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h568dp-280dpi")
+    fun aFencedBlockFitsASmallScreen() {
+        show(view(talk = codeTalk()))
+        compose.onNodeWithText(CODE_TEXT).assertIsDisplayed()
+        compose.onNodeWithText("ls -l").assertIsDisplayed()
+        shot("chat-code-small")
+    }
+
+    @Test
+    fun theCopyButtonCopiesTheBlockAndShowsATickForAMoment() {
+        show(view(talk = codeTalk().take(1)))
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithContentDescription("Copy code").performClick()
+        compose.mainClock.advanceTimeByFrame()
+        assertEquals(CODE_TEXT, clip())
+        compose.onNodeWithContentDescription("Copied").assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(1600)
+        compose.onNodeWithContentDescription("Copy code").assertIsDisplayed()
+        compose.onAllNodesWithContentDescription("Copied").assertCountEquals(0)
+    }
+
+    @Test
+    fun aLongPressStillCopiesTheWholeLineAsWritten() {
+        show(view(talk = codeTalk().take(1)))
+        val whole = codeTalk()[0].getString("text")
+        compose.onNodeWithText("Run this first:").performTouchInput { longClick() }
+        compose.onNodeWithText("Copy").performClick()
+        compose.waitForIdle()
+        assertEquals(whole, clip())
+        compose.onNodeWithText(CODE_TEXT).performTouchInput { longClick() }
+        compose.onNodeWithText("Copy").assertIsDisplayed()
+    }
+
+    @Test
+    fun aLongBlockFoldsUntilMore() {
+        val code = (1..24).joinToString("\n") { "line$it" }
+        val long = JSONObject().put("id", "s200").put("n", 200).put("who", "dibs").put("ts", NOW - 60)
+            .put("text", "Output:\n$fence\n$code\n$fence")
+        show(view(talk = listOf(long)))
+        compose.onNodeWithText("More").assertIsDisplayed()
+        compose.onAllNodesWithText("line24", substring = true).assertCountEquals(0)
+        compose.onNodeWithText("More").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Less").assertIsDisplayed()
+        compose.onNodeWithText(code, substring = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Copy code").performClick()
+        assertEquals(code, clip())
+    }
+
+    @Test
+    fun aTaskChatDrawsBlocksToo() {
+        val v = view(talk = longTalk())
+        v.getJSONObject("dibs").put("yours", JSONArray().put(
+            yours(41, "Cleanup", "working").put("talk", JSONArray()
+                .put(JSONObject().put("id", "t1").put("who", "agent").put("ts", NOW - 60).put("text", "Try:\n$fence\ngit status\n$fence"))),
+        ))
+        show(v)
+        Dibs.pages += Page.Task(41)
+        compose.waitForIdle()
+        compose.onNodeWithText("git status").assertIsDisplayed()
+        compose.onAllNodesWithText(fence, substring = true).assertCountEquals(0)
+        compose.onNodeWithContentDescription("Copy code").assertIsDisplayed()
     }
 
     private fun yours(id: Long, title: String, state: String, asked: String = title, unread: Boolean = false) = JSONObject()
