@@ -47,7 +47,6 @@ import com.kivan.tether.dibs.ui.theme.AppType
 import com.kivan.tether.dibs.ui.theme.Eyebrow
 import com.kivan.tether.dibs.ui.theme.Palette
 import com.kivan.tether.dibs.ui.theme.Space
-import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
@@ -73,7 +72,7 @@ internal fun StatusPage(view: DibsView, link: Link) {
             Text(words, style = AppType.body, color = Palette.Text)
             if (state.busy && !state.line.isNullOrBlank()) Text(state.line, style = AppType.small, color = Palette.Muted)
             if (link == Link.CONNECTED && state.brainDown) {
-                ActButton("Start dibs", "primary") { Dibs.host.act("brain-start") }
+                StartDibs()
             }
 
             Section("Lend to dibs")
@@ -156,21 +155,18 @@ internal fun LendBar(lend: Lend) {
             Text("dibs has your phone", style = AppType.label, color = Palette.Text)
             if (lend.text.isNotBlank()) Text(lend.text, style = AppType.small, color = Palette.Text)
         }
-        ActButton("Take it back", "primary") { Dibs.host.act("phone-back") }
+        val busy = Dibs.busy("phone-back")
+        ActButton(if (busy) "Taking it back" else "Take it back", "primary", busy = busy) {
+            Dibs.tap("phone-back", "Taking your phone back", "take your phone back", "phone-back")
+        }
     }
 }
 
 @Composable
 private fun LendToggleCard(t: LendToggle, title: String, icon: Int, modifier: Modifier) {
-    // Between the tap and dibs's next view: say so, and don't send it twice.
-    var sent by remember(t.lent, t.action) { mutableStateOf(false) }
-    // A tap dibs refused (a locked laptop, a phone out of reach) changes nothing: free it again.
-    LaunchedEffect(sent) {
-        if (sent) {
-            delay(15_000)
-            sent = false
-        }
-    }
+    // Between the tap and dibs hearing it: say so, and don't send it twice.
+    val key = "lend:${t.action}"
+    val sent = Dibs.busy(key)
     val sub = when {
         sent -> if (t.lent) "Taking it back" else "Lending"
         t.lent -> t.text.ifBlank { "Lent to dibs" }
@@ -180,8 +176,10 @@ private fun LendToggleCard(t: LendToggle, title: String, icon: Int, modifier: Mo
         modifier.clip(MaterialTheme.shapes.medium)
             .background(if (t.lent) Palette.AccentDim else Palette.SurfaceLow)
             .toggleable(value = t.lent, enabled = !sent, role = Role.Switch) {
-                sent = true
-                Dibs.host.act(t.action)
+                Dibs.tap(
+                    key, if (t.lent) "Taking it back" else "Lending to dibs",
+                    if (t.lent) "take $title back" else "lend $title to dibs", t.action,
+                )
             }
             .semantics { stateDescription = if (t.lent) "lent to dibs" else "yours" }
             .padding(horizontal = Space.M, vertical = 8.dp),

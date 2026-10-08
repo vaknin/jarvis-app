@@ -71,6 +71,7 @@ class RootScreensTest {
     @Before
     fun reset() {
         Dibs.pages.clear()
+        Dibs.resetTaps()
         Dibs.answered.clear()
         Dibs.fields.clear()
         Dibs.open.clear()

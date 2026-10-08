@@ -57,7 +57,7 @@ class FakeHost(view: JSONObject?) : DibsHost {
     override fun act(action: String, value: JSONObject?, uid: String?): String {
         acts += action to value
         uids += uid
-        return uid ?: "uid"
+        return uid ?: "uid${acts.size}"
     }
 
     override fun send(uid: String, text: String, files: List<Uri>, action: String, extra: JSONObject?, onFile: (Uri, String) -> Unit) {}
@@ -92,6 +92,8 @@ class ScreensTest {
         Dibs.chat.about = null
         Dibs.chat.replyTo = null
         Dibs.holdTap = null
+        Dibs.resetTaps()
+        Dibs.clock = System::currentTimeMillis
     }
 
     private fun show(view: JSONObject) {
@@ -638,6 +640,75 @@ class ScreensTest {
         compose.onNodeWithText("QUEUE · 1").assertIsDisplayed()
         compose.onNodeWithText("No room for another task", substring = true).assertIsDisplayed()
         shot("tasks-queue")
+    }
+
+    // Tap feedback: the button answers at once; no answer from dibs after 20 s of link says so, with Try again.
+    @Test
+    fun aStopShowsAtOnceAndFailsPlainlyWhenDibsNeverAnswers() {
+        compose.mainClock.autoAdvance = false
+        Dibs.clock = { compose.mainClock.currentTime }
+        val v = view(talk = longTalk())
+        v.getJSONObject("dibs").put("yours", JSONArray().put(yours(41, "Cleanup", "working"))).put("heard", JSONArray())
+        show(v)
+        Dibs.pages += Page.Task(41)
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithText("Stop").performClick()
+        compose.onNodeWithText("Stop it?").performClick()
+        compose.mainClock.advanceTimeBy(100)
+        assertEquals(1, host.acts.count { it.first == "stop" })
+        compose.onAllNodes(hasText("Stopping"), useUnmergedTree = true).assertCountEquals(2)
+        compose.onNodeWithText("Stopping task 41").assertIsDisplayed()
+        shot("tap-sending")
+        // Pressed again while it goes: nothing more is sent.
+        compose.onNodeWithText("Stopping").performClick()
+        compose.mainClock.advanceTimeBy(100)
+        assertEquals(1, host.acts.count { it.first == "stop" })
+        compose.mainClock.advanceTimeBy(21_000)
+        compose.onNodeWithText("dibs didn't answer: stop task 41 wasn't done.").assertIsDisplayed()
+        shot("tap-unheard")
+        compose.onNodeWithText("Try again").performClick()
+        compose.mainClock.advanceTimeBy(100)
+        assertEquals(2, host.acts.count { it.first == "stop" })
+        compose.onNodeWithText("Stopping task 41").assertIsDisplayed()
+        // dibs lists the second one among what it read: the line goes.
+        host.view.value = JSONObject(host.view.value.toString()).also {
+            it.getJSONObject("dibs").put("heard", JSONArray().put(Dibs.taps.single { t -> t.key == "stop:41" }.uid))
+        }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onAllNodes(hasText("Stopping task 41")).assertCountEquals(0)
+    }
+
+    @Test
+    fun aBoardMenuTapShowsInTheLineAtOnce() {
+        show(boardView())
+        Dibs.tab = "tasks"
+        compose.waitForIdle()
+        compose.onNodeWithText("A widget that shows the board on the home screen").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Move up").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Moving up").assertIsDisplayed()
+    }
+
+    @Test
+    fun aLendSwitchSpinsUntilDibsHearsIt() {
+        val v = view(talk = longTalk())
+        v.getJSONObject("dibs").put("heard", JSONArray())
+        show(v)
+        Dibs.pages += Page.Status
+        compose.waitForIdle()
+        compose.onNodeWithText("Phone").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Lending").assertIsDisplayed()
+        compose.onNodeWithText("Lending to dibs").assertIsDisplayed()
+        compose.onNodeWithText("Phone").performClick()
+        compose.waitForIdle()
+        assertEquals("not sent twice", 1, host.acts.count { it.first == "phone-lend" })
+        host.view.value = JSONObject(host.view.value.toString()).also {
+            it.getJSONObject("dibs").put("heard", JSONArray().put(Dibs.taps.single { t -> t.key.startsWith("lend:") }.uid))
+        }
+        compose.waitForIdle()
+        compose.onAllNodes(hasText("Lending")).assertCountEquals(0)
     }
 
     private fun yours(id: Long, title: String, state: String, asked: String = title, unread: Boolean = false) = JSONObject()

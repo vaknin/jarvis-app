@@ -140,12 +140,12 @@ internal fun QuestionControls(
             // question stays open: its buttons stay, with a note that dibs has the words.
             val approval = actions.any { it.id.startsWith("a") }
             val sent = "sent:$id"
-            if (approval && Dibs.open[sent] == true) Text("Sent to dibs. It acts on your words, or asks.", style = AppType.small, color = Palette.Muted)
+            if (approval && Dibs.open[sent] == true && !Dibs.busy("say:$id")) Text("Sent to dibs. It acts on your words, or asks.", style = AppType.small, color = Palette.Muted)
             AnswerField(field, hint ?: "Answer", Modifier.fillMaxWidth(), background = background) { text ->
                 val value = JSONObject().put("item", id.toString()).put("text", text)
                 if (approval) {
                     Dibs.open[sent] = true
-                    Dibs.host.act(r, value)
+                    Dibs.tap("say:$id", "Sending your words", "your words", r, value)
                 } else {
                     Dibs.answer(key, text, r, value)
                 }

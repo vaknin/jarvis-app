@@ -336,13 +336,19 @@ object Dibs {
     fun tick(t: YourTask) {
         answered.remove("untick:${t.id}")
         answered["tick:${t.id}"] = "ticked"
-        host.act("tick", JSONObject().put("task", t.id))
+        tap(
+            "tick:${t.id}", "Ticking off ${t.label}", "tick off ${t.label}", "tick",
+            JSONObject().put("task", t.id), restore = "tick:${t.id}", restoreLabel = "ticked",
+        )
     }
 
     fun untick(t: YourTask) {
         answered.remove("tick:${t.id}")
         answered["untick:${t.id}"] = "unticked"
-        host.act("untick", JSONObject().put("task", t.id))
+        tap(
+            "untick:${t.id}", "Unticking ${t.label}", "untick ${t.label}", "untick",
+            JSONObject().put("task", t.id), restore = "untick:${t.id}", restoreLabel = "unticked",
+        )
     }
 
     /** Its page is open: it's read, and its ping goes. */
@@ -357,8 +363,9 @@ object Dibs {
      * confirm step was shown and taken (dibs applies a delete only with it).
      */
     fun taskAct(key: String, act: String, before: String? = null, confirm: Boolean = false) {
-        host.act(
-            TASK_ACT,
+        val (doing, what) = TASK_ACT_WORDS[act] ?: ("Sending that" to "do that")
+        tap(
+            "act:$key", doing, what, TASK_ACT,
             JSONObject().put("key", key).put("act", act).apply {
                 before?.let { put("before", it) }
                 if (confirm) put("confirm", true)
@@ -366,17 +373,37 @@ object Dibs {
         )
     }
 
+    /** What each board action says while it's on its way, and what wasn't done if dibs never heard it. */
+    private val TASK_ACT_WORDS = mapOf(
+        "hold" to ("Putting on hold" to "put it on hold"),
+        "resume" to ("Resuming" to "resume it"),
+        "stop" to ("Stopping" to "stop it"),
+        "delete" to ("Deleting" to "delete it"),
+        "up" to ("Moving up" to "move it up"),
+        "down" to ("Moving down" to "move it down"),
+        "to_next" to ("Moving to the queue" to "move it to the queue"),
+        "to_later" to ("Moving to Later" to "move it to Later"),
+    )
+
     /** The phone action a board card's menu sends (docs/DIBS-APP.md, "The board"); its name may still change. */
     const val TASK_ACT = "task-act"
 
     fun stop(task: Long) {
-        host.act("stop", JSONObject().put("task", task))
+        tap("stop:$task", "Stopping task $task", "stop task $task", "stop", JSONObject().put("task", task))
     }
 
     /** Resumes its chat in a tab on the laptop: by its Recap entry's saved chat, else by the task's number. */
     fun openOnLaptop(view: DibsView, task: Long) {
         val key = view.feed.firstOrNull { it.task == task && it.reopen != null }?.reopen ?: task.toString()
-        host.act("reopen", JSONObject().put("reopen", key))
+        reopen("reopen:$task", key)
+    }
+
+    /** Resumes the chat [key] (a Recap entry's saved chat, or a task's number) in a tab on the laptop. */
+    fun reopen(tapKey: String, key: String) {
+        tap(
+            tapKey, "Opening on the laptop", "open it on the laptop", "reopen",
+            JSONObject().put("reopen", key), done = "Opened on the laptop",
+        )
     }
 
     /**
@@ -544,6 +571,13 @@ object Dibs {
 
     private val SUBJECTS = listOf("task:", "note:", "project:", "file:")
 
+    /** For tests: forget the taps. */
+    internal fun resetTaps() {
+        taps.clear()
+        heardKnown = false
+        upSince = null
+    }
+
     /** For tests: forget the boxes and what was told seen. */
     internal fun resetAsks() {
         askBoxes.clear()
@@ -552,6 +586,7 @@ object Dibs {
         askWanted = null
         clock = System::currentTimeMillis
         _pending.value = emptyList()
+        resetTaps()
     }
 
     internal fun addPending(p: Pending) {
@@ -568,7 +603,9 @@ object Dibs {
      * it no longer asks.
      */
     fun seen(view: DibsView?) {
-        val ids = view?.talk?.mapTo(HashSet()) { it.id } ?: return
+        if (view == null) return
+        heard(view)
+        val ids = view.talk.mapTo(HashSet()) { it.id }
         // The view agrees with the chip tapped here.
         holdTap?.let { tap -> if (tap.shown?.let { view.state.hold?.kind == it.kind } ?: (view.state.hold?.kind != tap.gone)) holdTap = null }
         val listed = HashSet(ids)
@@ -591,16 +628,129 @@ object Dibs {
         hidden.keys.retainAll(ids)
     }
 
+    // --- Taps: every button shows at once that it went, and says so when dibs never heard it. ---
+
+    /** A tap sent to dibs: [doing] while it's on its way ("Stopping task 85"), [what] for a failure. */
+    data class Tap(
+        val key: String,
+        val uid: String,
+        val action: String,
+        /** The value as JSON text, to send it again. */
+        val value: String?,
+        val doing: String,
+        val what: String,
+        /** Words shown [DONE_MS] once heard, for a tap with nothing else to see; null: gone when heard. */
+        val done: String?,
+        val at: Long,
+        val heardAt: Long? = null,
+        /** An [answered] key to drop (the card comes back) if dibs never hears it, and the label it had. */
+        val restore: String? = null,
+        val restoreLabel: String? = null,
+        /** A [hidden] line id to show again if dibs never hears it. */
+        val unhide: String? = null,
+        /** When it was taken as not heard (the card or line came back then). */
+        val failedAt: Long? = null,
+    )
+
+    enum class TapState { SENDING, WAITING, HEARD, UNHEARD }
+
+    /** Taps dibs hasn't listed yet (or just did, with [Tap.done] words to show). */
+    val taps = mutableStateListOf<Tap>()
+
+    /** The last view listed `heard`: only such a dibs lets a tap fail. */
+    var heardKnown by mutableStateOf(false)
+
+    /** When the link last came up, null while it's down (set by the screen). */
+    var upSince by mutableStateOf<Long?>(null)
+
+    /**
+     * A button's action, sent now ([host] queues it when the link is down) and tracked by its uid
+     * until a view lists it in `heard`. A tap with the same [key] replaces the earlier one.
+     */
+    fun tap(
+        key: String, doing: String, what: String, action: String, value: JSONObject? = null,
+        done: String? = null, restore: String? = null, restoreLabel: String? = null, unhide: String? = null,
+    ): String {
+        val uid = host.act(action, value)
+        taps.removeAll { it.key == key }
+        taps += Tap(key, uid, action, value?.toString(), doing, what, done, now(), restore = restore, restoreLabel = restoreLabel, unhide = unhide)
+        return uid
+    }
+
+    /** The tap [key] is on its way (sent or queued): its button shows a spinner. */
+    fun busy(key: String): Boolean = taps.any { it.key == key && tapState(it).let { s -> s == TapState.SENDING || s == TapState.WAITING } }
+
+    fun tapState(t: Tap, nowMs: Long = now()): TapState = when {
+        t.failedAt != null -> TapState.UNHEARD
+        t.heardAt != null -> TapState.HEARD
+        upSince == null -> TapState.WAITING
+        heardKnown && unheard(t.at, upSince, nowMs, ASK_WAIT_MS) -> TapState.UNHEARD
+        else -> TapState.SENDING
+    }
+
+    /** Sends a tap that dibs never heard again, with its card or line put back as it was. */
+    fun retry(t: Tap) {
+        taps.remove(t)
+        t.restore?.let { answered[it] = t.restoreLabel ?: "Sent" }
+        t.unhide?.let { hidden[it] = true }
+        tap(t.key, t.doing, t.what, t.action, t.value?.let(::JSONObject), t.done, t.restore, t.restoreLabel, t.unhide)
+    }
+
+    fun dismiss(t: Tap) {
+        taps.remove(t)
+    }
+
+    /** The view [view] lists the taps dibs has read: they are heard. */
+    private fun heard(view: DibsView) {
+        heardKnown = view.heard != null
+        val at = now()
+        for (t in taps.toList()) {
+            if (view.heard == null) {
+                if (at - t.at >= TAP_MS) taps.remove(t)
+            } else if (t.uid in view.heard && t.heardAt == null) {
+                val i = taps.indexOf(t)
+                if (i < 0) continue
+                if (t.done != null && t.failedAt == null) taps[i] = t.copy(heardAt = at) else taps.removeAt(i)
+            }
+        }
+    }
+
+    /**
+     * The clock moved: a tap not heard after [ASK_WAIT_MS] of link-up fails (its card or line comes
+     * back), a heard one's words go after [DONE_MS], and with a dibs that doesn't list `heard` a tap
+     * just clears after [TAP_MS]. True while a tap needs the clock.
+     */
+    fun expire(nowMs: Long = now()): Boolean {
+        for (t in taps.toList()) {
+            val i = taps.indexOf(t)
+            if (i < 0) continue
+            when {
+                t.heardAt != null -> if (nowMs - t.heardAt >= DONE_MS) taps.removeAt(i)
+                t.failedAt != null -> {}
+                !heardKnown -> if (nowMs - t.at >= TAP_MS) taps.removeAt(i)
+                tapState(t, nowMs) == TapState.UNHEARD -> {
+                    t.restore?.let { answered.remove(it) }
+                    t.unhide?.let { hidden.remove(it) }
+                    taps[i] = t.copy(failedAt = nowMs)
+                }
+            }
+        }
+        return taps.any { it.failedAt == null }
+    }
+
+    /** How long a heard tap's [Tap.done] words stay. */
+    const val DONE_MS = 3_000L
+
     /** Hides a line at once; dibs drops it from the next view (`h<n>`). */
     fun hide(line: TalkLine) {
         hidden[line.id] = true
-        host.act("h${line.n}")
+        tap("hide:${line.id}", "Hiding", "hide it", "h${line.n}", unhide = line.id)
     }
 
     /** Answers [key] (`q<id>`, an ack) with [action], shown as [label] until the view drops it. */
     fun answer(key: String, label: String, action: String, value: JSONObject? = null) {
         answered[key] = label
-        host.act(action, value)
+        tap(key, "Sending your answer", "your answer", action, value, restore = key, restoreLabel = label)
     }
 
     /**

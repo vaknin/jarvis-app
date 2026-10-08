@@ -22,6 +22,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +53,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kivan.tether.dibs.Dibs
@@ -77,35 +82,48 @@ import kotlin.math.min
 
 /**
  * A button named for what it does. primary: filled accent; plain: quiet text; danger: red outline; else outlined.
- * [icon] (a drawable) goes before its words.
+ * [icon] (a drawable) goes before its words. [busy]: its tap is on its way to dibs: a spinner in
+ * place of the icon, and more taps are ignored (it keeps its colours, since it reads as "sending",
+ * not "not possible").
  */
 @Composable
-internal fun ActButton(label: String, style: String, modifier: Modifier = Modifier, enabled: Boolean = true, icon: Int? = null, onClick: () -> Unit) {
+internal fun ActButton(
+    label: String, style: String, modifier: Modifier = Modifier, enabled: Boolean = true, icon: Int? = null,
+    busy: Boolean = false, onClick: () -> Unit,
+) {
     val pad = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-    val mod = modifier.heightIn(min = 36.dp)
+    val mod = modifier.heightIn(min = 36.dp).let { if (busy) it.semantics { stateDescription = "Sending" } else it }
     val shape = MaterialTheme.shapes.medium
+    val click = { if (!busy) onClick() }
     val text: @Composable () -> Unit = {
-        if (icon != null) Icon(painterResource(icon), null, Modifier.padding(end = 8.dp).size(18.dp))
+        if (busy) Spinner(Modifier.padding(end = 8.dp)) else if (icon != null) Icon(painterResource(icon), null, Modifier.padding(end = 8.dp).size(18.dp))
         Text(label, style = AppType.label)
     }
     when (style) {
         "primary" -> Button(
-            onClick, mod, enabled, shape = shape, contentPadding = pad,
+            click, mod, enabled, shape = shape, contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = Palette.Accent, contentColor = Palette.OnAccent),
         ) { text() }
-        "plain" -> TextButton(onClick, mod, enabled, shape = shape, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
+        "plain" -> TextButton(click, mod, enabled, shape = shape, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
+            if (busy) Spinner(Modifier.padding(end = 6.dp))
             Text(label, style = AppType.label, color = Palette.Muted)
         }
         "danger" -> OutlinedButton(
-            onClick, mod, enabled, shape = shape, contentPadding = pad,
+            click, mod, enabled, shape = shape, contentPadding = pad,
             border = ButtonDefaults.outlinedButtonBorder(enabled).copy(brush = SolidColor(Palette.Danger)),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.Danger),
         ) { text() }
         else -> OutlinedButton(
-            onClick, mod, enabled, shape = shape, contentPadding = pad,
+            click, mod, enabled, shape = shape, contentPadding = pad,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Palette.Text),
         ) { text() }
     }
+}
+
+/** A small spinner in the text colour, for a button whose tap is on its way. */
+@Composable
+internal fun Spinner(modifier: Modifier = Modifier, size: Dp = 16.dp) {
+    CircularProgressIndicator(modifier.size(size), color = LocalContentColor.current, strokeWidth = 2.dp)
 }
 
 /** A small pill: a repo, a hold. [warn] is amber with a ⚠, for a state that needs a look (never colour alone). */

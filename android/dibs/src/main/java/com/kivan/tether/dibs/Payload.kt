@@ -395,6 +395,8 @@ data class DibsView(
     val ideas: com.kivan.tether.dibs.ideas.Ideas? = null,
     /** The Ask about conversations of the last 24 hours, newest first (a dibs that sends them). */
     val asks: List<Asking> = emptyList(),
+    /** The uids of the last phone inputs dibs has read, newest first; null from a dibs that doesn't list them. */
+    val heard: Set<String>? = null,
 ) {
     fun task(id: Long): YourTask? = yours?.firstOrNull { it.id == id }
 
@@ -466,6 +468,7 @@ data class DibsView(
                 board = o.optJSONObject("board")?.let(::board)?.let { b -> if (b.room != null) b else b.copy(room = queueRoom(o.optJSONObject("queue"))) },
                 ideas = o.optJSONObject("ideas")?.let(com.kivan.tether.dibs.ideas.Ideas::parse),
                 asks = o.optJSONArray("threads").objects().mapNotNull(::asking).distinctBy { it.about },
+                heard = o.optJSONArray("heard")?.strings()?.toSet(),
             )
         }
 

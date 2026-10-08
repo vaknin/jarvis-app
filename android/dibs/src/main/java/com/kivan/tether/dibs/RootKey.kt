@@ -74,8 +74,8 @@ object Root {
 
     /** The laptop learns the phone's public key (`root-key`): dibs keeps it; only the laptop's setup step trusts it. */
     fun sendKey(k: KeyState.Ready) {
-        Dibs.host.act(
-            "root-key",
+        Dibs.tap(
+            "root-key", "Sending the phone's key", "send the phone's key", "root-key",
             JSONObject()
                 .put("spki", Base64.getEncoder().encodeToString(k.spki))
                 .put("strongbox", k.strongbox)

@@ -192,10 +192,9 @@ private fun FeedRow(f: FeedItem, task: Long?) {
                 Text(f.asked, style = AppType.small, color = Palette.Muted)
             }
             if (open && f.reopen != null) {
-                val sent = "reopen:${f.reopen}" in Dibs.answered
-                ActButton(if (sent) "Opening on the laptop" else "Open on laptop", "outline", Modifier.padding(top = Space.S), enabled = !sent) {
-                    Dibs.host.act("reopen", JSONObject().put("reopen", f.reopen))
-                    Dibs.answered["reopen:${f.reopen}"] = "sent"
+                val busy = Dibs.busy("reopen:${f.reopen}")
+                ActButton(if (busy) "Opening on the laptop" else "Open on laptop", "outline", Modifier.padding(top = Space.S), busy = busy) {
+                    Dibs.reopen("reopen:${f.reopen}", f.reopen)
                 }
             }
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

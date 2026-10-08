@@ -662,3 +662,26 @@ state just when dibs is working. A slim pinned bar gives the chat about 240 dp b
   (`SwipeToReply`, `Composer.replyTo`, `ReplyChip`, `ReplyQuote`; one of about and reply at a time, `say` carries
   `reply: {n}`), icons added through `regen-look.sh` (`reply`, `text-cursor`).
 - Not as planned: the Tasks tab on an older dibs still reads "Up next" (the title is what dibs sends).
+
+## Tap feedback (task #124, 2026-10-08; app 0.11.0)
+
+Every button shows at once that its tap went, and says plainly when dibs didn't answer.
+
+- **dibs answers with `heard`:** the dibs payload lists, at the top level, the uids of the last 20 phone
+  inputs dibs has read, newest first (`heard: ["uid", …]`; `phoneapp.rs`). A tap's uid is what `DibsHost.act` returns.
+- **`Dibs.tap(key, doing, what, action, value?, done?, restore?, unhide?)`** sends the action and tracks it
+  (`Dibs.taps`). A tap is *sending* until a view lists its uid in `heard`. While it goes, its button shows a
+  spinner and ignores more taps (`ActButton(busy = Dibs.busy(key))`), and `ui/TapLine.kt`, one line above
+  the bottom bar of every tab and page, says what is being sent ("Stopping task 85"). `done` words
+  ("Opened on the laptop") show for 3 s once heard, for a tap with nothing else to see.
+- **Not heard after 20 s of link-up** (counted from the later of the tap and the link coming up, `Dibs.unheard`):
+  the line says "dibs didn't answer: stop task 85 wasn't done." with Try again and ✕. The card or line the tap
+  hid comes back (`restore` drops its `answered` key, `unhide` its `hidden` id). A signed root approval has
+  no Try again; its card is back to approve again.
+- **Link down:** the tap is queued by Tether and shown as "Waits for the laptop: …", never as a failure.
+- **A dibs without `heard`:** a tap clears quietly after 15 s; nothing ever fails.
+- **Through `Dibs.tap`:** tick and untick, board menu actions, Stop, Open on the laptop (task page, Recap), a
+  question's or decision's answer (`Dibs.answer`), Hide, Start dibs, Take it back, the lend switches, a
+  question's words, the Ideas buttons, the root key. Not through it: the chat's Wait / Go ahead chip,
+  messages (they have pending echoes), the Ask about page (its own waits), fetches (their own waiting and time-out).
+- No string ends in "…" (the user's rule): the spinner says "in progress", not dots.

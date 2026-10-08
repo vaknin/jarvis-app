@@ -290,7 +290,7 @@ internal fun IdeaButtons(buttons: List<IdeaButton>, modifier: Modifier = Modifie
         horizontalArrangement = Arrangement.spacedBy(Space.S),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        for (b in buttons) ActButton(b.label, b.style) { onTap(b) }
+        for (b in buttons) ActButton(b.label, b.style, busy = Dibs.busy(IdeaTaps.key(b))) { onTap(b) }
     }
 }
 
@@ -311,12 +311,15 @@ internal object IdeaTaps {
     /** Taps a view has shown applied: they stay over even if the note moves back later. */
     private val over = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Tap, Boolean>())
 
+    /** The tracker key of a note's button. */
+    fun key(b: IdeaButton): String = "idea:${b.value.optString("note")}:${b.action}"
+
     /** Sends [b] with the tap's time (`at`, ms), and remembers it for its note as [ideas] showed it. */
     fun tap(b: IdeaButton, ideas: Ideas?) {
         val now = System.currentTimeMillis()
         val value = JSONObject(b.value.toString()).put("at", now)
-        Dibs.host.act(b.action, value)
         val note = b.value.optString("note")
+        if (b.action == "fetch") Dibs.host.act(b.action, value) else Dibs.tap(key(b), "Sending “${b.label}”", "“${b.label}”", b.action, value)
         if (note.isNotEmpty() && b.action != "fetch") taps[note] = Tap(b.action, b.label, now, ideas?.note(note)?.let(::shape))
     }
 

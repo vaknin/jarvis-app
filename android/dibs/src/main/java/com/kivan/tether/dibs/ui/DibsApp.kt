@@ -119,6 +119,9 @@ fun DibsApp() {
         Dibs.resolveAsk(view)
     }
 
+    // The taps' clock counts from when the link came up (a tap sent while it is down waits).
+    LaunchedEffect(link) { Dibs.upSince = if (link == Link.CONNECTED) Dibs.now() else null }
+
     var tab by rememberSaveable { mutableStateOf(Tab.CHAT) }
     val tabs = rememberSaveableStateHolder()
     val asked = Dibs.tab
@@ -134,24 +137,27 @@ fun DibsApp() {
     val page = Dibs.pages.lastOrNull()
     BackHandler(enabled = page != null) { Dibs.back() }
     if (page != null && view != null) {
-        Box(
+        Column(
             Modifier.fillMaxSize().background(Palette.Bg)
                 .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
         ) {
-            // Each page its own state (its scroll, its taps), also when one replaces another of its kind.
-            key(page) {
-                when (page) {
-                    is Page.Task -> TaskPage(page.id, view)
-                    is Page.Transcript -> TranscriptScreen(page.id, view)
-                    is Page.Report -> ReportScreen(page.id, view)
-                    is Page.Story -> StoryScreen(page.id, view)
-                    is Page.Idea -> IdeaPage(page.id, view)
-                    is Page.Ask -> AskPage(page.about, view)
-                    is Page.Root -> RootPage(page.id, view)
-                    Page.RootKey -> RootKeyPage()
-                    Page.Status -> StatusPage(view, link)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                // Each page its own state (its scroll, its taps), also when one replaces another of its kind.
+                key(page) {
+                    when (page) {
+                        is Page.Task -> TaskPage(page.id, view)
+                        is Page.Transcript -> TranscriptScreen(page.id, view)
+                        is Page.Report -> ReportScreen(page.id, view)
+                        is Page.Story -> StoryScreen(page.id, view)
+                        is Page.Idea -> IdeaPage(page.id, view)
+                        is Page.Ask -> AskPage(page.about, view)
+                        is Page.Root -> RootPage(page.id, view)
+                        Page.RootKey -> RootKeyPage()
+                        Page.Status -> StatusPage(view, link)
+                    }
                 }
             }
+            TapLine()
         }
         return
     }
@@ -201,6 +207,7 @@ fun DibsApp() {
                     }
                 }
             }
+            TapLine()
         }
     }
 }
@@ -291,9 +298,18 @@ private fun Header(link: Link, state: State?, lends: Lends?, oldLend: Lend?) {
         // dibs's brain is on but down: one tap starts it (your start: no limit holds it back).
         if (link == Link.CONNECTED && state?.brainDown == true) {
             Row(Modifier.fillMaxWidth().padding(start = Space.L, end = Space.L, bottom = 8.dp), horizontalArrangement = Arrangement.End) {
-                ActButton("Start dibs", "primary") { Dibs.host.act("brain-start") }
+                StartDibs()
             }
         }
+    }
+}
+
+/** Start dibs: its brain is on but down; the button spins until dibs has heard the tap. */
+@Composable
+internal fun StartDibs() {
+    val busy = Dibs.busy("brain-start")
+    ActButton(if (busy) "Starting" else "Start dibs", "primary", busy = busy) {
+        Dibs.tap("brain-start", "Starting dibs", "start dibs", "brain-start")
     }
 }
 
