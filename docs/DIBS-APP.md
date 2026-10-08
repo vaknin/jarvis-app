@@ -89,7 +89,7 @@ screens in their own Gradle module, fed by a structured payload on the `dibs` ch
 - Tether's side: the Dibs entry in the channel list, `tether://channel/dibs` intents, dibs's shortcut
   and its notifications open `DibsActivity` when the view carries the payload (else today's screen).
 - Version **0.4.0** (versionCode 14; task #19 takes 0.3.9); the Recap rework is 0.4.3 (17); Your tasks is
-  0.5.0 (19); the lend toggles are 0.5.1 (20; 18 went unused); task #64's fixes are 0.5.4 (23; 0.5.2 and 0.5.3 went to parallel tasks); task #66's questions, plain decisions and talking only to dibs are 0.5.5 (24); phone presence (`_presence`, task #59) is 0.5.6 (25); the brain's state in the header (`doing`/`words`) is 0.5.10 (29); Ideas is 0.6.0 (31); Ask about (task #102) is 0.7.0 (32); root steps (task #145) are 0.8.0 (33); notifications that never cut a long title (task #131) are 0.8.1 (34); one slim bar and the dibs page (task #137) are 0.9.0 (35); the morning recap (unread list, merged story screen) is 0.10.0 (36). Never uninstall:
+  0.5.0 (19); the lend toggles are 0.5.1 (20; 18 went unused); task #64's fixes are 0.5.4 (23; 0.5.2 and 0.5.3 went to parallel tasks); task #66's questions, plain decisions and talking only to dibs are 0.5.5 (24); phone presence (`_presence`, task #59) is 0.5.6 (25); the brain's state in the header (`doing`/`words`) is 0.5.10 (29); Ideas is 0.6.0 (31); Ask about (task #102) is 0.7.0 (32); root steps (task #145) are 0.8.0 (33); notifications that never cut a long title (task #131) are 0.8.1 (34); one slim bar and the dibs page (task #137) are 0.9.0 (35); the morning recap (unread list, merged story screen) is 0.10.0 (36); code blocks in chats (task #258) are 0.10.1 (37). Never uninstall:
   `adb install -r`.
 
 ### The payload (dibs → phone, in the `dibs` channel's view)
@@ -648,7 +648,11 @@ a few lines typed and the keyboard closed, the chat got under 40 % of the screen
   you're done") the line shows without the animated dots; "Ask dibs about it" puts the task's number in the
   text ("About #144 Agents run while memory allows: "); a long press offers **Select text** (the message whole
   in a sheet, any part selectable) beside Copy and Hide; **swipe right to reply** quotes a message in the box and
-  sends dibs which line was answered (plan: Capture note #67's, copied into this task).
+  sends dibs which line was answered (plan: Capture note #67's, copied into this task). Text between ``` fences
+  (in dibs's chat and a task's chat) shows as a small monospace block with a copy button at its corner (a tick for
+  1.5 s); the language word after the opening fence is dropped and a fence never closed runs to the end. The rule
+  is `ChatText.kt` (`textParts`, `foldParts`; unit-tested), the same as the desktop app's `chatText.ts`. A long
+  press still copies the line as written.
 
 **Why not the user's other ideas:** lend cards on one specific tab would still cost that tab the room and split
 "what dibs may use" from "how dibs is doing"; a header that collapses on scroll makes the chat jump and hides the
