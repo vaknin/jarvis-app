@@ -227,7 +227,7 @@ class ScreensTest {
         val v = view(talk = longTalk())
         val d = v.getJSONObject("dibs")
         d.getJSONObject("state").put("laptop", JSONObject().put("mem_used", 11 * gb).put("mem_total", 16 * gb).put("load", 6.2)
-            .put("cores", 16).put("builds", 2).put("waiting", 11).put("agents", 14))
+            .put("cores", 16).put("builds", 2).put("waiting", 11).put("agents", 14).put("name", "Server"))
         d.put("yours", JSONArray()
             .put(yours(1, "Cut phone notification clutter (the user", "working"))
             .put(yours(2, "PLAN ONLY", "done", asked = "PLAN ONLY: plan how dibs spends less usage", unread = true))

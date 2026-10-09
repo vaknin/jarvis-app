@@ -98,7 +98,7 @@ internal fun StatusPage(view: DibsView, link: Link) {
             val laptop = state.laptop?.let(::laptopWords)
             val room = view.board?.room
             if (laptop != null || room != null) {
-                Section("Laptop")
+                Section(state.laptop?.name ?: "Laptop")
                 if (laptop != null) Text(laptop, style = AppType.small, color = Palette.Muted)
                 // Amber with the clock when there is no room for another task; plain otherwise.
                 if (room != null) RoomLine(room.line, warn = room.n == 0)

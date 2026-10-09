@@ -273,9 +273,9 @@ class PayloadTest {
     fun readsUsageAndTheLaptop() {
         val d = DibsView.ofView(JSONObject("""{"dibs": {"state": {"busy": false,
             "limits": {"ts": 5, "windows": [{"name": "five_hour", "pct": 87.5, "resets": 100}]},
-            "laptop": {"mem_used": 1024, "mem_total": 2048, "load": 1.5, "cores": 16, "builds": 2, "waiting": null, "agents": 3}}}}"""))!!
+            "laptop": {"mem_used": 1024, "mem_total": 2048, "load": 1.5, "cores": 16, "builds": 2, "waiting": null, "agents": 3, "name": "Server"}}}}"""))!!
         assertEquals(listOf(Limit("five_hour", 87.5, 100)), d.state.limits)
-        assertEquals(Laptop(1024, 2048, 1.5, 16, 2, null, 3), d.state.laptop)
+        assertEquals(Laptop(1024, 2048, 1.5, 16, 2, null, 3, "Server"), d.state.laptop)
         val old = DibsView.ofView(JSONObject("""{"dibs": {"state": {"busy": true}}}"""))!!
         assertEquals(emptyList<Limit>(), old.state.limits)
         assertNull(old.state.laptop)

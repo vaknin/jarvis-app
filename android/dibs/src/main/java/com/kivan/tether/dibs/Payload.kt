@@ -239,6 +239,8 @@ data class Laptop(
     val builds: Int?,
     val waiting: Int?,
     val agents: Int?,
+    /** What dibs calls the machine the numbers are from: "Server" on a hub, else "Laptop"; null from an older dibs. */
+    val name: String? = null,
 )
 
 /**
@@ -572,7 +574,7 @@ data class DibsView(
                     st.str("brain"), st.optBoolean("busy"), st.str("line"), st.str("usage"),
                     st.optJSONObject("limits")?.optJSONArray("windows").objects().map { Limit(it.optString("name"), it.optDouble("pct", 0.0), it.optLong("resets")) },
                     st.optJSONObject("laptop")?.let { l ->
-                        Laptop(l.long("mem_used"), l.long("mem_total"), l.double("load"), l.long("cores")?.toInt(), l.long("builds")?.toInt(), l.long("waiting")?.toInt(), l.long("agents")?.toInt())
+                        Laptop(l.long("mem_used"), l.long("mem_total"), l.double("load"), l.long("cores")?.toInt(), l.long("builds")?.toInt(), l.long("waiting")?.toInt(), l.long("agents")?.toInt(), l.str("name"))
                     },
                     st.str("doing"), st.str("words"),
                     st.optJSONObject("hold")?.let(::hold),

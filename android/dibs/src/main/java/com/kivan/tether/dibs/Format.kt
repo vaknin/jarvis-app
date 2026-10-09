@@ -99,7 +99,7 @@ fun limitWords(limits: List<Limit>, now: Long, clock: (Long) -> String, day: (Lo
 
 /**
  * The laptop in one line: "11.2 of 15.6 GB used · load 6.2 on 16 cores · 2 building, 11 waiting
- * · 14 agents". Parts dibs didn't send are left out; null when it sent none.
+ * · 14 sessions on all machines". Parts dibs didn't send are left out; null when it sent none.
  */
 fun laptopWords(l: Laptop): String? {
     fun gb(b: Long) = String.format(Locale.ROOT, "%.1f", b / 1_073_741_824.0)
@@ -112,7 +112,7 @@ fun laptopWords(l: Laptop): String? {
             (l.waiting ?: 0) > 0 -> "${l.waiting} builds waiting"
             else -> null
         },
-        l.agents?.let { if (it == 1) "1 agent" else "$it agents" },
+        l.agents?.let { if (it == 1) "1 session on all machines" else "$it sessions on all machines" },
     )
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
