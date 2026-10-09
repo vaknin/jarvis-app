@@ -98,6 +98,8 @@ data class Pending(
     val task: Long? = null,
     /** It went to an Ask about conversation (its `about`) instead of dibs. */
     val ask: String? = null,
+    /** The line it answers (a swipe or Reply), so its quote shows before dibs lists it. */
+    val reply: ReplyRef? = null,
 )
 
 /** A file picked to send: its copy in [DibsHost.pickDir], its name, whether it's an image, and where it came from. */
@@ -178,7 +180,9 @@ class Composer(val task: Long?, val thread: String? = null) {
         val files = picked.toList()
         if (text.isEmpty() && files.isEmpty()) return
         val uid = UUID.randomUUID().toString()
-        Dibs.addPending(Pending(uid, text, files, task = task))
+        val answers = replyTo?.takeIf { task == null }
+        val quoted = answers?.let { ReplyRef(it.n, if (it.mine) "user" else "dibs", it.short ?: it.text) }
+        Dibs.addPending(Pending(uid, text, files, task = task, reply = quoted))
         // A line ends a Wait (dibs's side does the same).
         if (task == null) Dibs.holdTap?.shown?.let { Dibs.holdTap = HoldTap(null, it.kind, System.currentTimeMillis()) }
         // The line itself tells dibs the box is empty again.
@@ -186,7 +190,6 @@ class Composer(val task: Long?, val thread: String? = null) {
         if (task == null) Dibs.typing.sent()
         picked.clear()
         val on = about?.takeIf { task == null }?.json()
-        val answers = replyTo?.takeIf { task == null }
         val said = spoken
         about = null
         replyTo = null

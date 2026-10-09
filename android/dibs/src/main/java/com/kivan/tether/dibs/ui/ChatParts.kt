@@ -255,7 +255,7 @@ internal fun LazyListScope.chatItems(rows: List<ChatRow>, echoes: Map<String, Pe
                 is NoteRow -> askOf(row.line, look)?.let { AskRow(it) } ?: NoteLine(row.line, look)
                 // A line for a conversation dibs no longer lists reads as a note.
                 is LineRow -> askOf(row.line, look)?.let { AskRow(it) } ?: if (row.line.thread != null) NoteLine(row.line, look) else Line(row, look)
-                is EchoRow -> echoes[row.uid]?.let { EchoBubble(it, row) }
+                is EchoRow -> echoes[row.uid]?.let { EchoBubble(it, row, look) }
             }
         }
     }
@@ -520,7 +520,7 @@ private fun LineMenu(expanded: Boolean, l: TalkLine, look: ChatLook, onDismiss: 
     val actions = LocalLineActions.current
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         actions?.reply?.let { reply ->
-            if (l.n > 0 && l.ask == null) {
+            if (l.n > 0) {
                 DropdownMenuItem(
                     text = { Text("Reply") },
                     leadingIcon = { Icon(painterResource(R.drawable.lucide_reply), null, Modifier.size(18.dp)) },
@@ -573,7 +573,7 @@ private fun Line(row: LineRow, look: ChatLook) {
         AnsweredRow(l, outcomeWords(outcome), look)
         return
     }
-    if (ask == null) SwipeToReply(l) { Bubble(row, outcome, look) } else Bubble(row, outcome, look)
+    SwipeToReply(l) { Bubble(row, outcome, look) }
 }
 
 /**
@@ -753,11 +753,12 @@ private fun AskButtons(ask: Ask, look: ChatLook) {
 
 /** A message of mine not in a view yet: what was picked for it, its text, a clock (and how far its files got). */
 @Composable
-private fun EchoBubble(p: Pending, row: EchoRow) {
+private fun EchoBubble(p: Pending, row: EchoRow, look: ChatLook) {
     val uploads by Dibs.host.uploads.collectAsStateWithLifecycle()
     val done = p.files.mapNotNull { f -> Dibs.sentIds[f.uri]?.let { uploads[it] } }
     BubbleBox(mine = true, first = row.first, last = row.last) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            p.reply?.let { ReplyQuote(it, true, look) }
             for (f in p.files) PickedView(f)
             EchoText(p.text) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1262,7 +1263,7 @@ private fun ReplyChip(l: TalkLine, box: Composer) {
         Icon(painterResource(R.drawable.lucide_reply), null, Modifier.size(16.dp), tint = Palette.Accent)
         Column(Modifier.weight(1f).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(if (l.mine) "Replying to yourself" else "Replying to dibs", style = AppType.label, color = Palette.Text)
-            if (l.text.isNotEmpty()) FadedText(l.text, 2, AppType.small, Palette.Muted)
+            (l.short ?: l.text).takeIf { it.isNotEmpty() }?.let { FadedText(it, 2, AppType.small, Palette.Muted) }
         }
         IconButton(onClick = { box.replyIs(null) }, modifier = Modifier.size(36.dp)) {
             Icon(painterResource(R.drawable.lucide_x), "Cancel the reply", Modifier.size(16.dp), tint = Palette.Muted)

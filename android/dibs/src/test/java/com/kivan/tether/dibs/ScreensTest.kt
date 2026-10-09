@@ -707,6 +707,51 @@ class ScreensTest {
     }
 
     @Test
+    fun aReplyToANoteQuotesItsShortLineOnTheChipAndInThePendingLine() {
+        val talk = longTalk().toMutableList()
+        talk += JSONObject().put("id", "s90").put("n", 90).put("who", "dibs").put("note", true).put("ts", NOW - 50)
+            .put("text", "Started task #374, as you said (\"start the chat fix\").").put("short", "Started task #374.")
+        show(view(talk = talk))
+        compose.onNodeWithText("Started task #374.", substring = true).performTouchInput { swipeRight(startX = left + 10f, endX = left + 400f) }
+        compose.waitForIdle()
+        assertEquals("s90", Dibs.chat.replyTo?.id)
+        compose.onNodeWithText("Replying to dibs").assertIsDisplayed()
+        compose.onAllNodes(hasText("as you said", substring = true)).assertCountEquals(0)
+        shot("chat-reply-chip-note")
+        Dibs.chat.draft = "why?"
+        Dibs.chat.send()
+        compose.waitForIdle()
+        // The pending line draws its quote at once, before dibs lists it.
+        val pending = Dibs.pending.value.last()
+        assertEquals(ReplyRef(90, "dibs", "Started task #374."), pending.reply)
+        compose.onAllNodes(hasText("Started task #374.")).assertCountEquals(2)
+        assertEquals(90L, host.acts.last { it.first == "say" }.second!!.getJSONObject("reply").getLong("n"))
+    }
+
+    @Test
+    fun aQuestionCardCanBeRepliedToByASwipeAndItsButtonsStillAnswer() {
+        show(view(talk = ask(41, "Merge the branch now?", yesNo(41))))
+        compose.onNodeWithText("Merge the branch now?").performTouchInput { swipeRight(startX = left + 10f, endX = left + 400f) }
+        compose.waitForIdle()
+        assertEquals("s41", Dibs.chat.replyTo?.id)
+        compose.onNodeWithText("Replying to dibs").assertIsDisplayed()
+        shot("chat-reply-card")
+        Dibs.chat.replyIs(null)
+        compose.onNodeWithText("Approve").performClick()
+        compose.waitForIdle()
+        assertTrue(host.acts.any { it.first.contains("a41") || it.second?.toString()?.contains("a41") == true })
+    }
+
+    @Test
+    fun theLongPressMenuOfAQuestionCardOffersReply() {
+        show(view(talk = ask(41, "Merge the branch now?", yesNo(41))))
+        compose.onNodeWithText("Merge the branch now?").performTouchInput { longClick() }
+        compose.onNodeWithText("Reply").assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        assertEquals("s41", Dibs.chat.replyTo?.id)
+    }
+
+    @Test
     fun aReplyAfterAFollowUpLeavesNoBareFollowUpInTheBox() {
         show(view(talk = longTalk()))
         Dibs.chat.draft = Dibs.FOLLOW_UP

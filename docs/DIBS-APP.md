@@ -40,7 +40,7 @@ screens in their own Gradle module, fed by a structured payload on the `dibs` ch
 
 ## Chat: modern, tidy, never overwhelming (the user, 2026-10-05, words 31 and 32)
 
-- **No swipe-to-delete.** Lines stay put. Long-press a line: Copy, Hide (the old swipe, tucked away).
+- **No swipe-to-delete.** Lines stay put. Long-press a line: Reply, Select text, Copy, Hide. A swipe to the right replies to any line with a number: a message, a note or a question card.
 - **Short by default, full on a tap.** A long line shows its first lines with a soft fade and "More";
   a tap opens it in place. dibs may send a `short` with the full `text` (its confirmations: "Started task
   X, as you said." with the quote behind the tap). dibs no longer cuts the user's quote out of the line
@@ -738,6 +738,7 @@ state just when dibs is working. A slim pinned bar gives the chat about 240 dp b
   long-press Reply and Select text (sheet with `SelectionContainer` and Copy all), swipe right to reply
   (`SwipeToReply`, `Composer.replyTo`, `ReplyChip`, `ReplyQuote`; one of about and reply at a time, `say` carries
   `reply: {n}`), icons added through `regen-look.sh` (`reply`, `text-cursor`).
+- Replies to every kind of line (task #154): notes and question cards swipe and long-press to Reply like messages. The chip over the box and the quote above a reply show a note's `short` line (the full text repeats the user's own words); the server sends the short line as `reply.text`. A pending reply (`Pending.reply`) draws its quote at once, before dibs lists the line.
 - Code in chat lines (task #258): text between triple-backtick fences becomes a small monospace block with a copy
   button at its corner (tick for 1.5 s); the language word is dropped, an unclosed fence runs to the end, the rest
   stays text with its links. `TextParts.kt` is the desktop's `chatText.ts` rule, so both apps agree; Copy and Select
