@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import com.kivan.tether.dibs.DibsActivity
+import com.kivan.tether.dibs.WithBrowserLinks
 import com.kivan.tether.ui.TetherScreen
 import com.kivan.tether.ui.theme.AppTheme
 import kotlinx.coroutines.launch
@@ -27,7 +28,7 @@ class MainActivity : ComponentActivity() {
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
-        setContent { AppTheme { TetherScreen() } }
+        setContent { WithBrowserLinks { AppTheme { TetherScreen() } } }
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -29,7 +29,7 @@ class DibsActivity : ComponentActivity() {
         // Always dark (the design language has no light theme), so the bar icons stay light.
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         if (savedInstanceState == null) take(intent)
-        setContent { AppTheme { DibsApp() } }
+        setContent { WithBrowserLinks { AppTheme { DibsApp() } } }
     }
 
     override fun onNewIntent(intent: Intent) {
