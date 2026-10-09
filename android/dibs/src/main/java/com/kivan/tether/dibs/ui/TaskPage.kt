@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -39,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kivan.tether.dibs.ChatPin
 import com.kivan.tether.dibs.Dibs
 import com.kivan.tether.dibs.DibsActivity
 import com.kivan.tether.dibs.DibsView
@@ -134,21 +136,31 @@ private fun TaskBody(t: YourTask, view: DibsView, mine: Boolean) {
 
     val state = rememberLazyListState()
     val last = rows.lastOrNull()
-    val lastMine = last is EchoRow || (last is LineRow && last.line.mine)
+    // Whether the page follows the end of the chat: set when it opens, then by the user's scrolling only
+    // (a line of mine while scrolled up does not take it down).
+    val pin = remember(id) { ChatPin().also { it.pinned = false } }
+    TrackPin(state, pin, reversed = false)
     var placed by remember(id) { mutableStateOf(false) }
     LaunchedEffect(last?.key, t.busy) {
         // The first run comes before the list's first measure: wait for its items.
-        val total = snapshotFlow { state.layoutInfo.totalItemsCount }.first { it > 0 }
-        val nearEnd = (state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= total - 3
-        // First: at the top (the report), unless the agent has replied since the page was last open.
-        val follow = if (!placed) {
+        snapshotFlow { state.layoutInfo.totalItemsCount }.first { it > 0 }
+        if (!placed) {
+            // First: at the top (the report), unless the agent has replied since the page was last open
+            // (or all of it fits: then it follows what grows).
             val line = t.talk.lastOrNull()
-            line != null && !line.mine && !line.note && t.talk.any { it.mine } && Dibs.chatSeen[id] != line.id
-        } else {
-            nearEnd || lastMine
+            val follow = line != null && !line.mine && !line.note && t.talk.any { it.mine } && Dibs.chatSeen[id] != line.id
+            placed = true
+            if (follow) state.scrollToEnd()
+            pin.pinned = follow || !state.canScrollForward
+        } else if (pin.pinned) {
+            state.scrollToEnd()
         }
-        placed = true
-        if (follow) state.animateScrollToItem(total - 1)
+    }
+    // Pinned, whatever grows at the end (a line opened to its full text, a picture loading) keeps the end in sight.
+    LaunchedEffect(state, pin) {
+        val slop = 1
+        snapshotFlow { pin.pinned && placed && !state.isScrollInProgress && !state.atNewestEnd(reversed = false, slopPx = slop) }
+            .collect { if (it) state.scrollToEnd() }
     }
     val newestNow by rememberUpdatedState(newest)
     DisposableEffect(id) { onDispose { newestNow?.let { Dibs.chatSeen[id] = it } } }
@@ -360,4 +372,13 @@ internal fun Gone() {
         PageBar("Not listed any more")
         Box(Modifier.padding(horizontal = Space.L)) { Quiet("dibs doesn't list this task any more.") }
     }
+}
+
+/** Far past any list: the list clamps it to the very end (a tall last row is shown to its end). */
+private const val END_OFFSET = 1 shl 24
+
+/** Scrolls to the very end of the list at once. */
+private suspend fun LazyListState.scrollToEnd() {
+    val total = layoutInfo.totalItemsCount
+    if (total > 0) scrollToItem(total - 1, END_OFFSET)
 }

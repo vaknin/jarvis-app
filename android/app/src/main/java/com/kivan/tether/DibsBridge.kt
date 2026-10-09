@@ -6,6 +6,7 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.core.content.edit
 import androidx.compose.ui.graphics.asImageBitmap
 import com.kivan.tether.dibs.Dibs
 import com.kivan.tether.dibs.DibsHost
@@ -109,6 +110,12 @@ class DibsBridge(context: Context) : DibsHost {
                 withContext(Dispatchers.Main) { Dibs.dropPending(uid) }
             }
         }
+    }
+
+    override fun note(key: String): String? = app.getSharedPreferences(NOTES, Context.MODE_PRIVATE).getString(key, null)
+
+    override fun keepNote(key: String, value: String) {
+        app.getSharedPreferences(NOTES, Context.MODE_PRIVATE).edit { putString(key, value) }
     }
 
     override fun thumb(fileId: String): ImageBitmap? = Thumbs.byId(app, fileId)
@@ -225,3 +232,6 @@ class DibsBridge(context: Context) : DibsHost {
 private const val KEEP_MS = 14 * 24 * 3600_000L
 /** And this long after its task was ticked off. */
 private const val TICKED_KEEP_S = 7 * 24 * 3600L
+
+/** The SharedPreferences file for the dibs screens' small notes ([DibsHost.note]). */
+private const val NOTES = "dibs-notes"

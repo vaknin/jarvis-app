@@ -55,6 +55,16 @@ screens in their own Gradle module, fed by a structured payload on the `dibs` ch
   eyebrow, one time per run.
 - "dibs is on it" is three calm dots under the newest line while dibs works. Scrolled up, a small
   "↓ 2 new" pill brings you back.
+- **The list never moves on its own (app 0.16.0).** `pinned` (`ChatPin`, `Dibs.chatPin`) is a remembered flag, true at
+  start, changed only when the user scrolls (at the bottom within 8 dp: pinned; anywhere else: not) or taps the pill,
+  never by sending or by something arriving. Pinned, the newest end is asked for after every composition
+  (`requestScrollToItem(0)`), so the newest stays in sight through new lines, the typing dots, the status line, the
+  Wait chip, the keyboard and a growing box. Not pinned, nothing moves the view, not even sending; the pill (tag
+  `new-pill`) says `N new` (rows after the last one seen at the bottom, my own echo too) or `Latest` and a tap goes
+  down and pins again. The same rule holds on the Ask page and a task's chat page (which opens at the end only when the
+  agent replied since, and follows the very end while pinned). The main chat's place survives a restart: a debounced
+  save (and on stop) through `DibsHost.note`/`keepNote`, restored once per process to the same row and offset (gone
+  or pinned: the bottom).
 
 ## Talking into the box (task #377, 2026-10-09: the first step of "talk to dibs by voice")
 
@@ -113,7 +123,7 @@ text and Send (`Dictation.kt`, `Talk` in `ui/ChatParts.kt`):
 - Tether's side: the Dibs entry in the channel list, `tether://channel/dibs` intents, dibs's shortcut
   and its notifications open `DibsActivity` when the view carries the payload (else today's screen).
 - Version **0.4.0** (versionCode 14; task #19 takes 0.3.9); the Recap rework is 0.4.3 (17); Your tasks is
-  0.5.0 (19); the lend toggles are 0.5.1 (20; 18 went unused); task #64's fixes are 0.5.4 (23; 0.5.2 and 0.5.3 went to parallel tasks); task #66's questions, plain decisions and talking only to dibs are 0.5.5 (24); phone presence (`_presence`, task #59) is 0.5.6 (25); the brain's state in the header (`doing`/`words`) is 0.5.10 (29); Ideas is 0.6.0 (31); Ask about (task #102) is 0.7.0 (32); root steps (task #145) are 0.8.0 (33); notifications that never cut a long title (task #131) are 0.8.1 (34); one slim bar and the dibs page (task #137) are 0.9.0 (35); the morning recap (unread list, merged story screen) is 0.10.0 (36); the board's Active and Backlog lists with a Start or Park button on each card are 0.10.5 (41); task and idea links (task #261) are 0.11.0 (42). Question cards with tappable addresses and a Copy button for sign-in codes (task #303) are 0.11.1 (43). instant feedback on taps (task #124) is 0.12.1 (45). The Recap's To look over section (task #336) is 0.13.0 (46). The drop box (Ideas v2, task #267) is 0.14.0 (47). dibs's pick on question buttons (task #360) is 0.14.1 (48). Talking into the box (🎤, task #377) is 0.15.0 (49). Never uninstall:
+  0.5.0 (19); the lend toggles are 0.5.1 (20; 18 went unused); task #64's fixes are 0.5.4 (23; 0.5.2 and 0.5.3 went to parallel tasks); task #66's questions, plain decisions and talking only to dibs are 0.5.5 (24); phone presence (`_presence`, task #59) is 0.5.6 (25); the brain's state in the header (`doing`/`words`) is 0.5.10 (29); Ideas is 0.6.0 (31); Ask about (task #102) is 0.7.0 (32); root steps (task #145) are 0.8.0 (33); notifications that never cut a long title (task #131) are 0.8.1 (34); one slim bar and the dibs page (task #137) are 0.9.0 (35); the morning recap (unread list, merged story screen) is 0.10.0 (36); the board's Active and Backlog lists with a Start or Park button on each card are 0.10.5 (41); task and idea links (task #261) are 0.11.0 (42). Question cards with tappable addresses and a Copy button for sign-in codes (task #303) are 0.11.1 (43). instant feedback on taps (task #124) is 0.12.1 (45). The Recap's To look over section (task #336) is 0.13.0 (46). The drop box (Ideas v2, task #267) is 0.14.0 (47). dibs's pick on question buttons (task #360) is 0.14.1 (48). Talking into the box (🎤, task #377) is 0.15.0 (49). The chat that never scrolls on its own is 0.16.0 (50). Never uninstall:
   `adb install -r`.
 
 ### The payload (dibs → phone, in the `dibs` channel's view)

@@ -35,6 +35,7 @@ import com.kivan.tether.dibs.ui.DibsApp
 import com.kivan.tether.dibs.ui.RefCard
 import com.kivan.tether.dibs.ui.linkified
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.semantics.SemanticsProperties
 import com.kivan.tether.dibs.ui.theme.AppTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,12 +73,24 @@ class FakeHost(view: JSONObject?) : DibsHost {
         return uid ?: "uid"
     }
 
-    override fun send(uid: String, text: String, files: List<Uri>, action: String, extra: JSONObject?, onFile: (Uri, String) -> Unit) {}
+    /** The uid of each message sent with files or without (the box's Send). */
+    val sentUids = mutableListOf<String>()
+
+    override fun send(uid: String, text: String, files: List<Uri>, action: String, extra: JSONObject?, onFile: (Uri, String) -> Unit) {
+        sentUids += uid
+    }
     override fun channelFile(prefix: String): Flow<File?> = flowOf(files[prefix])
     override fun thumb(fileId: String): ImageBitmap? = null
     override val thumbs: StateFlow<Int> = MutableStateFlow(0)
     override fun visible(on: Boolean) {}
     override fun openTether(classic: Boolean) {}
+
+    /** What the screens kept with [keepNote]. */
+    val notes = mutableMapOf<String, String>()
+    override fun note(key: String): String? = notes[key]
+    override fun keepNote(key: String, value: String) {
+        notes[key] = value
+    }
 }
 
 /**
@@ -105,6 +118,7 @@ class ScreensTest {
         Dibs.chat.about = null
         Dibs.chat.replyTo = null
         Dibs.holdTap = null
+        Dibs.resetChat()
     }
 
     @After
@@ -851,6 +865,24 @@ class ScreensTest {
         compose.onNodeWithText("Is #231 waiting on me?").assertIsDisplayed()
         compose.onNodeWithText("That was made from #230", substring = true).assertIsDisplayed()
         shot("links-chat")
+    }
+
+    @Test
+    fun aTaskNumberInMyOwnLineIsALinkLikeInDibsLines() {
+        Dibs.index = linkIndex()
+        val talk = longTalk().dropLast(2) + listOf(
+            JSONObject().put("id", "s90").put("n", 90).put("who", "dibs").put("ts", NOW - 300).put("text", "That was made from #230, ok."),
+            JSONObject().put("id", "u-91").put("n", 91).put("who", "user").put("ts", NOW - 200).put("text", "Is #230 waiting on me?"),
+        )
+        show(view(talk = talk))
+        fun links(words: String): List<LinkAnnotation.Clickable> {
+            val shown = compose.onNodeWithText(words, substring = true).fetchSemanticsNode().config[SemanticsProperties.Text]
+            val text = shown.first { it.text.contains(words) }
+            return text.getLinkAnnotations(0, text.length).map { it.item }.filterIsInstance<LinkAnnotation.Clickable>()
+        }
+        val dibs = links("That was made from #230").single { it.tag == "ref:task:230" }
+        val mine = links("Is #230 waiting").single { it.tag == "ref:task:230" }
+        assertEquals(dibs.styles, mine.styles)
     }
 
     @Test

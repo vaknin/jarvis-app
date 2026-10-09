@@ -186,6 +186,11 @@ import com.kivan.tether.dibs.ui.theme.Pill
 import com.kivan.tether.dibs.ui.theme.Space
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.snapshotFlow
+import com.kivan.tether.dibs.ChatPin
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
@@ -308,8 +313,10 @@ private fun PulseDot(modifier: Modifier = Modifier) {
 }
 
 /**
- * The rows from the bottom: it opens at the newest and follows new lines while near the bottom
- * (always after one of mine). Scrolled up, "↓ N new" goes back down.
+ * The rows from the bottom. The list never moves on its own: [pin] (kept by the user's scrolling and
+ * the pill only, never by sending) says whether it follows the newest end. Pinned, the newest stays in
+ * sight through every change; scrolled up, nothing moves the view and the pill says what came
+ * ("N new", or "Latest"). [keepPlace]: the place is kept across app restarts (the dibs chat only).
  */
 @Composable
 internal fun Conversation(
@@ -320,29 +327,28 @@ internal fun Conversation(
     look: ChatLook = ChatLook(),
     /** The list's place; the dibs chat passes [Dibs.chatList], which outlives the page that replaces the tabs. */
     state: LazyListState = rememberLazyListState(),
+    /** Whether the list follows its newest end; the dibs chat passes [Dibs.chatPin]. */
+    pin: ChatPin = remember { ChatPin() },
+    keepPlace: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val reversed = remember(rows) { rows.asReversed() }
     val newest = rows.lastOrNull()?.key
-    val newestMine = when (val r = rows.lastOrNull()) {
-        is EchoRow -> true
-        is LineRow -> r.line.mine
-        else -> false
-    }
-    // Back from a page the list is where it was left: only a line that came since moves it (not my own newest line on return).
-    var started by remember { mutableStateOf(false) }
-    LaunchedEffect(newest, busy) {
-        if (newest != null && (state.firstVisibleItemIndex <= 2 || (newestMine && started))) state.animateScrollToItem(0)
-        started = true
-    }
-    val atBottom by remember { derivedStateOf { state.firstVisibleItemIndex <= 1 } }
+    TrackPin(state, pin, reversed = true)
+    // Pinned, the newest end is requested after each composition, before the list measures (so a new
+    // row or a growing one never shows a frame elsewhere); the place not yet restored waits for its turn.
+    val restoring = keepPlace && !Dibs.placeRestored
+    SideEffect { if (pin.pinned && !restoring && !state.isScrollInProgress) state.requestScrollToItem(0) }
+    if (keepPlace) KeepPlace(state, pin, reversed, busy)
+    // What was in sight at the bottom: follows the newest row only while pinned.
     var seen by remember { mutableStateOf(newest) }
-    LaunchedEffect(atBottom, newest) { if (atBottom) seen = newest }
+    LaunchedEffect(pin.pinned, newest) { if (pin.pinned) seen = newest }
     val fresh = remember(rows, seen) {
         val i = rows.indexOfLast { it.key == seen }
         if (i < 0) 0 else rows.drop(i + 1).count { it !is DayRow && it !is FoldRow }
     }
     val scrolledUp by remember { derivedStateOf { state.firstVisibleItemIndex > 3 } }
+    val showPill = !pin.pinned && (fresh > 0 || scrolledUp)
     var selecting by remember { mutableStateOf<TalkLine?>(null) }
     var flash by remember { mutableStateOf<Long?>(null) }
     var lit by remember { mutableStateOf<Job?>(null) }
@@ -379,14 +385,19 @@ internal fun Conversation(
             chatItems(reversed, echoes, look)
         }
         AnimatedVisibility(
-            scrolledUp,
+            showPill,
             modifier = Modifier.align(Alignment.BottomEnd).padding(Space.L),
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
             Row(
-                Modifier.clip(Pill).background(Palette.SurfaceHighest)
-                    .clickable { scope.launch { state.animateScrollToItem(0) } }
+                Modifier.clip(Pill).background(Palette.SurfaceHighest).testTag("new-pill")
+                    .clickable {
+                        scope.launch {
+                            state.animateScrollToItem(0)
+                            pin.pinned = true
+                        }
+                    }
                     .padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -398,6 +409,87 @@ internal fun Conversation(
     }
     }
 }
+
+/** How far from the end still counts as the end (the user's finger rests, a fling stops short): 8 dp. */
+private val PIN_SLOP = 8.dp
+
+/**
+ * Whether the list is at its newest end, within [slopPx]: a reversed list (the chat) at its first item
+ * with at most that much of it scrolled past; a list from the top at its last item with at most that
+ * much below the viewport.
+ */
+internal fun LazyListState.atNewestEnd(reversed: Boolean, slopPx: Int): Boolean {
+    if (reversed) return firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset <= slopPx
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return true
+    return last.index == info.totalItemsCount - 1 && last.offset + last.size - info.viewportEndOffset <= slopPx
+}
+
+/**
+ * Keeps [pin] by what the user does: while a scroll is in progress (a finger or its fling) pinned is
+ * whether the list is at its newest end; at rest, and for scrolls the page makes itself, it is left
+ * alone. Sending and arriving lines never change it.
+ */
+@Composable
+internal fun TrackPin(state: LazyListState, pin: ChatPin, reversed: Boolean) {
+    val slop = with(LocalDensity.current) { PIN_SLOP.roundToPx() }
+    LaunchedEffect(state, pin, reversed, slop) {
+        snapshotFlow { if (state.isScrollInProgress) state.atNewestEnd(reversed, slop) else null }
+            .filterNotNull()
+            .collect { pin.pinned = it }
+    }
+}
+
+/** What the chat's place is saved as: [PINNED] or `at<TAB>offset<TAB>key` of the first visible row. */
+private const val PINNED = "pinned"
+
+private fun placeNote(state: LazyListState, pin: ChatPin): String? {
+    if (pin.pinned) return PINNED
+    val first = state.layoutInfo.visibleItemsInfo.firstOrNull() ?: return null
+    return "at\t${state.firstVisibleItemScrollOffset}\t${first.key}"
+}
+
+/**
+ * The dibs chat's place across restarts (the main chat only): saved when a scroll comes to rest (after
+ * 400 ms) and when the app stops; once per process, when rows first arrive, it goes back to the row
+ * that was first in sight (pinned, or the row gone: the bottom).
+ */
+@Composable
+private fun KeepPlace(state: LazyListState, pin: ChatPin, reversed: List<ChatRow>, busy: Boolean) {
+    LaunchedEffect(reversed) {
+        if (Dibs.placeRestored || reversed.isEmpty()) return@LaunchedEffect
+        val parts = runCatching { Dibs.host.note(Dibs.PLACE_NOTE) }.getOrNull()?.split('\t', limit = 3)
+        val at = if (parts != null && parts.size == 3 && parts[0] == "at") reversed.indexOfFirst { it.key == parts[2] } else -1
+        if (at >= 0) {
+            pin.pinned = false
+            // The typing row, when shown, is the list's first item.
+            state.scrollToItem(at + if (busy) 1 else 0, parts!![1].toIntOrNull() ?: 0)
+        } else {
+            pin.pinned = true
+        }
+        Dibs.placeRestored = true
+    }
+    LaunchedEffect(state, pin) {
+        snapshotFlow { if (!Dibs.placeRestored || state.isScrollInProgress) null else placeNote(state, pin) }
+            .filterNotNull()
+            .collectLatest {
+                delay(PLACE_SAVE_MS)
+                runCatching { Dibs.host.keepNote(Dibs.PLACE_NOTE, it) }
+            }
+    }
+    val life = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(life, state, pin) {
+        val stop = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP && Dibs.placeRestored) {
+                placeNote(state, pin)?.let { n -> runCatching { Dibs.host.keepNote(Dibs.PLACE_NOTE, n) } }
+            }
+        }
+        life.addObserver(stop)
+        onDispose { life.removeObserver(stop) }
+    }
+}
+
+private const val PLACE_SAVE_MS = 400L
 
 /** Select text for a chat that isn't a [Conversation] (a task's): provides the line actions without replies, and the sheet. */
 @Composable

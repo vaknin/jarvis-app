@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -67,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kivan.tether.dibs.AskEnded
 import com.kivan.tether.dibs.AskLine
 import com.kivan.tether.dibs.Asking
+import com.kivan.tether.dibs.ChatPin
 import com.kivan.tether.dibs.Dibs
 import com.kivan.tether.dibs.DibsView
 import com.kivan.tether.dibs.Link
@@ -273,22 +275,18 @@ private fun AskBody(
     val items = remember(about, a, pending, ending, failed, unheard) { askItems(about, a, pending, ending, failed, unheard) }
     val reversed = remember(items) { items.asReversed() }
     val state = rememberLazyListState()
-    // The conversation reads from the top until dibs lists a line, then sits at its newest.
+    // The conversation reads from the top until dibs lists a line, then sits at its newest. It never
+    // moves on its own after that: pinned (kept by the user's scrolling only) it follows the newest end.
     val talking = items.any { it is AskItem.Line }
     val newest = items.lastOrNull()?.key
-    val newestMine = when (val i = items.lastOrNull()) {
-        is AskItem.Echo -> true
-        is AskItem.Line -> i.line.who == "user"
-        else -> false
-    }
+    val pin = remember { ChatPin() }
+    TrackPin(state, pin, reversed = true)
+    SideEffect { if (talking && pin.pinned && !state.isScrollInProgress) state.requestScrollToItem(0) }
     LaunchedEffect(newest, talking) {
-        when {
-            newest == null -> Unit
-            // A line of mine (a chip tapped, a question typed early): show it.
-            newestMine -> state.animateScrollToItem(0)
-            // Before the first line: the reading card or the overview from its top.
-            !talking -> state.scrollToItem(reversed.lastIndex)
-            state.firstVisibleItemIndex <= 2 -> state.animateScrollToItem(0)
+        // Before the first line: the reading card or the overview from its top.
+        if (newest != null && !talking) {
+            state.scrollToItem(reversed.lastIndex)
+            pin.pinned = true
         }
     }
     val asked = remember(a?.asked, pending) { (a?.asked.orEmpty() + pending.map { it.text }).toSet() }

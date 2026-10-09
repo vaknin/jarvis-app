@@ -84,6 +84,22 @@ interface DibsHost {
      * channel screen, for a dibs that sends no payload yet.
      */
     fun openTether(classic: Boolean = false)
+
+    /** A small thing kept across app restarts (the chat's place), by [key]; null if none. */
+    fun note(key: String): String? = null
+
+    /** Keeps [value] under [key] for [note]. */
+    fun keepNote(key: String, value: String) {}
+}
+
+/**
+ * Whether the chat list follows its newest end (docs/DIBS-APP.md, "Chat"). It changes only when the
+ * user scrolls or taps the "N new" pill, never when something is sent or arrives. Kept in [Dibs.chatPin]
+ * because a page replaces the tabs.
+ */
+@Stable
+class ChatPin {
+    var pinned by mutableStateOf(true)
 }
 
 /**
@@ -341,7 +357,25 @@ object Dibs {
     fun openRef(kind: RefKind, n: Int) = openRef(DibsView.ofView(host.view.value), kind, n)
 
     /** The dibs chat's list position: a page replaces the tabs, so it is kept here to land on the same line on return. */
-    val chatList = androidx.compose.foundation.lazy.LazyListState()
+    var chatList = androidx.compose.foundation.lazy.LazyListState()
+        private set
+
+    /** Whether the chat follows its newest end (remembered across pages, like [chatList]). */
+    var chatPin = ChatPin()
+        private set
+
+    /** The chat's place was restored from [DibsHost.note] already in this process. */
+    var placeRestored by mutableStateOf(false)
+
+    /** The [DibsHost.note] key the chat's place is kept under. */
+    const val PLACE_NOTE = "chat-place"
+
+    /** For tests: a fresh chat list, pinned, with its place not yet restored (as at a process start). */
+    internal fun resetChat() {
+        chatList = androidx.compose.foundation.lazy.LazyListState()
+        chatPin = ChatPin()
+        placeRestored = false
+    }
 
     /** Typed answers and the like, by field, kept across tabs. */
     val fields = mutableStateMapOf<String, String>()
