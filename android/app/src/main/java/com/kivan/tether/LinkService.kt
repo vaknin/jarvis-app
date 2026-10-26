@@ -10,8 +10,9 @@ import android.util.Log
 import kotlinx.coroutines.launch
 
 /**
- * Keeps the process up, and with it the link node and the forum tunnel, so the laptop can always
- * reach the phone (no wake pushes). A quiet foreground service, started with the app and at boot.
+ * Keeps the process up so the forum tunnel's localhost port always answers (its iroh endpoint
+ * starts only when the forum is used). Costs nothing while idle: no network, no wakelock. The link
+ * node isn't kept up: the laptop wakes it through FCM ([Push]). Started with the app and at boot.
  */
 class LinkService : Service() {
     override fun onBind(intent: Intent?) = null
@@ -23,11 +24,12 @@ class LinkService : Service() {
         val n = Notification.Builder(this, Notifier.LINK)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Tether")
-            .setContentText("Reachable from the laptop · forum at localhost:8080")
+            .setContentText("Forum at localhost:8080")
             .setContentIntent(open)
             .setOngoing(true)
             .build()
         startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        // After a boot or an update, deliver anything left queued; the node stops again once idle.
         Core.scope.launch { runCatching { Core.start() }.onFailure { Log.w("Tether", "node start failed", it) } }
         runCatching { Forum.start() }.onFailure { Log.w("Tether", "forum tunnel failed", it) }
         return START_STICKY

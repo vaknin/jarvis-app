@@ -21,11 +21,18 @@ One screen, one chat with the laptop, and the forum tunnel.
 
 ## How it stays reachable
 
-One quiet foreground service keeps the process, the Tether node and the forum tunnel up, and
-starts at boot. The node is always listening, so the laptop dials it whenever it has something
-(directly at home, through the relay away); the link still closes when idle. No Firebase, no wake
-pushes, no WorkManager: the laptop's daemon notes the missing push key and its redial delivers
-(`crates/daemon/src/fcm.rs`).
+The phone holds no connection while idle, as chosen on Oct 1 (Aviv, on the lean app's always-on
+node: "why not do that? sounds like a good idea"). The Tether node runs only while the chat is on
+screen, something of the phone's is queued or moving, a link is open, or a wake or send has just
+started it; then it stops (`Core.watch`). When the laptop has something, its daemon sends a
+content-free FCM wake (`crates/daemon/src/fcm.rs`), and the phone dials it (`Push.kt`). The
+Firebase client values live outside git in `~/.config/jarvis/tether-fcm.properties`; without them
+the app builds and works, just without wakes.
+
+One quiet foreground service keeps the process alive, so the forum tunnel's `localhost:8080`
+answers whenever Chrome opens it; the tunnel's iroh endpoint starts only then and closes after 3
+minutes idle. The service itself holds no network and no wakelock. No WorkManager: the live process
+is enough.
 
 ## What's gone
 

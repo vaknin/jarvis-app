@@ -9,7 +9,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Keeps the network up through Doze, so the laptop can always reach the phone. -->
+    <!-- Keeps the network up through Doze for the short sync after a wake. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
@@ -56,14 +56,23 @@
             </intent-filter>
         </activity>
 
-        <!-- Keeps the process up, and with it the link and the forum tunnel. -->
+        <!-- Keeps the process up, so the forum tunnel's localhost port answers. -->
         <service
             android:name=".LinkService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps the owner's own laptop link and home forum tunnel reachable" />
+                android:value="Keeps the owner's home forum tunnel answering on localhost" />
+        </service>
+
+        <!-- The laptop's wake (FCM): the phone dials it and takes what it queued. -->
+        <service
+            android:name=".WakeMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
         </service>
 
         <receiver

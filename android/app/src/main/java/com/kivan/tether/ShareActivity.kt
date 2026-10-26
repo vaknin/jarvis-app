@@ -13,8 +13,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Target of the "Laptop" Direct Share tile and the share-sheet entry. Files are copied in
- * ([Outgoing]) and queued; text without a file becomes a chat message. The always-on node
- * delivers them as soon as the laptop is reachable.
+ * ([Outgoing]) and queued; text without a file becomes a chat message. The node stays up
+ * while they're queued and delivers them as soon as the laptop is reachable.
  */
 class ShareActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {

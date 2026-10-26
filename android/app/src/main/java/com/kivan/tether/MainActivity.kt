@@ -33,8 +33,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Once: without it, Doze cuts the network while the screen is off, and the laptop can't reach
-     * the phone until it wakes. The always-on link depends on this.
+     * Once: without it, Doze can cut the network in the middle of the short sync after a wake, and
+     * a file from the laptop waits until the screen comes on. It costs nothing while idle.
      */
     @SuppressLint("BatteryLife")
     private fun askBatteryExemption() {

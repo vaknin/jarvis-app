@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.os.SystemClock
 import android.util.Log
 import com.kivan.tether.core.ChatMessage
 import com.kivan.tether.core.Event
@@ -15,6 +16,7 @@ import com.kivan.tether.core.TetherNode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,9 +29,10 @@ private const val TAG = "Tether"
 private const val HISTORY = 500u
 
 /**
- * Owns the Rust node, which runs for as long as the process does ([LinkService] keeps it up): the
- * laptop can dial it any time, and the core's own redial delivers what the phone has queued. The
- * link itself closes when idle and is dialed again when either side has something.
+ * Owns the Rust node. The phone holds no connection while idle (the Oct 1 battery choice): the node
+ * runs only while the chat is on screen, something of the phone's is queued or moving, a link is
+ * open, or a wake or send has just started it. The laptop wakes it through FCM ([Push]) when it has
+ * something; the core closes an idle link after 60 s, and then the node stops.
  */
 object Core {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -37,6 +40,8 @@ object Core {
     private lateinit var app: Context
     private val lock = Mutex()
     @Volatile private var node: TetherNode? = null
+    /** Until when ([SystemClock.elapsedRealtime]) a wake or a send keeps the node up regardless. */
+    @Volatile private var busyUntil = 0L
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -65,13 +70,30 @@ object Core {
     }
 
     private fun networkChanged() {
-        scope.launch { node?.let { runCatching { it.networkChange() } } }
+        scope.launch {
+            val n = node ?: return@launch
+            runCatching { n.networkChange() }
+            // Something of mine waiting for the laptop: a new network is a chance to reach it.
+            if (runCatching { n.status().queued > 0uL }.getOrDefault(false)) connect()
+        }
     }
+
+    /** The laptop's wake (FCM): dial, take what it queued, and stop again once idle. */
+    fun wake(reason: String) {
+        Log.i(TAG, "wake: $reason")
+        busyUntil = SystemClock.elapsedRealtime() + GRACE_MS
+        scope.launch { connect() }
+    }
+
+    /** A live frame if the node is running; never starts it. */
+    fun sendLive(send: (TetherNode) -> Boolean): Boolean =
+        node?.let { runCatching { send(it) }.getOrDefault(false) } ?: false
 
     val outgoingDir: File get() = File(app.filesDir, "outgoing")
 
-    /** The running node, started on first use. */
+    /** The running node, started on first use; [watch] stops it again once it's idle. */
     suspend fun start(): TetherNode = lock.withLock {
+        busyUntil = maxOf(busyUntil, SystemClock.elapsedRealtime() + GRACE_MS)
         node ?: com.kivan.tether.core.start(
             File(app.filesDir, "state").path,
             File(app.filesDir, "incoming").path,
@@ -84,7 +106,34 @@ object Core {
             node = n
             refresh(n)
             Log.i(TAG, "node started")
+            watch(n)
         }
+    }
+
+    /** Stops [n] once nothing needs it: checked every few seconds while it runs. */
+    private fun watch(n: TetherNode) = scope.launch {
+        while (true) {
+            delay(CHECK_MS)
+            lock.withLock {
+                if (node !== n) return@launch
+                if (idle(n)) {
+                    node = null
+                    n.shutdown()
+                    n.close()
+                    _connected.value = false
+                    Log.i(TAG, "node stopped")
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private fun idle(n: TetherNode): Boolean {
+        if (chatVisible || SystemClock.elapsedRealtime() < busyUntil || _progress.value.isNotEmpty()) return false
+        if (n.isConnected()) return false
+        // Unpaired, or nothing of mine queued for the laptop: the laptop's wake brings the rest.
+        val s = runCatching { n.status() }.getOrNull() ?: return false
+        return s.peer == null || s.queued == 0uL
     }
 
     fun setVisible(visible: Boolean) {
@@ -120,7 +169,10 @@ object Core {
     /** Called on a Rust runtime thread. */
     private fun handle(n: TetherNode, event: Event) {
         when (event) {
-            is Event.Connected -> _connected.value = true
+            is Event.Connected -> {
+                _connected.value = true
+                Push.sendToken(n)
+            }
             is Event.Disconnected -> _connected.value = false
             is Event.Message -> onMessage(event.msg)
             is Event.Progress -> {
@@ -192,4 +244,8 @@ object Core {
         start().markRead()
         node?.let(::refresh)
     }
+
+    /** How long a wake or a send keeps the node up before it may stop (a dial can take this long). */
+    private const val GRACE_MS = 30_000L
+    private const val CHECK_MS = 5_000L
 }

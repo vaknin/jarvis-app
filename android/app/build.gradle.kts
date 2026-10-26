@@ -45,6 +45,15 @@ val keys = Properties().apply {
 val forumSecret = File(home, ".config/jarvis/forum-phone-iroh-secret").takeIf { it.isFile }?.readText()?.trim()
     ?: error("no ~/.config/jarvis/forum-phone-iroh-secret (make one with the jarvis repo's `forum-gate keygen`)")
 
+// FCM, only to wake the phone (Push.kt): the client values of the Firebase project, kept outside git
+// in ~/.config/jarvis/tether-fcm.properties as apiKey, appId, projectId and senderId. Without them
+// the app builds and works, just without wakes.
+val fcmKeys = Properties().apply {
+    val f = File(home, ".config/jarvis/tether-fcm.properties")
+    if (f.isFile) f.inputStream().use(::load)
+}
+fun fcm(name: String) = fcmKeys.getProperty(name, "").trim()
+
 android {
     namespace = "com.kivan.tether"
     // Platform 37.2 (37 + minor 2), as in the dibs app: current Compose needs 37.
@@ -60,6 +69,10 @@ android {
         versionCode = 200
         versionName = "1.0.0"
         buildConfigField("String", "FORUM_SECRET", "\"$forumSecret\"")
+        buildConfigField("String", "FCM_API_KEY", "\"${fcm("apiKey")}\"")
+        buildConfigField("String", "FCM_APP_ID", "\"${fcm("appId")}\"")
+        buildConfigField("String", "FCM_PROJECT_ID", "\"${fcm("projectId")}\"")
+        buildConfigField("String", "FCM_SENDER_ID", "\"${fcm("senderId")}\"")
     }
 
     signingConfigs {
@@ -111,4 +124,5 @@ dependencies {
     // uniffi's Kotlin bindings call the Rust library through JNA.
     implementation("${libs.jna.get()}@aar")
     implementation(libs.code.scanner)
+    implementation(libs.firebase.messaging)
 }
