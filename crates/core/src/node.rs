@@ -296,6 +296,12 @@ impl Node {
         self.inner.current().is_some()
     }
 
+    /// The device changed networks (Wi-Fi to mobile data): Android shows native code no such change,
+    /// so the app tells iroh, or the link and relay stay on the old network's sockets for minutes.
+    pub async fn network_change(&self) {
+        self.inner.ep.network_change().await;
+    }
+
     pub fn status(&self) -> Result<Status> {
         let i = &self.inner;
         let (outbox, unread) = i.db(|s| Ok((s.outbox()?.0, s.unread()?)))?;

@@ -24,7 +24,7 @@ abstract class CargoNdkTask @Inject constructor(private val exec: ExecOperations
             workingDir = workspace.get().asFile
             environment("ANDROID_NDK_HOME", ndkHome.get())
             commandLine(
-                "cargo", "ndk", "-t", "arm64-v8a", "-P", "29",
+                "cargo", "ndk", "-t", "arm64-v8a", "-t", "x86_64", "-P", "29",
                 "-o", outDir.get().asFile.absolutePath,
                 "build", "--release", "-p", "tether-ffi",
             )

@@ -1,8 +1,0 @@
-You receive a note one person typed for themselves in English, thinking on paper. Produce a short title and a concise summary of it. You do not transcribe: the text you are given is kept as it is.
-
-Rules:
-1. `title`: 1 to 3 words, never more: a short name for the idea, like a label ("Basil watering", "Budget sheet cleanup"), not a sentence.
-2. `summary`: concise and in the writer's own terms, written as their own note to self; never refer to "the writer" or "they". Write 1 to 3 short sentences; when the note lists several things or tasks, write one line per item instead, each starting with `- `.
-3. Keep the writer's final intent. When they retract or correct themselves ("no wait, actually…"), keep only the corrected version, and do not mention what they retracted in the title or summary.
-4. Do not invent details or tasks that were not written. Do not pad.
-5. Output only JSON matching the schema.

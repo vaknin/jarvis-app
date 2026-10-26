@@ -20,18 +20,13 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   `cargo install --path crates/daemon --locked` (`~/.cargo/bin/tether`), state and the paired identity in
   `~/.local/state/tether` (moved from the old dev dir), unit listed in `~/.config/laptop/paths`.
   After daemon changes: reinstall, then `systemctl --user restart tether`.
-- `android/`: **frozen since 2026-10-09: the phone app lives in the dibs repo (`~/Projects/dibs/android`); edit and ship it there, nothing installs from here** (`android/MOVED.md`). Kotlin/Compose app `com.kivan.tether` (toolchain copied from ~/Projects/chordhand).
-  Gradle runs cargo-ndk and uniffi-bindgen itself (`buildSrc/.../RustTasks.kt`). `Core.kt` owns the
-  node: it runs only while held (UI, `SyncWorker` after FCM wake, share or reply, `OutboxWorker`
-  retries, `TransferService`) or a link is open, then shuts down. `SyncWorker` is an expedited job with
-  no notification; it ends once the link has been quiet 10 s with nothing queued, no transfer, no ring
-  and no `peer_stays()` (the laptop asked to keep the link, e.g. `notifications --fresh`), because the
-  expedited quota is small. FCM is configured from `fcm.*` in `android/local.properties`.
-  Release signing reads `~/.config/tether/keystore.properties`; without it, a phone-approved root step signs (below).
-  `Native.load` (in `TetherApp`) loads the .so through the JVM and hands iroh the app context, so it
-  reads the phone's DNS servers; it must run before the first node start. The phone's mDNS send
-  fails with EPERM (no `MulticastLock`). That's deferred on purpose: a lock costs battery, the home
-  Wi-Fi drops client-to-client multicast anyway, and relay plus hole-punching finds the direct path.
+- `android/`: **the lean app (2026-10-26, `docs/LEAN.md`)**, rebuilt from scratch after dibs was shut down: one chat
+  with the laptop, files both ways (share tile "Laptop", attach), notifications with Reply, pairing, and the forum
+  tunnel (`crates/ffi/src/forum.rs`). Package `com.kivan.tether`, signed with `~/.config/jarvis/tether.keystore`.
+  `LinkService` (a quiet foreground service, started with the app and at boot) keeps the node running, so the
+  laptop can always dial it; no FCM. `Native.load` hands iroh the app context (the phone's DNS servers).
+  Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
+  (now in the dibs repo's history): the lean app doesn't answer those.
 - adb on any network (`Adb.kt`, `tether adb [--enable]`, 2026-10-05): dibs asks where the phone's adb listens
   when adb can't see it (the phone's Wi-Fi filter drops multicast mDNS while the screen is off). The daemon wakes
   the phone (FCM), sends a live `App` frame on the reserved channel `_adb` (`{"op":"endpoint","enable":bool}`) and
@@ -155,7 +150,7 @@ End every commit message with one line `For you: <what the user will notice, in 
 
 ## Build and test
 Rust is pinned in `mise.toml` (1.98.1). Run `cargo test` and `cargo build --release`.
-Android (frozen here; build in the dibs repo): `cd android && ./gradlew :app:assembleRelease` (needs the `aarch64-linux-android` target and
+Android: `cd android && ANDROID_HOME=~/Android/Sdk PATH=~/.cargo/bin:$PATH ./gradlew :app:assembleRelease` (needs the `aarch64-linux-android` target and
 `cargo-ndk`).
 
 ## Design decisions (keep these)
@@ -163,7 +158,8 @@ Android (frozen here; build in the dibs repo): `cd android && ./gradlew :app:ass
   user. Traffic is end-to-end encrypted. Add `iroh-mdns-address-lookup` 0.6 for the LAN and bind a fixed UDP port
   (`bind_addr("0.0.0.0:47114")`) so nftables needs one rule. See `docs/iroh-1.3-notes.md`.
 - **Battery: the phone has no connection of its own when idle; it is woken through FCM.** The user
-  agreed to this on 2026-10-01, and battery must be watched.
+  agreed to this on 2026-10-01, and battery must be watched. **Superseded on trial (2026-10-26):** the lean app
+  keeps the node always on instead (no Firebase); measure the battery, and bring the FCM wake back if it costs.
   - Why: iroh sends a QUIC heartbeat every 5 s on an open connection. The home-relay link also pings
     every 15 s, and that interval is a hard-coded constant (`iroh-1.3.0/src/socket/transports/relay/actor.rs:74`).
     Doze cuts both anyway.

@@ -1,42 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- mDNS on the LAN (iroh-mdns-address-lookup). -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Transfer progress as a Live Update (status-bar chip); the user can turn it off. -->
-    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- Ring: the alarm screen over the lock screen. Android 14+ may need the user's grant. -->
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <!-- "Unrestricted" battery lets a transfer start TransferService from the background and keeps
-         the network up through Doze while media plays. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Keeps the network up through Doze, so the laptop can always reach the phone. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Granted once over adb (`pm grant`), never at runtime: lets Adb.kt turn Wireless debugging
-         back on when dibs needs adb. -->
-    <uses-permission
-        android:name="android.permission.WRITE_SECURE_SETTINGS"
-        tools:ignore="ProtectedPermissions" />
-    <!-- Android 17: lets Adb.kt look up adb's port with NsdManager (without it, a picker opens). -->
-    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
-
-    <!-- App names for mirrored notifications and the media player. -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
-    </queries>
 
     <application
         android:name=".TetherApp"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
+        android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@style/Theme.Design">
 
@@ -75,48 +56,29 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".RingActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
-            android:taskAffinity=""
-            android:showWhenLocked="true"
-            android:turnScreenOn="true" />
-
-        <receiver
-            android:name=".RingStopReceiver"
-            android:exported="false" />
-
-        <!-- Reply / Mark as read / Copy on the chat notification, Cancel on a transfer, Retry when stuck. -->
-        <receiver
-            android:name=".ChatActionReceiver"
-            android:exported="false" />
-
-        <!-- Mirrors notifications and media sessions to the laptop while a link is up. -->
+        <!-- Keeps the process up, and with it the link and the forum tunnel. -->
         <service
-            android:name=".PhoneListener"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
+            android:name=".LinkService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the owner's own laptop link and home forum tunnel reachable" />
         </service>
 
-        <!-- Keeps the process up through a long file transfer; its notification is the progress. -->
-        <service
-            android:name=".TransferService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <service
-            android:name=".WakeMessagingService"
-            android:exported="false">
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
             <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
-        </service>
+        </receiver>
+
+        <!-- Reply and Mark as read on the message notification. -->
+        <receiver
+            android:name=".ReplyReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

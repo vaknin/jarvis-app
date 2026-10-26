@@ -1,14 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Direct Share: the dynamic "Laptop" shortcut (Shortcuts.kt) carries the SHARE category, so the
-     share sheet shows it as a tile that opens ShareActivity. App channels with `share` carry
-     SHARE_TEXT: text only, which goes into the channel's compose. -->
+<!-- The "Laptop" Direct Share tile: ShareActivity, at the top of the share sheet. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <share-target android:targetClass="com.kivan.tether.ShareActivity">
         <data android:mimeType="*/*" />
         <category android:name="com.kivan.tether.SHARE" />
-    </share-target>
-    <share-target android:targetClass="com.kivan.tether.ShareActivity">
-        <data android:mimeType="text/plain" />
-        <category android:name="com.kivan.tether.SHARE_TEXT" />
     </share-target>
 </shortcuts>

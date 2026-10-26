@@ -1,9 +1,11 @@
 //! uniffi bindings of [`tether_core::node::Node`] for the Android app.
 //!
 //! The library owns one multi-threaded tokio runtime. Async exports run their work on it and are
-//! awaited from Kotlin coroutines. The phone holds no connection while idle, so the app starts a
-//! node when it has work (FCM wake, a share, the app opening) and shuts it down once the link has
-//! gone idle; [`start`] can be called again afterwards.
+//! awaited from Kotlin coroutines. The app keeps one node running for as long as its process lives
+//! (a foreground service), so the laptop can always dial it; the link itself closes when idle.
+//! [`forum`] is the forum tunnel, a separate endpoint.
+
+mod forum;
 
 use std::{
     path::PathBuf,
@@ -305,8 +307,8 @@ pub struct TetherNode {
     listener: Mutex<Option<JoinHandle<()>>>,
 }
 
-/// Starts the phone's node: n0 relays + mDNS, a random port, and no redial loop (the phone dials
-/// only when it has something to send or was woken).
+/// Starts the phone's node: n0 relays + mDNS, a random port, and the core's redial loop, which
+/// dials only while something is queued for the laptop.
 #[uniffi::export]
 /// `app_version` is told to the laptop on every link (`tether status --json`'s `phone_app`).
 pub async fn start(state_dir: String, download_dir: String, name: String, app_version: String) -> Res<Arc<TetherNode>> {
@@ -314,7 +316,6 @@ pub async fn start(state_dir: String, download_dir: String, name: String, app_ve
     on_rt(async move {
         let mut cfg = Config::new(PathBuf::from(state_dir), PathBuf::from(download_dir), name);
         cfg.net = Net::Internet { port: None };
-        cfg.redial = None;
         cfg.app_version = Some(app_version);
         let node = Node::start(cfg).await?;
         Ok(Arc::new(TetherNode { node, listener: Mutex::new(None) }))
@@ -506,6 +507,12 @@ impl TetherNode {
 
     pub fn disconnect(&self) {
         self.node.disconnect();
+    }
+
+    /// Tell iroh the phone changed networks (see [`Node::network_change`]).
+    pub async fn network_change(&self) {
+        let node = self.node.clone();
+        on_rt(async move { node.network_change().await }).await;
     }
 
     /// Closes the link and the endpoint. The object is unusable afterwards; call [`start`] again.

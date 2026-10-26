@@ -53,8 +53,7 @@ object Downloads {
             return@withContext
         }
         prefs.edit().putString(m.id, uri.toString()).apply()
-        Thumbs.save(context, m.id, src)
         src.delete()
-        if (!Core.chatVisible) Notifier.file(context, m, uri)
+        if (Core.chatVisible) Core.markRead() else Notifier.file(context, m, uri)
     }
 }

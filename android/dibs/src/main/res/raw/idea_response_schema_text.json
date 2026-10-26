@@ -1,9 +1,0 @@
-{
-  "type": "object",
-  "required": ["title", "summary"],
-  "additionalProperties": false,
-  "properties": {
-    "title": { "type": "string" },
-    "summary": { "type": "string" }
-  }
-}
