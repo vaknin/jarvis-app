@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The "Laptop" Direct Share tile: ShareActivity, at the top of the share sheet. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Long-press the icon (or drag it to the home screen): calls Jarvis at once. -->
+    <shortcut
+        android:shortcutId="call"
+        android:icon="@drawable/shortcut_call"
+        android:shortcutShortLabel="@string/call_short">
+        <intent
+            android:action="com.kivan.tether.CALL"
+            android:targetPackage="com.kivan.tether"
+            android:targetClass="com.kivan.tether.CallActivity" />
+    </shortcut>
     <share-target android:targetClass="com.kivan.tether.ShareActivity">
         <data android:mimeType="*/*" />
         <category android:name="com.kivan.tether.SHARE" />

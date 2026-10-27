@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.kivan.tether.CallActivity
 import com.kivan.tether.Core
 import com.kivan.tether.Downloads
 import com.kivan.tether.Forum
@@ -202,6 +203,9 @@ private fun Chat(peer: String, queued: ULong) {
                     else -> "Delivers when the laptop is reachable"
                 }
                 Text(line, style = MaterialTheme.typography.bodySmall, color = if (refused) MaterialTheme.colorScheme.error else Muted)
+            }
+            IconButton(onClick = { ctx.startActivity(CallActivity.intent(ctx, start = false)) }) {
+                Icon(painterResource(R.drawable.lucide_phone), "Call Jarvis", tint = Accent)
             }
             TextButton(onClick = { Forum.open(ctx) }) { Text("Forum") }
             Box {

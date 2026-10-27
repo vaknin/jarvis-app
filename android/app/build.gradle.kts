@@ -69,6 +69,8 @@ android {
         targetSdk = 36
         versionCode = 200
         versionName = "1.0.0"
+        // A call goes to jarvis-voice through the forum tunnel's voice port (Voice.PORT).
+        buildConfigField("String", "VOICE_URL", "\"ws://127.0.0.1:8791/call\"")
         buildConfigField("String", "FORUM_SECRET", "\"$forumSecret\"")
         buildConfigField("String", "FCM_API_KEY", "\"${fcm("apiKey")}\"")
         buildConfigField("String", "FCM_APP_ID", "\"${fcm("appId")}\"")
@@ -88,6 +90,11 @@ android {
     }
 
     buildTypes {
+        // Debug builds call a voice service on the emulator's host directly (no tunnel), for tests.
+        debug {
+            applicationIdSuffix = ".debug"
+            buildConfigField("String", "VOICE_URL", "\"ws://10.0.2.2:8790/call\"")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -126,4 +133,5 @@ dependencies {
     implementation("${libs.jna.get()}@aar")
     implementation(libs.code.scanner)
     implementation(libs.firebase.messaging)
+    implementation(libs.androidx.core.telecom)
 }

@@ -9,6 +9,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Calls with Jarvis (CallService): the mic, a self-managed Telecom call, and the call's foreground service. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Keeps the network up through Doze for the short sync after a wake. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
@@ -34,6 +42,36 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- A call with Jarvis: the big button, Mute and Hang up, over the lock screen. -->
+        <activity
+            android:name=".CallActivity"
+            android:exported="false"
+            android:label="Jarvis"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.kivan.tether.call"
+            android:showWhenLocked="true"
+            android:excludeFromRecents="true" />
+
+        <service
+            android:name=".CallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone" />
+
+        <!-- Quick Settings: "Jarvis", a tap calls, another hangs up. -->
+        <service
+            android:name=".JarvisTile"
+            android:exported="true"
+            android:icon="@drawable/lucide_phone"
+            android:label="Jarvis"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
 
         <!-- The "Laptop" Direct Share tile and the plain share-sheet entry. -->
         <activity

@@ -16,6 +16,7 @@ import com.kivan.tether.core.ChatMessage
 /** The app's notifications: messages from the laptop (with Reply), received files, and failures. */
 object Notifier {
     const val LINK = "link"
+    const val CALLS = "calls"
     private const val MESSAGES = "messages"
     private const val FILES = "files"
     private const val ALERTS = "alerts"
@@ -31,6 +32,10 @@ object Notifier {
                 NotificationChannel(LINK, "Always on", NotificationManager.IMPORTANCE_MIN).apply {
                     description = "Shown while Tether keeps the laptop link and the forum reachable"
                     setShowBadge(false)
+                },
+                NotificationChannel(CALLS, "Calls with Jarvis", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "The ongoing call, with Hang up and Mute"
+                    setSound(null, null)
                 },
                 NotificationChannel(MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel(FILES, "Files", NotificationManager.IMPORTANCE_DEFAULT),
