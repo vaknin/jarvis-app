@@ -62,6 +62,8 @@ class CallService : Service() {
     private var wake: PowerManager.WakeLock? = null
     private var wifi: WifiManager.WifiLock? = null
     private var telecom = false
+    /** Muted by another call taking the line, not by Aviv. */
+    @Volatile private var heldMute = false
 
     override fun onBind(intent: Intent?) = null
 
@@ -233,9 +235,10 @@ class CallService : Service() {
                 onAnswer = {},
                 // The headset's button, or the system ending it.
                 onDisconnect = { c.hangup() },
-                onSetActive = {},
+                // Back from the other call: unmuted again, unless Aviv had muted it himself.
+                onSetActive = { if (heldMute) { heldMute = false; setMuted(false) } },
                 // Another call came in and Aviv took it: Jarvis stops hearing him meanwhile.
-                onSetInactive = { setMuted(true) },
+                onSetInactive = { if (!Voice.ui.value.muted) { heldMute = true; setMuted(true) } },
             ) {
                 telecom = true
                 launch {

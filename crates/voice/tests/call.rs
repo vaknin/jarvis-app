@@ -366,3 +366,32 @@ async fn a_real_websocket_exchange() {
     wait_for(&log, r#"status Ended("hung up")"#).await;
     assert!(server.await.unwrap(), "the server got a 640-byte mic frame");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_hangup_on_a_broken_line_ends_the_call_without_reconnecting() {
+    let (call, s, mut accept, _r, log) = up().await;
+    // The phone's writes fail, and nothing has told it yet.
+    let Server { from_phone, to_phone } = s;
+    drop(from_phone);
+    call.hangup();
+    wait_for(&log, r#"status Ended("hung up")"#).await;
+    drop(to_phone);
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    assert!(accept.try_recv().is_err(), "no reconnect after a hangup");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unmute_while_the_line_is_down_reaches_the_server_on_resume() {
+    let (call, mut s, mut accept, refuse, log) = up().await;
+    call.set_muted(true);
+    assert_eq!(s.text().await, r#"{"type":"mute","on":true}"#);
+    refuse.store(true, Ordering::SeqCst);
+    drop(s);
+    wait_for(&log, "status Reconnecting").await;
+    call.set_muted(false);
+    refuse.store(false, Ordering::SeqCst);
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    assert_eq!(s.text().await, r#"{"type":"mute","on":false}"#);
+}

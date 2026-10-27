@@ -8,7 +8,6 @@ import android.os.PowerManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -24,9 +23,6 @@ import kotlinx.coroutines.launch
  * While a call is up, the proximity sensor turns the screen off in a pocket, so nothing gets pressed.
  */
 class CallActivity : ComponentActivity() {
-    private val askMic = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) Voice.start(this)
-    }
     private var proximity: PowerManager.WakeLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,7 +51,14 @@ class CallActivity : ComponentActivity() {
     }
 
     private fun call() {
-        if (CallService.micGranted(this)) Voice.start(this) else askMic.launch(Manifest.permission.RECORD_AUDIO)
+        if (CallService.micGranted(this)) Voice.start(this) else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC)
+    }
+
+    // The plain API, as MainActivity: the activity-result one needs a newer Fragment than core-telecom brings.
+    @Deprecated("plain permission callback")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == MIC && CallService.micGranted(this)) Voice.start(this)
     }
 
     private fun pocket(on: Boolean) {
@@ -75,6 +78,7 @@ class CallActivity : ComponentActivity() {
 
     companion object {
         const val START = "com.kivan.tether.CALL"
+        private const val MIC = 7
 
         fun intent(context: Context, start: Boolean) = Intent(context, CallActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)

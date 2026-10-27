@@ -378,14 +378,17 @@ async fn session(
         }
     };
 
+    let resumed = id.as_ref() == Some(&call);
     if id.as_ref().is_some_and(|old| *old != call) {
         // The server no longer had the old call: this is a new one, without what was said before.
         sh.events.error("new call: Jarvis lost the old one");
     }
     *id = Some(call);
     sh.earcon(Earcon::Connected);
-    if sh.muted.load(Ordering::SeqCst) {
-        send!(Frame::Text(Up::Mute { on: true }.json()), true);
+    // A new call starts unmuted; a resumed one may have been muted or unmuted while the line was down.
+    let muted = sh.muted.load(Ordering::SeqCst);
+    if muted || resumed {
+        send!(Frame::Text(Up::Mute { on: muted }.json()), true);
     }
     while mic.try_recv().is_ok() {}
     sh.live.store(true, Ordering::SeqCst);
@@ -437,7 +440,9 @@ async fn live(
                     check = Some(Instant::now() + t.net_check);
                 }
                 Some(Cmd::Hangup) | None => {
-                    send!(Frame::Text(Up::Hangup.json()));
+                    // Even on a line that just broke: a hangup ends the call, it never reconnects.
+                    // The server ends a call it doesn't hear back from after 5 minutes anyway.
+                    let _ = timeout(t.send_timeout, tx.send(Frame::Text(Up::Hangup.json()))).await;
                     // Over for Aviv now; the socket stays a moment, since the server checks for a
                     // conclusion worth keeping, then closes.
                     sh.end("hung up".into());
