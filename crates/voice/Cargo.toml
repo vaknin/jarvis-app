@@ -1,0 +1,20 @@
+[package]
+name = "tether-voice"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "The phone's end of a voice call with Jarvis (jarvis repo voice/PROTOCOL.md): wire, jitter buffer, earcons, reconnect."
+
+[dependencies]
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+futures-util = { version = "0.3", features = ["sink"] }
+# Already built for iroh-relay; plain ws:// only (the iroh tunnel encrypts).
+tokio-websockets = { version = "0.13", default-features = false, features = ["client", "sha1_smol", "getrandom"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tokio-websockets = { version = "0.13", default-features = false, features = ["client", "server", "sha1_smol", "getrandom"] }

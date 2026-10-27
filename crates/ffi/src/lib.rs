@@ -3,9 +3,10 @@
 //! The library owns one multi-threaded tokio runtime. Async exports run their work on it and are
 //! awaited from Kotlin coroutines. The app keeps one node running for as long as its process lives
 //! (a foreground service), so the laptop can always dial it; the link itself closes when idle.
-//! [`forum`] is the forum tunnel, a separate endpoint.
+//! [`forum`] is the forum tunnel, a separate endpoint; [`voice`] is a voice call with Jarvis through it.
 
 mod forum;
+mod voice;
 
 use std::{
     path::PathBuf,

@@ -19,6 +19,7 @@ bindgen = ["uniffi/cli"]
 
 [dependencies]
 tether-core = { path = "../core" }
+tether-voice = { path = "../voice" }
 uniffi = "0.32.2"
 tokio.workspace = true
 anyhow.workspace = true

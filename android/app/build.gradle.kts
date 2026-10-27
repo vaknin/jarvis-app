@@ -15,6 +15,7 @@ val rustSources = files(
     workspaceDir.file("Cargo.toml"),
     workspaceDir.file("Cargo.lock"),
     fileTree(workspaceDir.dir("crates/core")) { include("Cargo.toml", "src/**") },
+    fileTree(workspaceDir.dir("crates/voice")) { include("Cargo.toml", "src/**") },
     fileTree(workspaceDir.dir("crates/ffi")) { include("Cargo.toml", "uniffi.toml", "src/**") },
 )
 

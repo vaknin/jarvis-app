@@ -3715,11 +3715,25 @@ dependencies = [
  "iroh-tickets",
  "jni-sys 0.4.1",
  "tether-core",
+ "tether-voice",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "uniffi",
  "uuid",
+]
+
+[[package]]
+name = "tether-voice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-websockets",
+ "tracing",
 ]
 
 [[package]]
