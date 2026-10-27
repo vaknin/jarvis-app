@@ -219,8 +219,9 @@ Android: `cd android && ANDROID_HOME=~/Android/Sdk PATH=~/.cargo/bin:$PATH ./gra
   - MPRIS `org.mpris.MediaPlayer2.tether.pixel` through zbus.
 
 ## Machine notes
-- Phone over adb: `dibs phone connect` finds it on any network (through `tether adb` when mDNS can't); never
-  store or ask for an IP or port. Always pass `-s`, and check which app has focus before any `adb input`.
+- Phone over adb: `pixel` (in `~/.local/bin`) connects to the Pixel over Wi-Fi and prints its serial: last address that
+  worked, else a scan of LAN hosts for the wireless-debugging port. The phone trusts dibs's old key, now `~/.android/adbkey`
+  (Jarvis's own unpaired one is `adbkey.jarvis-own`). Always pass `-s`, and check which app has focus before any `adb input`.
 - QML plugin edits only take effect after `omarchy restart shell`.
 
 ## Screens
