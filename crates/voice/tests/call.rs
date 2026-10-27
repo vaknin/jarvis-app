@@ -395,3 +395,45 @@ async fn an_unmute_while_the_line_is_down_reaches_the_server_on_resume() {
     s.send(r#"{"type":"ready","call":"c1"}"#);
     assert_eq!(s.text().await, r#"{"type":"mute","on":false}"#);
 }
+
+/// A server restarting closes with "going away": the phone resumes instead of ending the call.
+#[tokio::test]
+async fn a_server_going_away_is_a_drop_not_the_end() {
+    use tokio_websockets::{CloseCode, Message, ServerBuilder};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut hellos = vec![];
+        for code in [CloseCode::GOING_AWAY, CloseCode::NORMAL_CLOSURE] {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let (_req, mut ws) = ServerBuilder::new().accept(tcp).await.unwrap();
+            hellos.push(ws.next().await.unwrap().unwrap().as_text().unwrap().to_owned());
+            ws.send(Message::text(r#"{"type":"ready","call":"x"}"#.to_string())).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let _ = ws.send(Message::close(Some(code), "")).await;
+            while let Some(Ok(_)) = ws.next().await {}
+        }
+        hellos
+    });
+    let log = Arc::new(Log::default());
+    let _call = Call::start(websocket(format!("ws://127.0.0.1:{port}/call")), log.clone(), Timing::default());
+    wait_for(&log, r#"status Ended("Jarvis ended the call")"#).await;
+    assert!(log.has("status Reconnecting"));
+    assert_eq!(server.await.unwrap()[1], r#"{"type":"hello","version":1,"resume":"x"}"#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_network_change_while_reconnecting_tries_again_at_once() {
+    let (call, s, mut accept, refuse, log) = up().await;
+    refuse.store(true, Ordering::SeqCst);
+    drop(s);
+    wait_for(&log, "status Reconnecting").await;
+    // Several failed tries: the backoff is up to seconds now.
+    tokio::time::sleep(Duration::from_secs(20)).await;
+    refuse.store(false, Ordering::SeqCst);
+    let t0 = tokio::time::Instant::now();
+    call.network_changed();
+    let mut s = accept.recv().await.unwrap();
+    assert!(t0.elapsed() < Duration::from_millis(100), "{:?}", t0.elapsed());
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+}

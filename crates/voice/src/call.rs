@@ -1,6 +1,7 @@
 //! The call itself: connect, `hello`, stream both ways, and come back with `resume` after a drop.
 //!
-//! - A Close frame from the server means Jarvis ended the call. A socket that just breaks (EOF, an
+//! - A Close frame from the server means Jarvis ended the call, unless its code says the server is
+//!   going away or restarting (1001, 1012, 1013): that is a drop, and the phone resumes. A socket that just breaks (EOF, an
 //!   error, or nothing at all from the server for [`Timing::dead_after`]) is a drop: the phone plays
 //!   the Dropped earcon and reconnects with backoff, sending `resume` with the call's id, until
 //!   [`Timing::resume_give_up`] after the drop (the server keeps a call 5 minutes).
@@ -65,6 +66,13 @@ pub fn websocket(url: String) -> Connector {
             });
             let rx = stream.map(|m| {
                 let m = m?;
+                if let Some((code, _)) = m.as_close() {
+                    let code = u16::from(code);
+                    // The server restarting is a drop: the phone comes back with `resume`.
+                    if matches!(code, 1001 | 1012 | 1013) {
+                        return Err(anyhow!("server going away ({code})"));
+                    }
+                }
                 Ok(if let Some(s) = m.as_text() {
                     Frame::Text(s.to_owned())
                 } else if m.is_binary() {
@@ -263,6 +271,8 @@ impl Drop for Call {
 
 enum Outcome {
     HungUp,
+    /// The network changed before `ready`: try again on the new one at once.
+    NetworkChanged,
     /// The server closed: the call is over.
     Ended(String),
     /// The line broke; `live` if the call was up on it (`ready` came).
@@ -289,13 +299,22 @@ async fn run(
                 r = &mut connect => break r.map_err(|_| anyhow!("timed out")).and_then(|r| r),
                 c = cmd.recv() => match c {
                     Some(Cmd::Hangup) | None => break 'call "hung up".to_string(),
-                    Some(_) => {}
+                    // A new network: this try was on the old one, start over on the new one now.
+                    Some(Cmd::NetworkChanged) => {
+                        tries = 0;
+                        continue 'call;
+                    }
+                    Some(Cmd::Mute(_)) => {}
                 },
             }
         };
         let dropped = match res {
             Ok((tx, rx)) => match session(tx, rx, &sh, &mut cmd, &mut mic, &t, &mut id).await {
                 Outcome::HungUp => break "hung up".into(),
+                Outcome::NetworkChanged => {
+                    tries = 0;
+                    continue 'call;
+                }
                 Outcome::Ended(why) => break why,
                 Outcome::Dropped { live, why } => {
                     if live {
@@ -373,7 +392,8 @@ async fn session(
                     let _ = timeout(t.send_timeout, tx.send(Frame::Text(Up::Hangup.json()))).await;
                     return Outcome::HungUp;
                 }
-                Some(_) => {}
+                Some(Cmd::NetworkChanged) => return Outcome::NetworkChanged,
+                Some(Cmd::Mute(_)) => {}
             },
         }
     };

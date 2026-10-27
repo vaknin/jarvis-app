@@ -53,11 +53,13 @@ import kotlinx.coroutines.withTimeoutOrNull
  * blocking writes pace it. The earcons come mixed into the same stream.
  */
 class CallService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // Per call: a redial can land on this same service before Android has destroyed it.
+    private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var call: VoiceCall? = null
-    private val over = CompletableDeferred<Unit>()
+    private var over = CompletableDeferred<Unit>()
     @Volatile private var flushTrack = false
     @Volatile private var running = false
+    private var redial = false
     private var net: ConnectivityManager.NetworkCallback? = null
     private var wake: PowerManager.WakeLock? = null
     private var wifi: WifiManager.WifiLock? = null
@@ -70,8 +72,9 @@ class CallService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             HANGUP -> call?.hangup() ?: stopSelf()
-            MUTE -> call?.let { setMuted(!Voice.ui.value.muted) }
-            else -> if (call == null) begin()
+            MUTE -> call?.let { heldMute = false; setMuted(!Voice.ui.value.muted) }
+            // A redial while the last call's ended earcon still plays starts once that one is gone.
+            else -> if (call == null) begin() else if (!running) redial = true
         }
         return START_NOT_STICKY
     }
@@ -90,6 +93,9 @@ class CallService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
         runCatching { Forum.start() }
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        over = CompletableDeferred()
+        heldMute = false
         val c = VoiceCall(BuildConfig.VOICE_URL, Listener())
         call = c
         running = true
@@ -130,6 +136,7 @@ class CallService : Service() {
     /** The speaker: until the call is over and its last earcon has played. Then the service ends. */
     private fun speaker() {
         val c = call ?: return
+        val (over, scope) = over to scope
         val min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val track = AudioTrack.Builder()
             .setAudioAttributes(
@@ -172,8 +179,23 @@ class CallService : Service() {
         }
     }
 
+    /** The mic, brought back if it fails (another app grabbed it, the route changed); a call that
+     *  can't hear Aviv after three tries hangs up rather than leave him talking to nobody. */
     private fun mic() {
         val c = call ?: return
+        repeat(3) { n ->
+            if (micOnce(c) || !running) return
+            Log.w(TAG, "mic failed, try ${n + 1}")
+            Thread.sleep(500)
+        }
+        if (running) {
+            Voice.update(this) { it.copy(error = "the microphone stopped") }
+            c.hangup()
+        }
+    }
+
+    /** True when it ended because the call did. */
+    private fun micOnce(c: VoiceCall): Boolean {
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = try {
             @Suppress("MissingPermission")
@@ -183,8 +205,7 @@ class CallService : Service() {
             )
         } catch (e: Exception) {
             Log.w(TAG, "mic", e)
-            Voice.update(this) { it.copy(error = "microphone: ${e.message}") }
-            return
+            return false
         }
         // VOICE_COMMUNICATION already cancels echo on most phones; asking again costs nothing.
         val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId) else null
@@ -206,9 +227,10 @@ class CallService : Service() {
                 if (got == FRAME_BYTES) c.sendAudio(buf.copyOf())
                 if (++frames % 500 == 0L) Log.i(TAG, "mic: $frames frames in ${(System.nanoTime() - t0) / 1_000_000} ms")
             }
+            return true
         } catch (e: Exception) {
             Log.w(TAG, "mic", e)
-            Voice.update(this) { it.copy(error = "microphone: ${e.message}") }
+            return false
         } finally {
             runCatching { rec.stop() }
             aec?.release()
@@ -245,8 +267,10 @@ class CallService : Service() {
                     val r = setActive()
                     Log.i(TAG, "telecom active: $r")
                 }
-                launch { isMuted.drop(1).collect { setMuted(it) } }
+                // The system's own mute (a headset, the call panel) is Aviv's.
+                launch { isMuted.drop(1).collect { heldMute = false; setMuted(it) } }
                 launch { currentCallEndpoint.collect { Log.i(TAG, "route: ${it.name}") } }
+                val over = over
                 launch {
                     over.await()
                     disconnect(DisconnectCause(DisconnectCause.LOCAL))
@@ -308,11 +332,19 @@ class CallService : Service() {
             val am = getSystemService(AudioManager::class.java)
             am.clearCommunicationDevice()
             am.mode = AudioManager.MODE_NORMAL
+            routed = false
         }
+        telecom = false
+        val scope = scope
         scope.launch {
             // Telecom's disconnect is launched by `over`; give it a moment before the scope goes.
             withTimeoutOrNull(2000) { kotlinx.coroutines.delay(500) }
             scope.cancel()
+        }
+        if (redial) {
+            redial = false
+            begin()
+            return
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
