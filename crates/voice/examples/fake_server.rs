@@ -37,8 +37,30 @@ fn tone(ms: usize, hz: f32) -> Vec<u8> {
         .collect()
 }
 
+/// The socket's writing half, behind a channel, so an answer streams while the mic is still read
+/// (as the real service does: Aviv can talk over it, and `hangup` is seen at once).
+#[derive(Clone)]
+struct Out(tokio::sync::mpsc::UnboundedSender<Message>);
+
+impl Out {
+    async fn send(&mut self, m: Message) -> anyhow::Result<()> {
+        self.0.send(m).map_err(|_| anyhow::anyhow!("socket gone"))
+    }
+}
+
 async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
-    let (_req, mut ws) = ServerBuilder::new().accept(tcp).await?;
+    let (_req, ws) = ServerBuilder::new().accept(tcp).await?;
+    let (mut sink, mut ws) = ws.split();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    tokio::spawn(async move {
+        while let Some(m) = rx.recv().await {
+            let close = m.is_close();
+            if sink.send(m).await.is_err() || close {
+                break;
+            }
+        }
+    });
+    let mut out = Out(tx);
     let started = Instant::now();
     let (mut mic_bytes, mut loud_frames, mut since_answer, mut answers) = (0usize, 0usize, 0usize, 0usize);
     let mut last_report = Instant::now();
@@ -50,13 +72,13 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
             match v["type"].as_str() {
                 Some("hello") => {
                     let id = v["resume"].as_str().unwrap_or("fake-call").to_string();
-                    ws.send(Message::text(format!(r#"{{"type":"ready","call":"{id}"}}"#))).await?;
-                    ws.send(Message::text(r#"{"type":"state","state":"listening"}"#.to_string())).await?;
+                    out.send(Message::text(format!(r#"{{"type":"ready","call":"{id}"}}"#))).await?;
+                    out.send(Message::text(r#"{"type":"state","state":"listening"}"#.to_string())).await?;
                     println!("[{n}] sent ready {id}");
                 }
                 Some("hangup") => {
                     println!("[{n}] hangup after {:.1}s, mic {mic_bytes} bytes", started.elapsed().as_secs_f32());
-                    ws.close().await?;
+                    out.send(Message::close(None, "")).await?;
                     return Ok(());
                 }
                 _ => {}
@@ -76,7 +98,8 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
             if since_answer >= RATE * 2 * 2 {
                 since_answer = 0;
                 answers += 1;
-                answer(&mut ws, n, answers).await?;
+                let out = out.clone();
+                tokio::spawn(async move { answer(out, n, answers).await });
             }
         } else if m.is_ping() {
             println!("[{n}] ping");
@@ -89,10 +112,7 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn answer<S>(ws: &mut tokio_websockets::WebSocketStream<S>, n: usize, k: usize) -> anyhow::Result<()>
-where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
+async fn answer(mut ws: Out, n: usize, k: usize) -> anyhow::Result<()> {
     ws.send(Message::text(format!(r#"{{"type":"text","who":"aviv","text":"(fake) heard you, part {k}"}}"#))).await?;
     ws.send(Message::text(r#"{"type":"state","state":"thinking"}"#.to_string())).await?;
     tokio::time::sleep(Duration::from_millis(400)).await;

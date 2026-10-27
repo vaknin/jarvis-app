@@ -13,3 +13,11 @@
 - tile click while keyguard showing: SystemUI wants unlock first, no hangup (expected Android behaviour for custom tiles)
 - mic rate on emulator ~32 frames/s (expected 50): added a mic rate log to check if emulator or us
 TODO: hangup via screen button, ended screenshot, rebuild w/ alignment fix + mic log, release apk, tunnel test via ffi + tester key, pair review, docs, land, forum reply 36, delete voice-wip
+
+## Gate tunnel test (06:4x)
+- `voice_through_the_gate` (ignored test, crates/ffi forum.rs) with a temp key added to ~/.jarvis/forum-iroh-allow and removed after:
+  ready after 1.2 s through iroh → gate → 127.0.0.1:8790 (fake_server), text/state/audio came back, flush, hangup seen by the server. PASS.
+## Emulator re-check (06:36–06:43)
+- Mic rate now 50 frames/s exactly (500 in 9987 ms); the 32/s earlier was the emulator, not us.
+- Tile now follows the call while the panel is open (was stuck on "Call"). Fixed: JarvisTile collects Voice.ui while listening.
+- Hangup: screen shows "Call ended: hung up" within 0.4 s. Server saw hangup in 5/6 calls; the one miss (first call after reinstall, conn reset) didn't reproduce in 5 tries incl. the same path. Worst case: the server waits out the 5 min resume window.

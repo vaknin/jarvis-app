@@ -249,6 +249,8 @@ class CallService : Service() {
                     disconnect(DisconnectCause(DisconnectCause.LOCAL))
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "telecom refused the call; routing by hand", e)
             if (!telecom) routeByHand()

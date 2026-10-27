@@ -168,6 +168,21 @@ impl Shared {
         }
     }
 
+    /// The call is over for Aviv: the mic stops, the ended earcon plays, the app hears `Ended`.
+    /// Only the first call counts (a hangup ends it before the server has closed).
+    fn end(&self, why: String) {
+        if matches!(*self.status.lock().unwrap(), Some(Status::Ended(_))) {
+            return;
+        }
+        self.live.store(false, Ordering::SeqCst);
+        {
+            let mut p = self.player.lock().unwrap();
+            p.earcon(Earcon::Ended);
+            p.end();
+        }
+        self.set_status(Status::Ended(why));
+    }
+
     fn earcon(&self, e: Earcon) {
         self.player.lock().unwrap().earcon(e);
     }
@@ -314,13 +329,7 @@ async fn run(
             }
         }
     };
-    sh.live.store(false, Ordering::SeqCst);
-    {
-        let mut p = sh.player.lock().unwrap();
-        p.earcon(Earcon::Ended);
-        p.end();
-    }
-    sh.set_status(Status::Ended(why));
+    sh.end(why);
 }
 
 /// One socket, from `hello` until it ends.
@@ -429,7 +438,9 @@ async fn live(
                 }
                 Some(Cmd::Hangup) | None => {
                     send!(Frame::Text(Up::Hangup.json()));
-                    // The server checks for a conclusion worth keeping, then closes.
+                    // Over for Aviv now; the socket stays a moment, since the server checks for a
+                    // conclusion worth keeping, then closes.
+                    sh.end("hung up".into());
                     let _ = timeout(t.hangup_wait, async { while let Some(Ok(f)) = rx.next().await { if f == Frame::Close { break } } }).await;
                     return Outcome::HungUp;
                 }

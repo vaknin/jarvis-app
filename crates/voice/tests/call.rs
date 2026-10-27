@@ -190,8 +190,9 @@ async fn hangup_sends_hangup_and_ends_with_the_earcon() {
     call.pull_audio(Earcon::Connected.samples().len());
     call.hangup();
     assert_eq!(s.text().await, r#"{"type":"hangup"}"#);
+    // Ended at once, before the server has closed: the screen and the earcon don't wait for it.
+    tokio::time::timeout(Duration::from_millis(100), wait_for(&log, r#"status Ended("hung up")"#)).await.expect("ended at once");
     let _ = s.to_phone.send(Ok(Frame::Close));
-    wait_for(&log, r#"status Ended("hung up")"#).await;
     let mut n = 0;
     loop {
         let b = call.pull_audio(320);

@@ -4,11 +4,27 @@ import android.app.PendingIntent
 import android.graphics.drawable.Icon
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /** The Quick Settings tile "Jarvis": a tap calls, a tap during the call hangs up. */
 class JarvisTile : TileService() {
+    private var watch: Job? = null
+
+    // While the panel is open the tile follows the call, so a tap that starts one shows it at once.
     override fun onStartListening() {
-        val ui = Voice.ui.value
+        watch?.cancel()
+        watch = CoroutineScope(Dispatchers.Main).launch { Voice.ui.collect(::show) }
+    }
+
+    override fun onStopListening() {
+        watch?.cancel()
+        watch = null
+    }
+
+    private fun show(ui: Voice.Ui) {
         qsTile?.apply {
             state = if (ui.live) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             label = "Jarvis"

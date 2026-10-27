@@ -166,3 +166,67 @@ async fn pipe(tcp: TcpStream, endpoint: &Endpoint, addr: EndpointAddr, handshake
     tokio::try_join!(up, down)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use tether_voice::{Call, Events, Status, Timing, websocket};
+
+    #[derive(Default)]
+    struct Log(Mutex<Vec<String>>);
+
+    impl Events for Log {
+        fn status(&self, s: Status) {
+            self.0.lock().unwrap().push(format!("{s:?}"));
+        }
+        fn text(&self, who: &str, text: &str) {
+            self.0.lock().unwrap().push(format!("{who}: {text}"));
+        }
+        fn error(&self, text: &str) {
+            self.0.lock().unwrap().push(format!("error {text}"));
+        }
+        fn flush(&self) {}
+    }
+
+    /// A real call through the gate on dibs: `FORUM_TICKET=… FORUM_SECRET=… cargo test -p tether-ffi
+    /// -- --ignored voice_through_the_gate` with a voice service on 127.0.0.1:8790 (jarvis-voice, or
+    /// `cargo run -p tether-voice --example fake_server`), and a key the gate lets in.
+    #[test]
+    #[ignore]
+    fn voice_through_the_gate() {
+        let (ticket, secret) = (std::env::var("FORUM_TICKET").unwrap(), std::env::var("FORUM_SECRET").unwrap());
+        eprintln!("id {}", secret.trim().parse::<super::SecretKey>().unwrap().public());
+        super::forum_start(ticket, 18080, 18791, secret);
+        let log = std::sync::Arc::new(Log::default());
+        let _rt = crate::RT.enter();
+        let call = Call::start(websocket("ws://127.0.0.1:18791/call".into()), log.clone(), Timing::default());
+        let has = |s: &str| log.0.lock().unwrap().iter().any(|l| l.contains(s));
+        let start = std::time::Instant::now();
+        while !has("Listening") {
+            assert!(start.elapsed().as_secs() < 60, "no call: {:?} / {}", log.0.lock().unwrap(), super::forum_status());
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        eprintln!("ready after {:?}", start.elapsed());
+        // 3 s of mic, then the answer: Jarvis's audio comes back through the tunnel.
+        let t = std::time::Instant::now();
+        let mut frame = 0;
+        let mut heard = 0usize;
+        while t.elapsed().as_secs() < 10 && heard < 16_000 {
+            if t.elapsed().as_millis() as usize >= frame * 20 {
+                call.send_audio(vec![0; 640]);
+                frame += 1;
+            }
+            heard += call.buffered_ms() as usize * 16;
+            let _ = call.pull_audio(160);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        eprintln!("log: {:?}", log.0.lock().unwrap());
+        assert!(heard > 0, "no audio came back");
+        call.hangup();
+        while !has("Ended") {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
