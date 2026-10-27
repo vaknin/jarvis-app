@@ -27,6 +27,16 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   laptop can always dial it; no FCM. `Native.load` hands iroh the app context (the phone's DNS servers).
   Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
   (now in the dibs repo's history): the lean app doesn't answer those.
+- Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of
+  `~/Projects/jarvis/voice/PROTOCOL.md` (WebSocket, PCM16 mono 16 kHz, `hello`/`ready`/`state`/`flush`/`mute`/`hangup`,
+  `resume` after a drop with backoff, given up 285 s after it; jitter buffer and earcons in `player.rs`). Its tests run
+  on a fake socket on tokio's paused clock; `cargo run -p tether-voice --example fake_server` stands in for
+  `jarvis-voice` on 127.0.0.1:8790. The ffi's `VoiceCall` wraps it; the forum tunnel's second port 8791 opens its pipe
+  with `voice`, which the gate sends to jarvis-voice. In the app: `CallService` (foreground, phoneCall + microphone; a
+  self-managed Telecom call through androidx core-telecom, so the AirPods use their call profile and a press hangs
+  up; communication mode by hand only if Telecom refuses), `CallActivity` (big Call button, Mute, Hang up, shown over
+  the lock screen, proximity off in a pocket), the Quick Settings tile "Jarvis" and the "Call Jarvis" shortcut. Debug
+  builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator.
 - adb on any network (`Adb.kt`, `tether adb [--enable]`, 2026-10-05): dibs asks where the phone's adb listens
   when adb can't see it (the phone's Wi-Fi filter drops multicast mDNS while the screen is off). The daemon wakes
   the phone (FCM), sends a live `App` frame on the reserved channel `_adb` (`{"op":"endpoint","enable":bool}`) and
