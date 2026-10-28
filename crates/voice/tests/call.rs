@@ -609,3 +609,22 @@ async fn a_drop_back_within_the_grace_goes_unnoticed() {
     assert!(!log.statuses().iter().any(|l| l.contains("Reconnecting")), "{:?}", log.statuses());
     assert_eq!(call.buffered_ms(), 1000, "the reply wasn't flushed");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_call_about_a_thread_says_so_until_the_server_has_it_but_never_on_resume() {
+    let (conn, mut accept, _refuse) = fake();
+    let log = Arc::new(Log::default());
+    let about = tether_voice::proto::About { topic: 112, title: "One app".into(), text: "Keep it?".into() };
+    let _call = Call::start_about(conn, log.clone(), Timing::default(), Some(about));
+    let with = r#"{"type":"hello","version":1,"resume":null,"about":{"topic":112,"title":"One app","text":"Keep it?"}}"#;
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(s.text().await, with);
+    drop(s); // broke before ready: the redial is still the first hello
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(s.text().await, with);
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+}

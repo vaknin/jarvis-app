@@ -33,7 +33,7 @@ use tokio::{
 
 use crate::{
     player::{Earcon, Player},
-    proto::{Down, Up},
+    proto::{About, Down, Up},
 };
 
 /// One WebSocket message, as the call sees it.
@@ -224,6 +224,11 @@ pub struct Call {
 impl Call {
     /// Starts dialling at once. Must be called inside a tokio runtime.
     pub fn start(connector: Connector, events: Arc<dyn Events>, timing: Timing) -> Call {
+        Self::start_about(connector, events, timing, None)
+    }
+
+    /// [`Call::start`], for a call about one thread: the first hello says which, so Jarvis opens with it.
+    pub fn start_about(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>) -> Call {
         let shared = Arc::new(Shared {
             player: Mutex::new(Player::new(timing.jitter)),
             events,
@@ -236,7 +241,7 @@ impl Call {
         let (cmd, cmd_rx) = mpsc::unbounded_channel();
         // 10 frames (200 ms): a send that lags more than that drops the newest speech, not the call.
         let (mic, mic_rx) = mpsc::channel(10);
-        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing));
+        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about));
         Call { shared, cmd, mic }
     }
 
@@ -337,7 +342,7 @@ struct Dial {
     stop: Option<oneshot::Sender<()>>,
 }
 
-fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>) -> Dial {
+fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>) -> Dial {
     let (hello, (stop, mut stopped)) = (Arc::new(AtomicBool::new(false)), oneshot::channel::<()>());
     let (connect, said, t) = (connector(), hello.clone(), t.clone());
     let fut = Box::pin(async move {
@@ -350,7 +355,7 @@ fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<Strin
             Ok(Err(e)) => return Dialed::Failed(format!("{e:#}")),
             Ok(Ok(s)) => s,
         };
-        match timeout(t.send_timeout, tx.send(Frame::Text(Up::Hello { version: 1, resume }.json()))).await {
+        match timeout(t.send_timeout, tx.send(Frame::Text(Up::Hello { version: 1, resume, about }.json()))).await {
             Ok(Ok(())) => said.store(true, Ordering::SeqCst),
             Ok(Err(e)) => return Dialed::Failed(format!("send: {e:#}")),
             Err(_) => return Dialed::Failed("send timed out".into()),
@@ -388,6 +393,8 @@ struct Run {
     mic: mpsc::Receiver<Vec<u8>>,
     t: Timing,
     id: Option<String>,
+    /// What the call is about, said in each hello until the server has the call.
+    about: Option<About>,
     line: Option<Line>,
     next: Option<Dial>,
     /// Since when the line has been stalled or down (or the call started); `None` while it's fine.
@@ -407,15 +414,17 @@ async fn run(
     mut cmd: mpsc::UnboundedReceiver<Cmd>,
     mic: mpsc::Receiver<Vec<u8>>,
     t: Timing,
+    about: Option<About>,
 ) {
     sh.set_status(Status::Connecting);
-    let next = Some(dial(&connector, sh.clone(), &t, None));
+    let next = Some(dial(&connector, sh.clone(), &t, None, about.clone()));
     let mut r = Run {
         connector,
         sh: sh.clone(),
         mic,
         t,
         id: None,
+        about,
         line: None,
         next,
         down: Some(Instant::now()),
@@ -513,7 +522,9 @@ impl Run {
 
     fn redial(&mut self) {
         self.retry_at = None;
-        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone()));
+        // Until the server has the call, a redial is still its first hello, and says what it's about.
+        let about = if self.id.is_none() { self.about.clone() } else { None };
+        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about));
     }
 
     async fn network_changed(&mut self) {

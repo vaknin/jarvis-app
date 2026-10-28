@@ -77,6 +77,16 @@ impl VoiceCall {
         Arc::new(VoiceCall(Call::start(websocket(url), Arc::new(Bridge(listener)), Timing::default())))
     }
 
+    /// [`VoiceCall::new`] for a call about forum thread `topic` (its notification's Call button): the
+    /// first hello carries the thread's title and newest posts, so Jarvis opens with it.
+    #[uniffi::constructor]
+    pub fn about(url: String, listener: Box<dyn VoiceListener>, topic: u64, title: String, text: String) -> Arc<Self> {
+        crate::init_logging();
+        let _rt = RT.enter();
+        let about = tether_voice::proto::About { topic, title, text };
+        Arc::new(VoiceCall(Call::start_about(websocket(url), Arc::new(Bridge(listener)), Timing::default(), Some(about))))
+    }
+
     /// One 20 ms mic frame (640 bytes PCM16 LE mono 16 kHz). Never blocks.
     pub fn send_audio(&self, pcm: Vec<u8>) {
         self.0.send_audio(pcm);
