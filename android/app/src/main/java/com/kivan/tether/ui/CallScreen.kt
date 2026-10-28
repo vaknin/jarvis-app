@@ -137,19 +137,6 @@ private fun Duration(since: Long?) {
     )
 }
 
-/** One speaker's turn: their pieces in a row, joined. */
-private data class Turn(val call: Long, val who: String, val text: String, val at: Long)
-
-private fun turns(pieces: List<CallLog.Piece>): List<Turn> {
-    val out = ArrayList<Turn>()
-    for (p in pieces) {
-        val last = out.lastOrNull()
-        if (last != null && last.call == p.call && last.who == p.who) out[out.size - 1] = last.copy(text = last.text + " " + p.text)
-        else out += Turn(p.call, p.who, p.text, p.at)
-    }
-    return out
-}
-
 /**
  * The chat of the calls, oldest at the top, a call's start between them. It follows new lines only
  * while it's at the bottom, so scrolling back up to read stays put.
@@ -157,7 +144,8 @@ private fun turns(pieces: List<CallLog.Piece>): List<Turn> {
 @Composable
 private fun Transcript(pieces: List<CallLog.Piece>, modifier: Modifier) {
     val ctx = LocalContext.current
-    val turns = remember(pieces) { turns(pieces) }
+    // One piece per turn already (CallLog keeps each speaker's whole line as one piece).
+    val turns = pieces
     val list = rememberLazyListState()
     // The end is the empty item after the last turn; a growing last bubble can push it off, which still counts.
     val atEnd by remember {
@@ -188,7 +176,7 @@ private fun Transcript(pieces: List<CallLog.Piece>, modifier: Modifier) {
 }
 
 @Composable
-private fun Bubble(t: Turn) {
+private fun Bubble(t: CallLog.Piece) {
     val aviv = t.who != "jarvis"
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (aviv) Arrangement.End else Arrangement.Start) {
         Text(

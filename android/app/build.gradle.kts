@@ -134,4 +134,5 @@ dependencies {
     implementation(libs.code.scanner)
     implementation(libs.firebase.messaging)
     implementation(libs.androidx.core.telecom)
+    testImplementation("junit:junit:4.13.2")
 }

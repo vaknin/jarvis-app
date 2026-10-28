@@ -38,7 +38,8 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   (`AudioRoutes.kt`: a tap cycles earpiece, speaker, Bluetooth, wired; through Telecom's endpoints, AudioManager's
   communication device when routed by hand), the call's length from connect (also the notification's chronometer),
   the transcript as a chat that scrolls back through past calls (`CallLog`, `filesDir/call-log.jsonl`, newest 2000
-  pieces; it follows new lines only at the bottom), shown over the lock screen, proximity off in a pocket),
+  pieces; a `text` frame is the speaker's whole line so far, so one from the same speaker replaces the last piece
+  (`CallLog.fold`, unit-tested), never appended; it follows new lines only at the bottom), shown over the lock screen, proximity off in a pocket),
   the Quick Settings tile "Jarvis" and the "Call Jarvis" shortcut. A turn makes no sound (only connect, drop and end
   have earcons) and the call notification is quiet (low channel, alerts once), so the screen stays off. Debug
   builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator.
