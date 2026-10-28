@@ -28,6 +28,11 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   Updates come from Jarvis's server through the forum tunnel, from anywhere (`Updater.kt`, docs/LEAN.md
   "Updates from the server"): after `assembleRelease` on committed master, `scripts/publish-app.sh` offers it,
   and the phone asks for one tap. versionCode is the commit count (`git rev-list --count HEAD`).
+  Jarvis's notifications (`jarvis notify` on the server, 2026-10-28): the forum gate dials the tunnel's endpoint
+  (ALPN `jarvis-alert/0`, the gate's id only; `crates/ffi/src/alerts.rs`), `Alerts.kt` shows each on the "Jarvis"
+  channel and answers its id, or nothing, and the server falls back to Chrome push. Once started, the endpoint stays
+  up (iroh's relay ping every 15 s is the standing battery cost; no connection is held). Design: the jarvis repo's
+  `notes/tether-notify.md`.
   Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
   (now in the dibs repo's history): the lean app doesn't answer those.
 - Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of

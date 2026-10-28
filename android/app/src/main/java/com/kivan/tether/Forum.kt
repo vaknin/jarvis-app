@@ -24,9 +24,12 @@ object Forum {
     fun status(): String = forumStatus()
 
     /** Opens the forum in Chrome, where it can be added to the home screen as an app. */
-    fun open(context: Context) {
-        val view = Intent(Intent.ACTION_VIEW, Uri.parse(URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    fun open(context: Context) = context.startActivity(view(context, "/"))
+
+    /** The intent that opens the forum at [path] (`/t/42`), in Chrome when it's there. */
+    fun view(context: Context, path: String): Intent {
+        val view = Intent(Intent.ACTION_VIEW, Uri.parse(URL + path)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val chrome = Intent(view).setPackage("com.android.chrome")
-        context.startActivity(if (chrome.resolveActivity(context.packageManager) != null) chrome else view)
+        return if (chrome.resolveActivity(context.packageManager) != null) chrome else view
     }
 }

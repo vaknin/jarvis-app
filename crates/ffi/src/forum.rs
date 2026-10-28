@@ -14,6 +14,9 @@
 //! (netwatch 0.19's failed rebind), and reusing it made every redial of a call die within seconds.
 //! Each pipe logs one line when it ends (`forum: pipe …`): its kind, connect time, path, bytes and why.
 //!
+//! The same endpoint takes Jarvis's notifications, which the gate dials it with ([`crate::alerts`]):
+//! once the app starts them, the endpoint stays up instead of closing when idle.
+//!
 //! The same endpoint asks the gate for app updates ([`update_check`], [`update_fetch`]): the
 //! handshake `build`, which the gate answers itself from the builds Jarvis published there (the
 //! jarvis repo's `forum-gate publish`, `forum/phone/tunnel/src/builds.rs`, which has the wire format).
@@ -125,7 +128,13 @@ impl Lazy {
         if let Some(e) = ep.as_ref() {
             return Ok(e.clone());
         }
-        let e = Endpoint::builder(presets::N0).secret_key(self.key.clone()).bind().await.context("iroh")?;
+        let e = Endpoint::builder(presets::N0)
+            .secret_key(self.key.clone())
+            .alpns(vec![crate::alerts::ALERT_ALPN.to_vec()])
+            .bind()
+            .await
+            .context("iroh")?;
+        tokio::spawn(crate::alerts::accept(e.clone(), self.addr.id));
         let e = (self.made.fetch_add(1, Ordering::SeqCst), e);
         *ep = Some(e.clone());
         Ok(e)
@@ -228,6 +237,22 @@ async fn serve(ticket: &str, port: u16, voice_port: u16, secret: &str) -> Result
 }
 
 static PIPES: AtomicU64 = AtomicU64::new(1);
+
+/// For [`crate::alerts`]: the endpoint stays up from now on (a hold the reaper respects), and is
+/// made again if it was closed (a rebuild after a broken pipe). Does nothing before [`forum_start`].
+pub(crate) async fn keep_up() {
+    static HELD: AtomicBool = AtomicBool::new(false);
+    let Some(lazy) = ENDPOINT.lock().unwrap().clone() else { return };
+    if !HELD.swap(true, Ordering::SeqCst) {
+        lazy.open.fetch_add(1, Ordering::SeqCst);
+    }
+    if lazy.ep.lock().await.is_none() {
+        match lazy.get().await {
+            Ok(_) => set_status("on"),
+            Err(e) => set_status(format!("{e:#}")),
+        }
+    }
+}
 
 /// How a pipe ended: `broken` says why its endpoint should go, if it should.
 struct End {

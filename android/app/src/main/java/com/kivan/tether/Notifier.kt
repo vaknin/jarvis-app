@@ -17,6 +17,7 @@ import com.kivan.tether.core.ChatMessage
 object Notifier {
     const val LINK = "link"
     const val CALLS = "calls"
+    private const val JARVIS = "jarvis"
     private const val MESSAGES = "messages"
     private const val FILES = "files"
     private const val ALERTS = "alerts"
@@ -39,6 +40,9 @@ object Notifier {
                     setSound(null, null)
                 },
                 NotificationChannel(MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel(JARVIS, "Jarvis", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "What Jarvis sends you: a job done, a question, a list you asked for"
+                },
                 NotificationChannel(FILES, "Files", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel(ALERTS, "Problems", NotificationManager.IMPORTANCE_DEFAULT),
             ),
@@ -117,6 +121,32 @@ object Notifier {
             .setAutoCancel(true)
             .build()
         runCatching { nm.notify(FAILED_ID, n) }
+    }
+
+    /**
+     * A notification from Jarvis ([Alerts]): its own, one per [id], expandable to the whole text. A tap
+     * opens the forum at [url] (a path) in Chrome. False when Android won't show it (notifications or
+     * the Jarvis channel turned off), so the sender takes its other route.
+     */
+    fun jarvis(context: Context, id: Long, title: String, text: String, url: String): Boolean {
+        val nm = NotificationManagerCompat.from(context)
+        if (!nm.areNotificationsEnabled()) return false
+        if (nm.getNotificationChannel(JARVIS)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+        val tag = id.toInt()
+        val open = PendingIntent.getActivity(
+            context, tag, Forum.view(context, url.ifEmpty { "/" }), PendingIntent.FLAG_IMMUTABLE,
+        )
+        val n = NotificationCompat.Builder(context, JARVIS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title.ifEmpty { "Jarvis" })
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .build()
+        return runCatching { nm.notify("jarvis", tag, n) }.isSuccess
     }
 
     fun cancelMessages(context: Context) = NotificationManagerCompat.from(context).cancel(MESSAGE_ID)

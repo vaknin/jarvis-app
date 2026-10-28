@@ -10,8 +10,8 @@ import android.util.Log
 import kotlinx.coroutines.launch
 
 /**
- * Keeps the process up so the forum tunnel's localhost port always answers (its iroh endpoint
- * starts only when the forum is used). Costs nothing while idle: no network, no wakelock. The link
+ * Keeps the process up so the forum tunnel's localhost port always answers and Jarvis's notifications
+ * arrive ([Alerts], which keeps the tunnel's iroh endpoint up: its relay ping every 15 s). No wakelock. The link
  * node isn't kept up: the laptop wakes it through FCM ([Push]). Started with the app and at boot.
  */
 class LinkService : Service() {
@@ -32,6 +32,7 @@ class LinkService : Service() {
         // After a boot or an update, deliver anything left queued; the node stops again once idle.
         Core.scope.launch { runCatching { Core.start() }.onFailure { Log.w("Tether", "node start failed", it) } }
         runCatching { Forum.start() }.onFailure { Log.w("Tether", "forum tunnel failed", it) }
+        Alerts.start(this)
         Updater.loop(this)
         return START_STICKY
     }

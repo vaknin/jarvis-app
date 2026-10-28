@@ -5,6 +5,7 @@
 //! (a foreground service), so the laptop can always dial it; the link itself closes when idle.
 //! [`forum`] is the forum tunnel, a separate endpoint; [`voice`] is a voice call with Jarvis through it.
 
+mod alerts;
 mod forum;
 mod voice;
 

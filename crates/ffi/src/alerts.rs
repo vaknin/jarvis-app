@@ -1,0 +1,151 @@
+//! Jarvis's notifications for Aviv: the forum gate dials this phone with each one (the jarvis repo's
+//! `forum/phone/tunnel/src/alerts.rs`, which has the why and the wire format) and the app shows it.
+//!
+//! The phone's side is the forum tunnel's endpoint ([`crate::forum`]), which accepts [`ALERT_ALPN`]
+//! from the gate's id only. [`alerts_start`] keeps that endpoint up for good, instead of closing it
+//! when the forum is idle: an endpoint with no connection costs only iroh's relay ping (every 15 s,
+//! hard-coded), and no QUIC keep-alives, since no connection stays open. Each alert is a connection
+//! that lasts a second: one JSON line in, the app shows it, its id goes back.
+
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+use anyhow::{Context, Result};
+use iroh::{Endpoint, EndpointId, endpoint::Incoming};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+use crate::RT;
+
+pub(crate) const ALERT_ALPN: &[u8] = b"jarvis-alert/0";
+/// The longest alert line read; the gate sends at most 4000 characters of text.
+const MAX_LINE: u64 = 32 * 1024;
+/// How often the keeper checks that the endpoint is up (a local look, no network).
+const KEEP_EVERY: Duration = Duration::from_secs(20);
+
+/// The app's side: shows one notification, true once it is on screen. `url` is a forum path for
+/// the tap to open, or empty.
+#[uniffi::export(with_foreign)]
+pub trait AlertListener: Send + Sync {
+    fn show(&self, id: u64, title: String, text: String, url: String) -> bool;
+}
+
+static LISTENER: Mutex<Option<Arc<dyn AlertListener>>> = Mutex::new(None);
+
+/// Starts taking Jarvis's notifications, shown through `listener`; a second call only swaps the
+/// listener. Needs [`crate::forum::forum_start`].
+#[uniffi::export]
+pub fn alerts_start(listener: Arc<dyn AlertListener>) {
+    if LISTENER.lock().unwrap().replace(listener).is_some() {
+        return;
+    }
+    RT.spawn(async {
+        loop {
+            crate::forum::keep_up().await;
+            tokio::time::sleep(KEEP_EVERY).await;
+        }
+    });
+}
+
+/// Whether the endpoint should accept alerts at all.
+pub(crate) fn wanted() -> bool {
+    LISTENER.lock().unwrap().is_some()
+}
+
+/// Takes the alerts that come to `ep` until it closes. Only `gate` gets in.
+pub(crate) async fn accept(ep: Endpoint, gate: EndpointId) {
+    while let Some(incoming) = ep.accept().await {
+        tokio::spawn(async move {
+            if let Err(e) = take(incoming, gate).await {
+                tracing::warn!("alert: {e:#}");
+            }
+        });
+    }
+}
+
+async fn take(incoming: Incoming, gate: EndpointId) -> Result<()> {
+    let conn = incoming.accept()?.await.context("accept")?;
+    if conn.remote_id() != gate || conn.alpn() != ALERT_ALPN {
+        conn.close(1u8.into(), b"not allowed");
+        anyhow::bail!("refused {}", conn.remote_id().fmt_short());
+    }
+    let (mut send, recv) = tokio::time::timeout(Duration::from_secs(10), conn.accept_bi()).await.context("no stream")??;
+    let mut line = String::new();
+    tokio::time::timeout(Duration::from_secs(10), BufReader::new(recv).take(MAX_LINE).read_line(&mut line))
+        .await
+        .context("no alert")??;
+    let v: serde_json::Value = serde_json::from_str(line.trim()).context("bad alert")?;
+    let id = v["id"].as_u64().context("no id")?;
+    let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    let (title, text, url) = (s("title"), s("text"), s("url"));
+    let listener = LISTENER.lock().unwrap().clone().context("no listener")?;
+    let shown = tokio::task::spawn_blocking(move || listener.show(id, title, text, url)).await?;
+    tracing::info!("alert {id}: {}", if shown { "shown" } else { "not shown" });
+    if shown {
+        send.write_all(format!("{id}\n").as_bytes()).await?;
+    }
+    send.finish()?;
+    // The gate closes once it has the answer.
+    let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct Shown(Mutex<Vec<(u64, String, String)>>, Mutex<bool>);
+
+    impl AlertListener for Shown {
+        fn show(&self, id: u64, title: String, text: String, url: String) -> bool {
+            self.0.lock().unwrap().push((id, title, format!("{text}{url}")));
+            !*self.1.lock().unwrap()
+        }
+    }
+
+    async fn endpoint(alpns: Vec<Vec<u8>>) -> Endpoint {
+        Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .relay_mode(iroh::RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
+            .alpns(alpns)
+            .bind()
+            .await
+            .unwrap()
+    }
+
+    /// What the gate does: one line out, the answer back.
+    async fn send(from: &Endpoint, to: &Endpoint, line: &str) -> Result<String> {
+        let conn = from.connect(to.addr(), ALERT_ALPN).await?;
+        let (mut s, r) = conn.open_bi().await?;
+        s.write_all(line.as_bytes()).await?;
+        s.finish()?;
+        let mut answer = String::new();
+        BufReader::new(r).read_line(&mut answer).await?;
+        conn.close(0u8.into(), b"done");
+        Ok(answer)
+    }
+
+    #[tokio::test]
+    async fn shows_what_the_gate_sends_and_says_so() {
+        let shown = Arc::new(Shown::default());
+        *LISTENER.lock().unwrap() = Some(shown.clone());
+        let (phone, gate, stranger) = (endpoint(vec![ALERT_ALPN.to_vec()]).await, endpoint(vec![]).await, endpoint(vec![]).await);
+        tokio::spawn(accept(phone.clone(), gate.id()));
+
+        let answer = send(&gate, &phone, "{\"id\":42,\"ts_ms\":1,\"title\":\"Job done\",\"text\":\"tether notify \",\"url\":\"/t/42\"}\n").await.unwrap();
+        assert_eq!(answer, "42\n");
+        assert_eq!(shown.0.lock().unwrap().as_slice(), [(42, "Job done".to_string(), "tether notify /t/42".to_string())]);
+
+        // Not shown (notifications off): no answer, so the sender takes its other route.
+        *shown.1.lock().unwrap() = true;
+        assert_eq!(send(&gate, &phone, "{\"id\":43,\"title\":\"\",\"text\":\"x\"}\n").await.unwrap(), "");
+
+        // Anyone but the gate is closed before a byte is read.
+        assert!(send(&stranger, &phone, "{\"id\":44,\"title\":\"\",\"text\":\"spoof\"}\n").await.is_err());
+        assert_eq!(shown.0.lock().unwrap().len(), 2);
+    }
+}
