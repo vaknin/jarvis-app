@@ -484,9 +484,7 @@ async fn live(
                                 "speaking" => Status::Speaking,
                                 _ => continue,
                             };
-                            if s == Status::Thinking && sh.status.lock().unwrap().as_ref() != Some(&Status::Thinking) {
-                                sh.earcon(Earcon::Thinking);
-                            }
+                            // No sound for a turn: it should feel like talking to a person (Aviv, 2026-10-28).
                             sh.set_status(s);
                         }
                         Some(Down::Flush) => {

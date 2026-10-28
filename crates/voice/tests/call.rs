@@ -160,11 +160,10 @@ async fn text_state_and_error_frames_reach_the_app() {
     wait_for(&log, "error tts slow").await;
     assert!(log.has("text aviv: what's the weather"));
     assert!(log.has("status Thinking"));
-    // Connected, then the thinking tick.
+    // Connected, then nothing: a turn makes no sound.
     let n = Earcon::Connected.samples().len();
     call.pull_audio(n);
-    let tick = Earcon::Thinking.samples();
-    assert_eq!(pcm_values(&call.pull_audio(tick.len())), tick);
+    assert!(pcm_values(&call.pull_audio(320)).iter().all(|&v| v == 0));
 }
 
 #[tokio::test(start_paused = true)]

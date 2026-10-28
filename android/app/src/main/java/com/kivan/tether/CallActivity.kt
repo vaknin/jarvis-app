@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * The call screen: one big button to call, then Mute and Hang up. Shown over the lock screen, and
+ * The call screen: one big button to call, then Mute, Hang up and the audio route. Shown over the lock screen, and
  * opened with [START] by the Quick Settings tile and the "Call Jarvis" shortcut, which call at once.
  * While a call is up, the proximity sensor turns the screen off in a pocket, so nothing gets pressed.
  */
@@ -29,7 +29,7 @@ class CallActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
-        setContent { CallScreen(onCall = ::call, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }) }
+        setContent { CallScreen(onCall = ::call, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }) }
         if (intent?.action == START && savedInstanceState == null) call()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {

@@ -66,6 +66,11 @@ class CallService : Service() {
     private var telecom = false
     /** Muted by another call taking the line, not by Aviv. */
     @Volatile private var heldMute = false
+    private val routes by lazy { AudioRoutes(this) }
+    /** When this call started: its pieces in [CallLog] share it. */
+    private var started = 0L
+    /** The notification's last text, so a state that reads the same isn't posted again. */
+    private var shown: String? = null
 
     override fun onBind(intent: Intent?) = null
 
@@ -73,6 +78,7 @@ class CallService : Service() {
         when (intent?.action) {
             HANGUP -> call?.hangup() ?: stopSelf()
             MUTE -> call?.let { heldMute = false; setMuted(!Voice.ui.value.muted) }
+            ROUTE -> if (call != null) routes.next()
             // A redial while the last call's ended earcon still plays starts once that one is gone.
             else -> if (call == null) begin() else if (!running) redial = true
         }
@@ -96,6 +102,8 @@ class CallService : Service() {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         over = CompletableDeferred()
         heldMute = false
+        started = System.currentTimeMillis()
+        shown = null
         val c = VoiceCall(BuildConfig.VOICE_URL, Listener())
         call = c
         running = true
@@ -115,12 +123,15 @@ class CallService : Service() {
     private inner class Listener : VoiceListener {
         override fun onState(state: CallState) {
             Log.i(TAG, "call: $state")
-            Voice.update(this@CallService) { it.copy(state = state) }
+            val up = state is CallState.Listening || state is CallState.Thinking || state is CallState.Speaking
+            Voice.update(this@CallService) {
+                it.copy(state = state, connectedAt = it.connectedAt ?: if (up) System.currentTimeMillis() else null)
+            }
             if (state is CallState.Ended) running = false else notify(state)
         }
 
         override fun onText(who: String, text: String) {
-            Voice.update(this@CallService) { if (who == "jarvis") it.copy(said = text) else it.copy(heard = text) }
+            CallLog.add(this@CallService, started, who, text)
         }
 
         override fun onError(text: String) {
@@ -269,7 +280,7 @@ class CallService : Service() {
                 }
                 // The system's own mute (a headset, the call panel) is Aviv's.
                 launch { isMuted.drop(1).collect { heldMute = false; setMuted(it) } }
-                launch { currentCallEndpoint.collect { Log.i(TAG, "route: ${it.name}") } }
+                launch { routes.follow(this@addCall) }
                 val over = over
                 launch {
                     over.await()
@@ -280,7 +291,7 @@ class CallService : Service() {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "telecom refused the call; routing by hand", e)
-            if (!telecom) routeByHand()
+            if (!telecom) { routeByHand(); routes.followByHand() }
         }
     }
 
@@ -335,6 +346,7 @@ class CallService : Service() {
             routed = false
         }
         telecom = false
+        routes.release()
         val scope = scope
         scope.launch {
             // Telecom's disconnect is launched by `over`; give it a moment before the scope goes.
@@ -358,8 +370,13 @@ class CallService : Service() {
 
     private fun notify(state: CallState?) {
         if (call == null || state == null || state is CallState.Ended) return
-        getSystemService(android.app.NotificationManager::class.java).notify(ID, notification(state, Voice.ui.value.muted))
+        val muted = Voice.ui.value.muted
+        val text = label(state, muted)
+        if (text == shown) return
+        getSystemService(android.app.NotificationManager::class.java).notify(ID, notification(state, muted))
     }
+
+    private fun label(state: CallState, muted: Boolean) = Voice.label(state) + if (muted) " · muted" else ""
 
     private fun notification(state: CallState, muted: Boolean): Notification {
         fun pending(action: String, code: Int) = PendingIntent.getService(
@@ -376,7 +393,11 @@ class CallService : Service() {
         ).build()
         return Notification.Builder(this, Notifier.CALLS)
             .setSmallIcon(R.drawable.lucide_phone)
-            .setContentText(Voice.label(state) + if (muted) " · muted" else "")
+            .setContentText(label(state, muted).also { shown = it })
+            // Updated at every turn: only the first post may alert, or each one can wake the screen.
+            .setOnlyAlertOnce(true)
+            // The call's length from when it connected; without this each update started it again.
+            .apply { Voice.ui.value.connectedAt?.let { setWhen(it).setShowWhen(true).setUsesChronometer(true) } }
             .setContentIntent(open)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_CALL)
@@ -388,6 +409,7 @@ class CallService : Service() {
     companion object {
         const val HANGUP = "hangup"
         const val MUTE = "mute"
+        const val ROUTE = "route"
         private const val TAG = "TetherCall"
         private const val ID = 20
         private const val RATE = 16_000

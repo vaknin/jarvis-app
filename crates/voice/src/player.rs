@@ -18,8 +18,6 @@ use crate::RATE;
 pub enum Earcon {
     /// The call is up (also after a reconnect): two rising notes.
     Connected,
-    /// Jarvis heard the end of what Aviv said: one soft tick.
-    Thinking,
     /// The line dropped and the phone is reconnecting: two falling notes.
     Dropped,
     /// The call ended: three falling notes.
@@ -31,7 +29,6 @@ impl Earcon {
     fn notes(self) -> (&'static [(f32, u32)], f32) {
         match self {
             Earcon::Connected => (&[(660.0, 90), (0.0, 30), (990.0, 130)], 0.25),
-            Earcon::Thinking => (&[(1320.0, 40)], 0.08),
             Earcon::Dropped => (&[(784.0, 130), (0.0, 50), (523.0, 200)], 0.25),
             Earcon::Ended => (&[(523.0, 120), (0.0, 30), (392.0, 120), (0.0, 30), (262.0, 240)], 0.25),
         }

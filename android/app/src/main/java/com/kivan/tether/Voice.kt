@@ -22,10 +22,12 @@ object Voice {
         /** Null when there's no call. */
         val state: CallState? = null,
         val muted: Boolean = false,
-        /** The newest line heard from Aviv and said by Jarvis. */
-        val heard: String = "",
-        val said: String = "",
         val error: String? = null,
+        /** Where the call sounds now, and every place it can (the route button cycles them). */
+        val route: AudioRoute? = null,
+        val routes: List<AudioRoute> = emptyList(),
+        /** When the call first connected (wall clock, ms): the duration counts from it, through every turn and reconnect. */
+        val connectedAt: Long? = null,
     ) {
         val live get() = state != null && state !is CallState.Ended
     }
@@ -52,9 +54,18 @@ object Voice {
 
     fun toggleMute(context: Context) = command(context, CallService.MUTE)
 
+    fun nextRoute(context: Context) = command(context, CallService.ROUTE)
+
     private fun command(context: Context, action: String) {
         if (!_ui.value.live) return
         context.startService(Intent(context, CallService::class.java).setAction(action))
+    }
+
+    /** A call's length as a phone shows it: 4:07, then 1:04:07. */
+    fun clock(ms: Long): String {
+        val t = (ms / 1000).coerceAtLeast(0)
+        val (h, m, s) = Triple(t / 3600, t / 60 % 60, t % 60)
+        return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
     }
 
     fun label(s: CallState?): String = when (s) {

@@ -33,7 +33,8 @@ object Notifier {
                     description = "Shown while Tether keeps the laptop link and the forum reachable"
                     setShowBadge(false)
                 },
-                NotificationChannel(CALLS, "Calls with Jarvis", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                // Low: quiet and never peeking or lighting the screen (an app may lower a channel it made).
+                NotificationChannel(CALLS, "Calls with Jarvis", NotificationManager.IMPORTANCE_LOW).apply {
                     description = "The ongoing call, with Hang up and Mute"
                     setSound(null, null)
                 },
