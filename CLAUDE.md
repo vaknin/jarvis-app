@@ -42,7 +42,9 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   (`CallLog.fold`, unit-tested), never appended; it follows new lines only at the bottom), shown over the lock screen, proximity off in a pocket),
   the Quick Settings tile "Jarvis" and the "Call Jarvis" shortcut. A turn makes no sound (only connect, drop and end
   have earcons) and the call notification is quiet (low channel, alerts once), so the screen stays off. Debug
-  builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator.
+  builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator, and carry the
+  emulator's forum key (`~/.config/jarvis/forum-emu-iroh-secret`), never the Pixel's: an endpoint with the phone's
+  id anywhere else takes its relay traffic. Why calls dropped and what the call/pipe logs mean: `docs/voice-link-drops.md`.
 - adb on any network (`Adb.kt`, `tether adb [--enable]`, 2026-10-05): dibs asks where the phone's adb listens
   when adb can't see it (the phone's Wi-Fi filter drops multicast mDNS while the screen is off). The daemon wakes
   the phone (FCM), sends a live `App` frame on the reserved channel `_adb` (`{"op":"endpoint","enable":bool}`) and
@@ -158,7 +160,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   Chat and ping toasts run `omarchy-shell tether open` on click.
 - Image bubbles fit the whole image at its own aspect on both sides: the laptop inside 220×220
   (`Chat.qml`, `sourceSize` sets both sides), the phone inside 260×320 (`ContentScale.Fit`). Never crop.
-- Logging: the ffi's filter is `info,tether_core=debug,iroh=warn,swarm_discovery=error`
+- Logging: the ffi's filter is `info,tether_core=debug,iroh=warn,netwatch=error,swarm_discovery=error`
   (`crates/ffi/src/lib.rs`), because swarm_discovery logs every failed mDNS send (EPERM) on the phone.
 
 ## Commits

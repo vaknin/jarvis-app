@@ -45,6 +45,11 @@ val keys = Properties().apply {
 // server, outside git, and goes only into the APK.
 val forumSecret = File(home, ".config/jarvis/forum-phone-iroh-secret").takeIf { it.isFile }?.readText()?.trim()
     ?: error("no ~/.config/jarvis/forum-phone-iroh-secret (make one with the jarvis repo's `forum-gate keygen`)")
+// Debug builds (the emulator) get their own key: an endpoint with the phone's id anywhere else takes
+// the phone's relay traffic (the relay sends to the newest client with an id), which dropped Aviv's
+// calls on 2026-10-28 while an emulator ran a debug build. Its id is in the gate's allow file too.
+val forumEmuSecret = File(home, ".config/jarvis/forum-emu-iroh-secret").takeIf { it.isFile }?.readText()?.trim()
+    ?: error("no ~/.config/jarvis/forum-emu-iroh-secret (debug builds must never carry the phone's key)")
 
 // FCM, only to wake the phone (Push.kt): the client values of the Firebase project, kept outside git
 // in ~/.config/jarvis/tether-fcm.properties as apiKey, appId, projectId and senderId. Without them
@@ -94,6 +99,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "VOICE_URL", "\"ws://10.0.2.2:8790/call\"")
+            buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
         }
         release {
             isMinifyEnabled = true

@@ -1,15 +1,19 @@
 //! The call itself: connect, `hello`, stream both ways, and come back with `resume` after a drop.
 //!
 //! - A Close frame from the server means Jarvis ended the call, unless its code says the server is
-//!   going away or restarting (1001, 1012, 1013): that is a drop, and the phone resumes. A socket that just breaks (EOF, an
-//!   error, or nothing at all from the server for [`Timing::dead_after`]) is a drop: the phone plays
-//!   the Dropped earcon and reconnects with backoff, sending `resume` with the call's id, until
-//!   [`Timing::resume_give_up`] after the drop (the server keeps a call 5 minutes).
+//!   going away or restarting (1001, 1012, 1013): that is a drop, and the phone resumes.
 //! - Liveness counts only what comes in: the mic's frames go out 50 times a second even into a dead
 //!   pipe (the forum tunnel is a local TCP socket, which takes writes long after iroh has gone). With
 //!   nothing in for [`Timing::ping_after`] it sends a WebSocket ping, which every server answers.
-//! - Writes that don't finish within [`Timing::send_timeout`] count as a drop too, so a stuck pipe
-//!   can't stall the call.
+//! - A line that stalls (a ping unanswered for [`Timing::pong_wait`], or a network change unanswered
+//!   for [`Timing::net_check`]) keeps going while a second socket dials with `resume`; the server
+//!   hands the call to the newer socket, and the phone switches once `ready` comes, without
+//!   flushing what's queued to play. If the old line answers before the second one has sent
+//!   `hello`, the second is called off. A socket that breaks (EOF, an error, a write that doesn't
+//!   finish within [`Timing::send_timeout`], or nothing in for [`Timing::dead_after`]) is redialled
+//!   at once, then with backoff, until [`Timing::resume_give_up`] (the server keeps a call 5 minutes).
+//! - Aviv hears about it (Reconnecting, the Dropped earcon, the mic off, the stale reply dropped)
+//!   only once the line has been down for [`Timing::grace`]: a quick switch goes unnoticed.
 
 use std::{
     pin::Pin,
@@ -23,8 +27,8 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use futures_util::{Sink, SinkExt, Stream, StreamExt, future::BoxFuture};
 use tokio::{
-    sync::mpsc,
-    time::{Instant, sleep_until, timeout},
+    sync::{mpsc, oneshot},
+    time::{Instant, sleep_until, timeout, timeout_at},
 };
 
 use crate::{
@@ -124,10 +128,14 @@ pub struct Timing {
     pub backoff_max: Duration,
     /// Ping when nothing came in for this long.
     pub ping_after: Duration,
-    /// Drop when nothing came in for this long.
+    /// A ping unanswered this long means the line stalled: a second socket dials.
+    pub pong_wait: Duration,
+    /// Drop the socket when nothing came in for this long.
     pub dead_after: Duration,
-    /// After a network change, drop unless something comes in within this.
+    /// After a network change, the line has stalled unless something comes in within this.
     pub net_check: Duration,
+    /// Aviv hears of a stall or a drop only once the line has been down this long.
+    pub grace: Duration,
     pub send_timeout: Duration,
     /// How long a hangup waits for the server to close.
     pub hangup_wait: Duration,
@@ -142,9 +150,11 @@ impl Default for Timing {
             resume_give_up: Duration::from_secs(285),
             backoff_min: Duration::from_millis(500),
             backoff_max: Duration::from_secs(10),
-            ping_after: Duration::from_secs(5),
+            ping_after: Duration::from_secs(2),
+            pong_wait: Duration::from_secs(3),
             dead_after: Duration::from_secs(15),
-            net_check: Duration::from_secs(4),
+            net_check: Duration::from_secs(3),
+            grace: Duration::from_millis(2500),
             send_timeout: Duration::from_secs(3),
             hangup_wait: Duration::from_secs(3),
             jitter: Duration::from_millis(120),
@@ -269,251 +279,392 @@ impl Drop for Call {
     }
 }
 
-enum Outcome {
-    HungUp,
-    /// The network changed before `ready`: try again on the new one at once.
-    NetworkChanged,
+/// The socket the call is on, and what came in on it lately.
+struct Line {
+    tx: Tx,
+    rx: Rx,
+    last_in: Instant,
+    pinged: bool,
+    /// A network change asked for an answer by then.
+    check: Option<Instant>,
+}
+
+impl Line {
+    fn new(tx: Tx, rx: Rx) -> Line {
+        Line { tx, rx, last_in: Instant::now(), pinged: false, check: None }
+    }
+
+    fn stalled(&self, t: &Timing) -> bool {
+        (self.pinged && self.last_in.elapsed() >= t.ping_after + t.pong_wait) || self.check.is_some_and(|c| Instant::now() >= c)
+    }
+}
+
+enum Dialed {
+    Ready { tx: Tx, rx: Rx, call: String },
     /// The server closed: the call is over.
     Ended(String),
-    /// The line broke; `live` if the call was up on it (`ready` came).
-    Dropped { live: bool, why: String },
+    Failed(String),
+}
+
+/// A socket on its way up: connect, `hello`, `ready`.
+struct Dial {
+    fut: BoxFuture<'static, Dialed>,
+    /// `hello` went out: the server hands the call to this socket, so it can't be called off.
+    hello: Arc<AtomicBool>,
+    /// Hang up: sends `hangup` if the socket is up, and ends the dial.
+    stop: Option<oneshot::Sender<()>>,
+}
+
+fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>) -> Dial {
+    let (hello, (stop, mut stopped)) = (Arc::new(AtomicBool::new(false)), oneshot::channel::<()>());
+    let (connect, said, t) = (connector(), hello.clone(), t.clone());
+    let fut = Box::pin(async move {
+        let up = tokio::select! {
+            r = timeout(t.connect_timeout, connect) => r,
+            _ = &mut stopped => return Dialed::Failed("hung up".into()),
+        };
+        let (mut tx, mut rx) = match up {
+            Err(_) => return Dialed::Failed("timed out".into()),
+            Ok(Err(e)) => return Dialed::Failed(format!("{e:#}")),
+            Ok(Ok(s)) => s,
+        };
+        match timeout(t.send_timeout, tx.send(Frame::Text(Up::Hello { version: 1, resume }.json()))).await {
+            Ok(Ok(())) => said.store(true, Ordering::SeqCst),
+            Ok(Err(e)) => return Dialed::Failed(format!("send: {e:#}")),
+            Err(_) => return Dialed::Failed("send timed out".into()),
+        }
+        let deadline = Instant::now() + t.connect_timeout;
+        loop {
+            let f = tokio::select! {
+                f = timeout_at(deadline, rx.next()) => f,
+                _ = &mut stopped => {
+                    let _ = timeout(t.send_timeout, tx.send(Frame::Text(Up::Hangup.json()))).await;
+                    return Dialed::Failed("hung up".into());
+                }
+            };
+            match f {
+                Err(_) => return Dialed::Failed("no ready".into()),
+                Ok(Some(Ok(Frame::Text(s)))) => match Down::parse(&s) {
+                    Some(Down::Ready { call }) => return Dialed::Ready { tx, rx, call },
+                    Some(Down::Error { text }) => sh.events.error(&text),
+                    _ => {}
+                },
+                Ok(Some(Ok(Frame::Close))) => return Dialed::Ended("Jarvis ended the call".into()),
+                Ok(Some(Ok(_))) => {}
+                Ok(Some(Err(e))) => return Dialed::Failed(format!("{e:#}")),
+                Ok(None) => return Dialed::Failed("closed before ready".into()),
+            }
+        }
+    });
+    Dial { fut, hello, stop: Some(stop) }
+}
+
+/// Everything the call loop keeps between events.
+struct Run {
+    connector: Connector,
+    sh: Arc<Shared>,
+    mic: mpsc::Receiver<Vec<u8>>,
+    t: Timing,
+    id: Option<String>,
+    line: Option<Line>,
+    next: Option<Dial>,
+    /// Since when the line has been stalled or down (or the call started); `None` while it's fine.
+    down: Option<Instant>,
+    /// Aviv was told (Connecting or Reconnecting shows, the mic is off).
+    shown: bool,
+    /// Failed dials since the line was last up.
+    tries: u32,
+    retry_at: Option<Instant>,
+    /// What the server last said it's doing, to show again if a stalled line comes back.
+    state: Status,
 }
 
 async fn run(
     connector: Connector,
     sh: Arc<Shared>,
     mut cmd: mpsc::UnboundedReceiver<Cmd>,
-    mut mic: mpsc::Receiver<Vec<u8>>,
+    mic: mpsc::Receiver<Vec<u8>>,
     t: Timing,
 ) {
-    let mut id: Option<String> = None;
-    // When the line was last lost (or the call started), and failed tries since.
-    let mut lost_at = Instant::now();
-    let mut tries = 0u32;
-    let why = 'call: loop {
-        sh.set_status(if id.is_none() { Status::Connecting } else { Status::Reconnecting });
-        let connect = timeout(t.connect_timeout, connector());
-        tokio::pin!(connect);
-        let res = loop {
-            tokio::select! {
-                r = &mut connect => break r.map_err(|_| anyhow!("timed out")).and_then(|r| r),
-                c = cmd.recv() => match c {
-                    Some(Cmd::Hangup) | None => break 'call "hung up".to_string(),
-                    // A new network: this try was on the old one, start over on the new one now.
-                    Some(Cmd::NetworkChanged) => {
-                        tries = 0;
-                        continue 'call;
-                    }
-                    Some(Cmd::Mute(_)) => {}
-                },
-            }
-        };
-        let dropped = match res {
-            Ok((tx, rx)) => match session(tx, rx, &sh, &mut cmd, &mut mic, &t, &mut id).await {
-                Outcome::HungUp => break "hung up".into(),
-                Outcome::NetworkChanged => {
-                    tries = 0;
-                    continue 'call;
+    sh.set_status(Status::Connecting);
+    let next = Some(dial(&connector, sh.clone(), &t, None));
+    let mut r = Run {
+        connector,
+        sh: sh.clone(),
+        mic,
+        t,
+        id: None,
+        line: None,
+        next,
+        down: Some(Instant::now()),
+        shown: true,
+        tries: 0,
+        retry_at: None,
+        state: Status::Listening,
+    };
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    let why = loop {
+        let ended = tokio::select! {
+            Some(pcm) = r.mic.recv(), if r.line.is_some() => {
+                if !r.sh.muted.load(Ordering::SeqCst) {
+                    r.send(Frame::Binary(pcm)).await;
                 }
-                Outcome::Ended(why) => break why,
-                Outcome::Dropped { live, why } => {
-                    if live {
-                        lost_at = Instant::now();
-                        tries = 0;
-                        sh.earcon(Earcon::Dropped);
-                    }
-                    why
+                None
+            }
+            c = cmd.recv() => match c {
+                Some(Cmd::Mute(on)) => {
+                    // With no line, the next `ready` sends it.
+                    r.send(Frame::Text(Up::Mute { on }.json())).await;
+                    None
+                }
+                Some(Cmd::NetworkChanged) => {
+                    r.network_changed().await;
+                    None
+                }
+                Some(Cmd::Hangup) | None => {
+                    r.hangup().await;
+                    Some("hung up".to_string())
                 }
             },
-            Err(e) => format!("{e:#}"),
-        };
-        tracing::info!("voice: line down: {dropped}");
-        let give_up = if id.is_none() { t.first_give_up } else { t.resume_give_up };
-        if lost_at.elapsed() >= give_up {
-            break if id.is_none() { "couldn't reach Jarvis".into() } else { "lost the line".into() };
-        }
-        sh.set_status(if id.is_none() { Status::Connecting } else { Status::Reconnecting });
-        let wait = (t.backoff_min * 2u32.saturating_pow(tries.min(16))).min(t.backoff_max);
-        tries += 1;
-        let until = (Instant::now() + wait).min(lost_at + give_up);
-        loop {
-            tokio::select! {
-                _ = sleep_until(until) => break,
-                c = cmd.recv() => match c {
-                    Some(Cmd::Hangup) | None => break 'call "hung up".to_string(),
-                    // A new network: try now.
-                    Some(Cmd::NetworkChanged) => break,
-                    Some(Cmd::Mute(_)) => {}
-                },
+            f = frame(&mut r.line) => r.frame(f),
+            d = dialed(&mut r.next) => r.dialed(d).await,
+            _ = at(r.retry_at) => {
+                r.retry_at = None;
+                r.redial();
+                None
             }
+            _ = tick.tick() => r.tick().await,
+        };
+        if let Some(why) = ended {
+            break why;
         }
     };
     sh.end(why);
 }
 
-/// One socket, from `hello` until it ends.
-async fn session(
-    mut tx: Tx,
-    mut rx: Rx,
-    sh: &Shared,
-    cmd: &mut mpsc::UnboundedReceiver<Cmd>,
-    mic: &mut mpsc::Receiver<Vec<u8>>,
-    t: &Timing,
-    id: &mut Option<String>,
-) -> Outcome {
-    macro_rules! send {
-        ($f:expr, $live:expr) => {
-            match timeout(t.send_timeout, tx.send($f)).await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => return Outcome::Dropped { live: $live, why: format!("send: {e:#}") },
-                Err(_) => return Outcome::Dropped { live: $live, why: "send timed out".into() },
-            }
-        };
+async fn frame(line: &mut Option<Line>) -> Option<Result<Frame>> {
+    match line {
+        Some(l) => l.rx.next().await,
+        None => std::future::pending().await,
     }
-
-    send!(Frame::Text(Up::Hello { version: 1, resume: id.clone() }.json()), false);
-    let deadline = Instant::now() + t.connect_timeout;
-    let call = loop {
-        tokio::select! {
-            f = rx.next() => match f {
-                Some(Ok(Frame::Text(s))) => match Down::parse(&s) {
-                    Some(Down::Ready { call }) => break call,
-                    Some(Down::Error { text }) => sh.events.error(&text),
-                    _ => {}
-                },
-                Some(Ok(Frame::Close)) => return Outcome::Ended("Jarvis ended the call".into()),
-                Some(Ok(_)) => {}
-                Some(Err(e)) => return Outcome::Dropped { live: false, why: format!("{e:#}") },
-                None => return Outcome::Dropped { live: false, why: "closed before ready".into() },
-            },
-            _ = sleep_until(deadline) => return Outcome::Dropped { live: false, why: "no ready".into() },
-            c = cmd.recv() => match c {
-                Some(Cmd::Hangup) | None => {
-                    let _ = timeout(t.send_timeout, tx.send(Frame::Text(Up::Hangup.json()))).await;
-                    return Outcome::HungUp;
-                }
-                Some(Cmd::NetworkChanged) => return Outcome::NetworkChanged,
-                Some(Cmd::Mute(_)) => {}
-            },
-        }
-    };
-
-    let resumed = id.as_ref() == Some(&call);
-    if id.as_ref().is_some_and(|old| *old != call) {
-        // The server no longer had the old call: this is a new one, without what was said before.
-        sh.events.error("new call: Jarvis lost the old one");
-    }
-    *id = Some(call);
-    sh.earcon(Earcon::Connected);
-    // A new call starts unmuted; a resumed one may have been muted or unmuted while the line was down.
-    let muted = sh.muted.load(Ordering::SeqCst);
-    if muted || resumed {
-        send!(Frame::Text(Up::Mute { on: muted }.json()), true);
-    }
-    while mic.try_recv().is_ok() {}
-    sh.live.store(true, Ordering::SeqCst);
-    sh.set_status(Status::Listening);
-
-    let out = live(&mut tx, &mut rx, sh, cmd, mic, t).await;
-    sh.live.store(false, Ordering::SeqCst);
-    if matches!(out, Outcome::Dropped { .. }) {
-        // What was queued of Jarvis's reply is stale now; the server goes on after the resume.
-        sh.player.lock().unwrap().flush();
-        sh.events.flush();
-    }
-    out
 }
 
-async fn live(
-    tx: &mut Tx,
-    rx: &mut Rx,
-    sh: &Shared,
-    cmd: &mut mpsc::UnboundedReceiver<Cmd>,
-    mic: &mut mpsc::Receiver<Vec<u8>>,
-    t: &Timing,
-) -> Outcome {
-    macro_rules! send {
-        ($f:expr) => {
-            match timeout(t.send_timeout, tx.send($f)).await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => return Outcome::Dropped { live: true, why: format!("send: {e:#}") },
-                Err(_) => return Outcome::Dropped { live: true, why: "send timed out".into() },
-            }
+async fn dialed(next: &mut Option<Dial>) -> Dialed {
+    match next {
+        Some(d) => (&mut d.fut).await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn at(when: Option<Instant>) {
+    match when {
+        Some(t) => sleep_until(t).await,
+        None => std::future::pending().await,
+    }
+}
+
+impl Run {
+    /// Sends on the line, if there is one; a send that fails or hangs breaks it.
+    async fn send(&mut self, f: Frame) {
+        let Some(l) = self.line.as_mut() else { return };
+        let why = match timeout(self.t.send_timeout, l.tx.send(f)).await {
+            Ok(Ok(())) => return,
+            Ok(Err(e)) => format!("send: {e:#}"),
+            Err(_) => "send timed out".into(),
         };
+        self.broke(&why);
     }
 
-    let mut last_in = Instant::now();
-    let mut pinged = false;
-    let mut check: Option<Instant> = None;
-    let mut tick = tokio::time::interval(Duration::from_millis(500));
-    loop {
-        tokio::select! {
-            Some(pcm) = mic.recv() => {
-                if !sh.muted.load(Ordering::SeqCst) {
-                    send!(Frame::Binary(pcm));
+    /// The line broke: redial at once (unless a dial is already on its way).
+    fn broke(&mut self, why: &str) {
+        tracing::info!("voice: line down: {why}");
+        self.line = None;
+        self.down.get_or_insert_with(Instant::now);
+        if self.next.is_none() {
+            self.redial();
+        }
+    }
+
+    fn redial(&mut self) {
+        self.retry_at = None;
+        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone()));
+    }
+
+    async fn network_changed(&mut self) {
+        // A dial that hasn't said hello yet was on the old network: start it over on the new one.
+        if self.next.as_ref().is_some_and(|d| !d.hello.load(Ordering::SeqCst)) || self.retry_at.is_some() {
+            self.tries = 0;
+            self.redial();
+        }
+        if let Some(l) = self.line.as_mut() {
+            l.check = Some(Instant::now() + self.t.net_check);
+            self.send(Frame::Ping).await;
+        }
+    }
+
+    async fn hangup(&mut self) {
+        if let Some(stop) = self.next.as_mut().and_then(|d| d.stop.take()) {
+            let _ = stop.send(());
+            let fut = self.next.take().map(|d| d.fut);
+            let _ = timeout(self.t.send_timeout, async { if let Some(f) = fut { f.await; } }).await;
+        }
+        if let Some(mut l) = self.line.take() {
+            // Even on a line that just broke: a hangup ends the call, it never reconnects.
+            // The server ends a call it doesn't hear back from after 5 minutes anyway.
+            let _ = timeout(self.t.send_timeout, l.tx.send(Frame::Text(Up::Hangup.json()))).await;
+            // Over for Aviv now; the socket stays a moment, since the server checks for a
+            // conclusion worth keeping, then closes.
+            self.sh.end("hung up".into());
+            let _ = timeout(self.t.hangup_wait, async {
+                while let Some(Ok(f)) = l.rx.next().await {
+                    if f == Frame::Close {
+                        break;
+                    }
                 }
+            })
+            .await;
+        }
+    }
+
+    /// Something came in on the line. Returns why the call ended, if it did.
+    fn frame(&mut self, f: Option<Result<Frame>>) -> Option<String> {
+        let sh = self.sh.clone();
+        let l = self.line.as_mut()?;
+        l.last_in = Instant::now();
+        l.pinged = false;
+        l.check = None;
+        let now = l.last_in;
+        match f {
+            Some(Ok(Frame::Close)) => return Some("Jarvis ended the call".into()),
+            Some(Err(e)) => {
+                self.broke(&format!("{e:#}"));
+                return None;
             }
-            c = cmd.recv() => match c {
-                Some(Cmd::Mute(on)) => send!(Frame::Text(Up::Mute { on }.json())),
-                Some(Cmd::NetworkChanged) => {
-                    send!(Frame::Ping);
-                    check = Some(Instant::now() + t.net_check);
+            None => {
+                self.broke("closed");
+                return None;
+            }
+            Some(Ok(_)) if self.down.is_some() => self.back(),
+            Some(Ok(_)) => {}
+        }
+        match f {
+            Some(Ok(Frame::Binary(b))) => sh.player.lock().unwrap().push(&b, now),
+            Some(Ok(Frame::Text(s))) => match Down::parse(&s) {
+                Some(Down::State { state }) => {
+                    let s = match state.as_str() {
+                        "listening" => Status::Listening,
+                        "thinking" => Status::Thinking,
+                        "speaking" => Status::Speaking,
+                        _ => return None,
+                    };
+                    self.state = s.clone();
+                    // No sound for a turn: it should feel like talking to a person (Aviv, 2026-10-28).
+                    sh.set_status(s);
                 }
-                Some(Cmd::Hangup) | None => {
-                    // Even on a line that just broke: a hangup ends the call, it never reconnects.
-                    // The server ends a call it doesn't hear back from after 5 minutes anyway.
-                    let _ = timeout(t.send_timeout, tx.send(Frame::Text(Up::Hangup.json()))).await;
-                    // Over for Aviv now; the socket stays a moment, since the server checks for a
-                    // conclusion worth keeping, then closes.
-                    sh.end("hung up".into());
-                    let _ = timeout(t.hangup_wait, async { while let Some(Ok(f)) = rx.next().await { if f == Frame::Close { break } } }).await;
-                    return Outcome::HungUp;
+                Some(Down::Flush) => {
+                    sh.player.lock().unwrap().flush();
+                    sh.events.flush();
                 }
+                Some(Down::Text { who, text }) => sh.events.text(&who, &text),
+                Some(Down::Error { text }) => sh.events.error(&text),
+                Some(Down::Ready { .. }) | Some(Down::Unknown) | None => {}
             },
-            f = rx.next() => {
-                last_in = Instant::now();
-                pinged = false;
-                check = None;
-                match f {
-                    Some(Ok(Frame::Binary(b))) => sh.player.lock().unwrap().push(&b, last_in),
-                    Some(Ok(Frame::Text(s))) => match Down::parse(&s) {
-                        Some(Down::State { state }) => {
-                            let s = match state.as_str() {
-                                "listening" => Status::Listening,
-                                "thinking" => Status::Thinking,
-                                "speaking" => Status::Speaking,
-                                _ => continue,
-                            };
-                            // No sound for a turn: it should feel like talking to a person (Aviv, 2026-10-28).
-                            sh.set_status(s);
-                        }
-                        Some(Down::Flush) => {
-                            sh.player.lock().unwrap().flush();
-                            sh.events.flush();
-                        }
-                        Some(Down::Text { who, text }) => sh.events.text(&who, &text),
-                        Some(Down::Error { text }) => sh.events.error(&text),
-                        Some(Down::Ready { .. }) | Some(Down::Unknown) | None => {}
-                    },
-                    Some(Ok(Frame::Close)) => return Outcome::Ended("Jarvis ended the call".into()),
-                    Some(Ok(Frame::Ping | Frame::Pong)) => {}
-                    Some(Err(e)) => return Outcome::Dropped { live: true, why: format!("{e:#}") },
-                    None => return Outcome::Dropped { live: true, why: "closed".into() },
+            _ => {}
+        }
+        None
+    }
+
+    /// A stalled line answered after all: call off a dial that hasn't said hello yet.
+    fn back(&mut self) {
+        if self.next.as_ref().is_some_and(|d| d.hello.load(Ordering::SeqCst)) {
+            // The server is taking the call to the new socket: wait for its `ready`.
+            return;
+        }
+        self.next = None;
+        self.retry_at = None;
+        self.tries = 0;
+        self.down = None;
+        if self.shown {
+            self.shown = false;
+            self.sh.live.store(true, Ordering::SeqCst);
+            self.sh.set_status(self.state.clone());
+        }
+    }
+
+    async fn dialed(&mut self, d: Dialed) -> Option<String> {
+        self.next = None;
+        let (tx, rx, call) = match d {
+            Dialed::Ready { tx, rx, call } => (tx, rx, call),
+            Dialed::Ended(why) => return Some(why),
+            Dialed::Failed(why) => {
+                tracing::info!("voice: dial failed: {why}");
+                if self.down.is_some() {
+                    let wait = (self.t.backoff_min * 2u32.saturating_pow(self.tries.min(16))).min(self.t.backoff_max);
+                    self.tries += 1;
+                    self.retry_at = Some(Instant::now() + wait);
                 }
+                return None;
             }
-            _ = tick.tick() => {
-                let quiet = last_in.elapsed();
-                if quiet >= t.dead_after {
-                    return Outcome::Dropped { live: true, why: format!("nothing for {}s", quiet.as_secs()) };
+        };
+        let resumed = self.id.as_ref() == Some(&call);
+        if self.id.as_ref().is_some_and(|old| *old != call) {
+            // The server no longer had the old call: this is a new one, without what was said before.
+            self.sh.events.error("new call: Jarvis lost the old one");
+        }
+        self.id = Some(call);
+        // The old socket (if any) goes here: the server has handed the call to this one.
+        self.line = Some(Line::new(tx, rx));
+        self.down = None;
+        self.tries = 0;
+        self.retry_at = None;
+        // A new call starts unmuted; a resumed one may have been muted or unmuted while the line was down.
+        let muted = self.sh.muted.load(Ordering::SeqCst);
+        if muted || resumed {
+            self.send(Frame::Text(Up::Mute { on: muted }.json())).await;
+        }
+        if self.shown {
+            self.shown = false;
+            self.sh.earcon(Earcon::Connected);
+            while self.mic.try_recv().is_ok() {}
+            self.state = Status::Listening;
+            self.sh.set_status(Status::Listening);
+            self.sh.live.store(true, Ordering::SeqCst);
+        }
+        None
+    }
+
+    async fn tick(&mut self) -> Option<String> {
+        if let Some(l) = self.line.as_mut() {
+            let quiet = l.last_in.elapsed();
+            if quiet >= self.t.dead_after {
+                self.broke(&format!("nothing for {}s", quiet.as_secs()));
+            } else if l.stalled(&self.t) {
+                if self.down.is_none() {
+                    tracing::info!("voice: line stalled after {} ms quiet: dialling a second socket", quiet.as_millis());
+                    self.down = Some(Instant::now());
+                    if self.next.is_none() && self.retry_at.is_none() {
+                        self.redial();
+                    }
                 }
-                if check.is_some_and(|c| Instant::now() >= c) {
-                    return Outcome::Dropped { live: true, why: "no answer after a network change".into() };
-                }
-                if quiet >= t.ping_after && !pinged {
-                    pinged = true;
-                    send!(Frame::Ping);
-                }
+            } else if quiet >= self.t.ping_after && !l.pinged {
+                l.pinged = true;
+                self.send(Frame::Ping).await;
             }
         }
+        let down = self.down?;
+        if !self.shown && down.elapsed() >= self.t.grace {
+            self.shown = true;
+            self.sh.live.store(false, Ordering::SeqCst);
+            // What was queued of Jarvis's reply is stale now; the server goes on after the resume.
+            self.sh.player.lock().unwrap().flush();
+            self.sh.events.flush();
+            self.sh.earcon(Earcon::Dropped);
+            self.sh.set_status(Status::Reconnecting);
+        }
+        let first = self.id.is_none();
+        if down.elapsed() >= if first { self.t.first_give_up } else { self.t.resume_give_up } {
+            return Some(if first { "couldn't reach Jarvis".into() } else { "lost the line".into() });
+        }
+        None
     }
 }

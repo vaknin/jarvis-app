@@ -40,6 +40,11 @@ impl Server {
 
 /// A connector whose every connect hands the server side to the test; `refuse` makes connects fail.
 fn fake() -> (Connector, mpsc::UnboundedReceiver<Server>, Arc<AtomicBool>) {
+    fake_slow(Duration::ZERO)
+}
+
+/// [`fake`], with each connect taking `slow` (as a fresh iroh dial does) before the server sees it.
+fn fake_slow(slow: Duration) -> (Connector, mpsc::UnboundedReceiver<Server>, Arc<AtomicBool>) {
     let (accept_tx, accept) = mpsc::unbounded_channel();
     let refuse = Arc::new(AtomicBool::new(false));
     let r = refuse.clone();
@@ -50,6 +55,7 @@ fn fake() -> (Connector, mpsc::UnboundedReceiver<Server>, Arc<AtomicBool>) {
             if refuse {
                 return Err(anyhow!("refused"));
             }
+            tokio::time::sleep(slow).await;
             let (up_tx, from_phone) = mpsc::unbounded_channel::<Frame>();
             let (to_phone, mut down_rx) = mpsc::unbounded_channel::<anyhow::Result<Frame>>();
             let _ = accept_tx.send(Server { from_phone, to_phone });
@@ -213,18 +219,23 @@ async fn a_close_from_the_server_ends_the_call_without_resuming() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_drop_reconnects_with_resume() {
+async fn a_drop_reconnects_with_resume_and_tells_aviv_after_the_grace() {
     let (call, s, mut accept, _r, log) = up().await;
     call.pull_audio(Earcon::Connected.samples().len());
     s.audio(16_000, 5);
     tokio::time::sleep(Duration::from_millis(50)).await;
+    let t0 = tokio::time::Instant::now();
     drop(s); // the socket just breaks
     let mut s = accept.recv().await.unwrap();
+    assert!(t0.elapsed() < Duration::from_millis(50), "redialled at once: {:?}", t0.elapsed());
+    assert!(!log.has("status Reconnecting"), "not yet: inside the grace");
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+    // No ready for 3 s: past the 2.5 s grace, Aviv hears it.
+    tokio::time::sleep(Duration::from_secs(3)).await;
     assert!(log.has("status Reconnecting"));
     assert_eq!(call.buffered_ms(), 0, "stale reply dropped");
     let drop_tone = Earcon::Dropped.samples();
     assert_eq!(pcm_values(&call.pull_audio(drop_tone.len())), drop_tone);
-    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
     s.send(r#"{"type":"ready","call":"c1"}"#);
     while log.statuses().last().unwrap() != "status Listening" {
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -263,12 +274,76 @@ async fn a_silent_line_is_pinged_then_dropped() {
             break;
         }
     }
-    assert!(t0.elapsed() >= Duration::from_millis(4900), "{:?}", t0.elapsed());
-    // No pong: after 15 s of nothing the phone reconnects.
-    let s2 = accept.recv().await.unwrap();
-    assert!(t0.elapsed() >= Duration::from_millis(14_900) && t0.elapsed() < Duration::from_secs(20));
+    assert!(t0.elapsed() >= Duration::from_millis(1900), "{:?}", t0.elapsed());
+    // No pong for 3 s: a second socket dials while the first stays.
+    let mut s2 = accept.recv().await.unwrap();
+    assert!(t0.elapsed() >= Duration::from_millis(4900) && t0.elapsed() < Duration::from_secs(6), "{:?}", t0.elapsed());
+    assert_eq!(s2.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+    // Nobody answers either: after 15 s of nothing the first one goes, and Aviv was told.
+    while tokio::time::timeout(Duration::from_secs(30), s.from_phone.recv()).await.unwrap().is_some() {}
+    assert!(t0.elapsed() >= Duration::from_millis(14_900) && t0.elapsed() < Duration::from_secs(16), "{:?}", t0.elapsed());
     assert!(log.has("status Reconnecting"));
-    drop((s, s2));
+    drop(s2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stalled_line_switches_to_a_second_socket_without_a_gap() {
+    let (call, mut s, mut accept, _r, log) = up().await;
+    call.pull_audio(Earcon::Connected.samples().len());
+    s.send(r#"{"type":"state","state":"speaking"}"#);
+    s.audio(16_000, 5); // a second of reply, not played yet
+    let t0 = tokio::time::Instant::now();
+    // The line goes quiet: the ping at 2 s goes unanswered.
+    let mut s2 = accept.recv().await.unwrap();
+    assert!(t0.elapsed() < Duration::from_secs(6), "{:?}", t0.elapsed());
+    assert_eq!(s2.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+    s2.send(r#"{"type":"ready","call":"c1"}"#);
+    s2.send(r#"{"type":"state","state":"speaking"}"#);
+    assert_eq!(s2.text().await, r#"{"type":"mute","on":false}"#);
+    // The old socket is let go, and nothing told Aviv.
+    while s.from_phone.recv().await.is_some() {}
+    let statuses = log.statuses();
+    assert!(!statuses.iter().any(|l| l.contains("Reconnecting")), "{statuses:?}");
+    assert_eq!(call.buffered_ms(), 1000, "what was queued still plays");
+    let drop_tone = Earcon::Dropped.samples();
+    assert_ne!(pcm_values(&call.pull_audio(drop_tone.len())), drop_tone, "no drop earcon");
+    // The mic goes to the new socket.
+    call.send_audio(vec![3; 640]);
+    loop {
+        if let Frame::Binary(b) = s2.from_phone.recv().await.unwrap() {
+            assert_eq!(b, vec![3; 640]);
+            break;
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stalled_line_that_answers_calls_off_the_second_socket() {
+    let (conn, mut accept, _refuse) = fake_slow(Duration::from_secs(2));
+    let log = Arc::new(Log::default());
+    let _call = Call::start(conn, log.clone(), Timing::default());
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    let t0 = tokio::time::Instant::now();
+    // The ping goes unanswered: the stall at 5 s starts a dial that takes 2 s to connect.
+    loop {
+        if s.from_phone.recv().await.unwrap() == Frame::Ping {
+            break;
+        }
+    }
+    tokio::time::sleep_until(t0 + Duration::from_millis(5500)).await;
+    let _ = s.to_phone.send(Ok(Frame::Pong));
+    // From here on the line answers every ping.
+    let until = t0 + Duration::from_secs(20);
+    while let Ok(Some(f)) = tokio::time::timeout_at(until, s.from_phone.recv()).await {
+        if f == Frame::Ping {
+            let _ = s.to_phone.send(Ok(Frame::Pong));
+        }
+    }
+    assert!(accept.try_recv().is_err(), "the second dial was called off before its hello");
+    assert!(!log.statuses().iter().any(|l| l.contains("Reconnecting")));
 }
 
 #[tokio::test(start_paused = true)]
@@ -417,7 +492,7 @@ async fn a_server_going_away_is_a_drop_not_the_end() {
     let log = Arc::new(Log::default());
     let _call = Call::start(websocket(format!("ws://127.0.0.1:{port}/call")), log.clone(), Timing::default());
     wait_for(&log, r#"status Ended("Jarvis ended the call")"#).await;
-    assert!(log.has("status Reconnecting"));
+    assert!(!log.has("status Reconnecting"), "back within the grace");
     assert_eq!(server.await.unwrap()[1], r#"{"type":"hello","version":1,"resume":"x"}"#);
 }
 
@@ -435,4 +510,20 @@ async fn a_network_change_while_reconnecting_tries_again_at_once() {
     let mut s = accept.recv().await.unwrap();
     assert!(t0.elapsed() < Duration::from_millis(100), "{:?}", t0.elapsed());
     assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_drop_back_within_the_grace_goes_unnoticed() {
+    let (call, s, mut accept, _r, log) = up().await;
+    call.pull_audio(Earcon::Connected.samples().len());
+    s.audio(16_000, 5);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert!(!log.statuses().iter().any(|l| l.contains("Reconnecting")), "{:?}", log.statuses());
+    assert_eq!(call.buffered_ms(), 1000, "the reply wasn't flushed");
 }

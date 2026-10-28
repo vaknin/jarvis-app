@@ -24,14 +24,35 @@ so nothing ever retries, and every send/recv warns. The laptop link stays dead u
 Fix options: `[patch]` netwatch so a failed rebind marks the socket broken (retried on the next poll),
 or rebuild the node's endpoint when it happens; and `netwatch=error` in the ffi's log filter.
 
-## Plan (not done yet)
-1. `crates/voice/src/call.rs`: on a stall (no pong ~3 s after a ping, or no answer after a network
-   change), dial a second socket with `resume` *while keeping the old one*; the server already lets a
-   resume take over a live socket (`CallIn::Attach` replaces `conn`). Cancel it if the old line answers
-   before `hello` is sent; switch without flushing the player once `ready` comes. Show Reconnecting and
-   play the Dropped earcon only if the line is down past a ~2.5 s grace; first retry after a hard drop
-   at once, not after 500 ms. `ping_after` 2 s. Tests on the paused clock in `crates/voice/tests/call.rs`.
-2. `crates/ffi/src/forum.rs`: log each pipe (kind, time to connect, `path_events` Selected relay/direct,
-   duration, `close_reason`).
-3. Gate (`~/Projects/jarvis/forum/phone/tunnel/src/lib.rs`): the same per-connection log; deploy with a
-   restart when no call is on. jarvis-voice `server.rs`: say why a socket ended and when one takes over.
+## The evening calls (20:58-21:02): a second endpoint with the phone's id
+Three calls at 20:58 died before `hello` ("Connection reset without closing handshake" at jarvis-voice).
+An emulator ran 20:55-20:58 with another job's **debug** build of Tether, and debug builds carried the
+Pixel's forum key. The relay (iroh-relay 1.3, `clients.rs`) sends an id's traffic to its newest client,
+so the emulator took the phone's relay traffic, and on 5G (CGNAT) the call rides the relay. Debug builds
+now get their own key (`~/.config/jarvis/forum-emu-iroh-secret`, already in the gate's allow file) and
+the build fails without it. The 21:02:37 drop (reconnects dying in 1-3 s) is not explained by that; the
+endpoint rebuild and the logs below should fix it or show it next time.
+
+## What was built
+1. `crates/voice/src/call.rs` is a state machine: a stall (no pong 3 s after a ping at 2 s quiet, or no
+   answer 3 s after a network change) dials a second socket with `resume` while the old one stays up;
+   the old line answering before `hello` cancels it; `ready` switches over without flushing the player.
+   Reconnecting and the Dropped earcon come only after a 2.5 s grace; a hard drop redials at once; a
+   network change restarts a dial that hasn't sent `hello`. Tests: `crates/voice/tests/call.rs`.
+2. `crates/ffi/src/forum.rs`: each pipe logs one line when it ends, e.g.
+   `forum: pipe 2 voice: connect 597 ms, via relay>direct, 36.2 s, up 781762 B, down 966825 B: done`
+   (or why it failed, with the link's `close_reason`). A pipe that can't connect, or whose iroh side
+   fails, closes the endpoint so the next pipe binds a fresh one, unless another pipe heard the gate in
+   the last 2 s (rebuilding would kill a healthy call: the relay routes to the newest endpoint), and at
+   most every 2 s. Once the app closes a pipe, the gate gets 5 s to answer before the pipe ends, instead
+   of iroh's 30 s idle timeout. `netwatch=error` stops the log flood.
+3. Gate (`jarvis` repo, `forum/phone/tunnel/src/lib.rs`): `open voice from … via …`, path changes, and
+   `ended after …, B up, B down, via …; why`. jarvis-voice says why a socket ended and when a resume
+   takes over a still-open socket.
+
+Checked end to end with a side gate and throwaway keys (`cargo test -p tether-ffi -- --ignored
+voice_through_the_gate`, `VOICE_HOLD=45` to keep the call up): killing the gate mid-call, the call
+stalled, dialed a second socket and carried on once the gate was back. The second connect took ~10 s
+after a gate restart (twice); not chased.
+
+Still open: the netwatch `[patch]` for the Tether node's laptop link.

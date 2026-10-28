@@ -547,7 +547,7 @@ impl TetherNode {
 fn init_logging() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let filter = tracing_subscriber::EnvFilter::new("info,tether_core=debug,iroh=warn,swarm_discovery=error");
+        let filter = tracing_subscriber::EnvFilter::new("info,tether_core=debug,iroh=warn,netwatch=error,swarm_discovery=error");
         let b = tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false);
         #[cfg(target_os = "android")]
         let b = b.without_time().with_writer(logcat::Writer::default);

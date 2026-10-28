@@ -3711,6 +3711,7 @@ name = "tether-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures-util",
  "iroh",
  "iroh-tickets",
  "jni-sys 0.4.1",
