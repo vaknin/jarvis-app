@@ -30,6 +30,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,10 +45,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kivan.tether.AudioRoute
+import com.kivan.tether.Avail
 import com.kivan.tether.CallLog
 import com.kivan.tether.R
 import com.kivan.tether.Voice
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val Bg = Color(0xFF0F1114)
 private val Accent = Color(0xFF95C9FF)
@@ -77,7 +81,9 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(10.dp))
+                AvailChip()
+                Spacer(Modifier.height(12.dp))
                 Transcript(pieces.orEmpty(), Modifier.weight(1f).fillMaxWidth())
                 ui.error?.let {
                     Text(it, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -124,6 +130,30 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
             }
         }
     }
+}
+
+/** How Jarvis may reach Aviv off a call; a tap moves it on: talking -> quiet -> away. Hidden while jarvis-voice can't be reached. */
+@Composable
+private fun AvailChip() {
+    var mode by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { mode = Avail.get() }
+    val m = mode ?: return
+    Text(
+        Avail.label(m) + if (busy) " …" else "",
+        Modifier.clip(RoundedCornerShape(50)).background(if (m == "talking") Raised else Mine)
+            .clickable(enabled = !busy, onClickLabel = "Change how Jarvis reaches you") {
+                busy = true
+                scope.launch {
+                    Avail.get(set = Avail.next(m))?.let { mode = it }
+                    busy = false
+                }
+            }
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        color = if (m == "talking") Color.White else Accent,
+        style = MaterialTheme.typography.labelLarge,
+    )
 }
 
 /** How long the call has been up, ticking each second; an empty line of the same height before it connects. */

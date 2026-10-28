@@ -125,7 +125,7 @@ object Notifier {
 
     /**
      * A notification from Jarvis ([Alerts]): its own, one per [id], expandable to the whole text. A tap
-     * opens the forum at [url] (a path) in Chrome. False when Android won't show it (notifications or
+     * opens the forum at [url] (a path) in Chrome, or calls Jarvis when [url] is "/call". False when Android won't show it (notifications or
      * the Jarvis channel turned off), so the sender takes its other route.
      */
     fun jarvis(context: Context, id: Long, title: String, text: String, url: String): Boolean {
@@ -133,7 +133,12 @@ object Notifier {
         if (!nm.areNotificationsEnabled()) return false
         if (nm.getNotificationChannel(JARVIS)?.importance == NotificationManager.IMPORTANCE_NONE) return false
         val tag = id.toInt()
-        val open = PendingIntent.getActivity(
+        // "/call": Jarvis wants to talk; the tap opens the call screen and calls, and Jarvis speaks first.
+        val call = url == "/call"
+        val callIntent = PendingIntent.getActivity(
+            context, tag, CallActivity.intent(context, start = true), PendingIntent.FLAG_IMMUTABLE,
+        )
+        val open = if (call) callIntent else PendingIntent.getActivity(
             context, tag, Forum.view(context, url.ifEmpty { "/" }), PendingIntent.FLAG_IMMUTABLE,
         )
         val n = NotificationCompat.Builder(context, JARVIS)
@@ -145,6 +150,7 @@ object Notifier {
             .setAutoCancel(true)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
+            .apply { if (call) addAction(R.drawable.lucide_phone, "Call", callIntent).setCategory(NotificationCompat.CATEGORY_CALL) }
             .build()
         return runCatching { nm.notify("jarvis", tag, n) }.isSuccess
     }
