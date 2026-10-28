@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/core", "crates/daemon", "crates/ffi", "crates/voice"]
+exclude = ["vendor/netwatch"]
 
 [workspace.package]
 edition = "2024"
@@ -23,3 +24,9 @@ sha2 = "0.11"
 rand = "0.10"
 data-encoding = "2.11"
 tempfile = "3.27"
+
+# netwatch 0.19.3 with one fix: a failed rebind after a network change marks the socket broken, so the
+# next poll binds again (upstream leaves it Closed for good: the phone's laptop link died until a restart).
+# Upstream 0.20.0 still has it. See vendor/netwatch/PATCHED.md.
+[patch.crates-io]
+netwatch = { path = "vendor/netwatch" }

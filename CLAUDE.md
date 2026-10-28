@@ -165,6 +165,8 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   (`Chat.qml`, `sourceSize` sets both sides), the phone inside 260×320 (`ContentScale.Fit`). Never crop.
 - Logging: the ffi's filter is `info,tether_core=debug,iroh=warn,netwatch=error,swarm_discovery=error`
   (`crates/ffi/src/lib.rs`), because swarm_discovery logs every failed mDNS send (EPERM) on the phone.
+- netwatch (iroh's UDP sockets) is a patched copy in `vendor/netwatch` (`[patch.crates-io]`): a failed rebind
+  after a network change is retried instead of leaving the laptop link's socket dead (`vendor/netwatch/PATCHED.md`).
 
 ## Commits
 End every commit message with one line `For you: <what the user will notice, in plain words>` (e.g. `For you: the phone stops showing "Queued 4".`). dibs's update question shows these lines instead of the commit titles, which the user found unreadable. A commit the user won't notice (docs, tests) can skip it.

@@ -55,4 +55,7 @@ voice_through_the_gate`, `VOICE_HOLD=45` to keep the call up): killing the gate 
 stalled, dialed a second socket and carried on once the gate was back. The second connect took ~10 s
 after a gate restart (twice); not chased.
 
-Still open: the netwatch `[patch]` for the Tether node's laptop link.
+4. The laptop link's dead socket: netwatch is patched (`vendor/netwatch`, `PATCHED.md`) so a failed
+   rebind marks the socket broken and the next poll binds again; the first failure and the recovery are
+   logged at error level (`netwatch: rebind failed, retrying on the next poll: …` / `rebind recovered`),
+   so the next one also says why the bind failed. Upstream 0.20.0 has the same bug.
