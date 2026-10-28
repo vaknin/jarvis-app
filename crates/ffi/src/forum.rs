@@ -13,6 +13,10 @@
 //! binds a fresh one ([`Lazy::broken`]): after a network change iroh's UDP socket can stay dead
 //! (netwatch 0.19's failed rebind), and reusing it made every redial of a call die within seconds.
 //! Each pipe logs one line when it ends (`forum: pipe …`): its kind, connect time, path, bytes and why.
+//!
+//! The same endpoint asks the gate for app updates ([`update_check`], [`update_fetch`]): the
+//! handshake `build`, which the gate answers itself from the builds Jarvis published there (the
+//! jarvis repo's `forum-gate publish`, `forum/phone/tunnel/src/builds.rs`, which has the wire format).
 
 use std::{
     collections::HashMap,
@@ -30,15 +34,16 @@ use iroh::{
 };
 use iroh_tickets::endpoint::EndpointTicket;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
 };
 
-use crate::RT;
+use crate::{RT, Res, on_rt};
 
 const ALPN: &[u8] = b"DUMBPIPEV0";
 const HANDSHAKE: &[u8; 5] = b"hello";
 const VOICE_HANDSHAKE: &[u8; 5] = b"voice";
+const BUILD_HANDSHAKE: &[u8; 5] = b"build";
 /// The endpoint closes this long after the last forum connection ended.
 const IDLE: Duration = Duration::from_secs(180);
 /// At most one rebuild this often, so a gate that's really down doesn't churn endpoints.
@@ -102,6 +107,8 @@ type Heard = Arc<Mutex<Instant>>;
 /// The iroh endpoint, made on first use and closed when idle.
 struct Lazy {
     key: SecretKey,
+    /// The gate.
+    addr: EndpointAddr,
     /// The endpoint, with which one it is (each rebuild counts up).
     ep: tokio::sync::Mutex<Option<(u64, Endpoint)>>,
     made: AtomicU64,
@@ -171,6 +178,7 @@ async fn serve(ticket: &str, port: u16, voice_port: u16, secret: &str) -> Result
     let voice = TcpListener::bind(("127.0.0.1", voice_port)).await.with_context(|| format!("port {voice_port}"))?;
     let lazy = Arc::new(Lazy {
         key,
+        addr: addr.clone(),
         ep: Default::default(),
         made: AtomicU64::new(0),
         open: AtomicUsize::new(0),
@@ -369,6 +377,142 @@ async fn pump(
     }
 }
 
+/// A build Jarvis published for this app on the server.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AppUpdate {
+    pub version_code: i64,
+    pub version_name: String,
+    /// Bytes of the APK.
+    pub size: u64,
+    pub sha256: String,
+    /// What changed, in plain words (the commits' "For you:" lines).
+    pub notes: String,
+}
+
+/// The newest build the server offers for `app` (the applicationId), or none. Whether it's newer
+/// than this one is the app's to decide. Needs [`forum_start`] first.
+#[uniffi::export]
+pub async fn update_check(app: String) -> Res<Option<AppUpdate>> {
+    Ok(on_rt(async move { ask_build(&app, None).await }).await?)
+}
+
+/// Downloads the newest build for `app` to `path`, checked against its size and sha256 (a `.part`
+/// beside it until then), and says which one it was.
+#[uniffi::export]
+pub async fn update_fetch(app: String, path: String) -> Res<AppUpdate> {
+    Ok(on_rt(async move { ask_build(&app, Some(path.as_ref())).await?.context("nothing published") }).await?)
+}
+
+/// Holds the tunnel's endpoint open while an update ask runs, as a forum connection does.
+struct Busy(Arc<Lazy>);
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        *self.0.last.lock().unwrap() = Instant::now();
+        self.0.open.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+async fn ask_build(app: &str, into: Option<&std::path::Path>) -> Result<Option<AppUpdate>> {
+    // The tunnel starts with the app's service; give it a moment if this ask came first.
+    let mut lazy = None;
+    for _ in 0..50 {
+        lazy = ENDPOINT.lock().unwrap().clone();
+        if lazy.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let lazy = lazy.context("the forum tunnel isn't running")?;
+    lazy.open.fetch_add(1, Ordering::SeqCst);
+    let _busy = Busy(lazy.clone());
+    let (which, ep) = lazy.get().await?;
+    let linked = tokio::time::timeout(Duration::from_secs(30), async {
+        let conn = ep.connect(lazy.addr.clone(), ALPN).await.context("connect")?;
+        let (send, recv) = conn.open_bi().await.context("open")?;
+        anyhow::Ok((conn, send, recv))
+    })
+    .await
+    .context("the server didn't answer in 30 s")
+    .and_then(|r| r);
+    let (conn, mut send, recv) = match linked {
+        Ok(l) => l,
+        Err(e) => {
+            // As a pipe does: a dead endpoint is rebuilt for the next ask.
+            lazy.broken(PIPES.fetch_add(1, Ordering::Relaxed), which, &format!("update: {e:#}")).await;
+            return Err(e);
+        }
+    };
+    send.write_all(BUILD_HANDSHAKE).await?;
+    send.write_all(format!("{app}\n").as_bytes()).await?;
+    if into.is_some() {
+        send.write_all(b"get\n").await?;
+    }
+    send.finish()?;
+    let mut recv = BufReader::new(recv);
+    let mut line = String::new();
+    tokio::time::timeout(Duration::from_secs(30), (&mut recv).take(64 * 1024).read_line(&mut line))
+        .await
+        .context("the server didn't answer in 30 s")??;
+    let update = parse(&line)?;
+    if let (Some(path), Some(u)) = (into, &update) {
+        download(&mut recv, u, path).await?;
+    }
+    conn.close(0u8.into(), b"done");
+    Ok(update)
+}
+
+fn parse(line: &str) -> Result<Option<AppUpdate>> {
+    let v: serde_json::Value = serde_json::from_str(line.trim()).context("the server's answer")?;
+    if v.as_object().is_some_and(|o| o.is_empty()) {
+        return Ok(None);
+    }
+    let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    Ok(Some(AppUpdate {
+        version_code: v["version_code"].as_i64().context("no version_code")?,
+        version_name: s("version_name"),
+        size: v["size"].as_u64().context("no size")?,
+        sha256: s("sha256"),
+        notes: s("notes"),
+    }))
+}
+
+/// Reads exactly `u.size` bytes into `path`, or fails and leaves nothing there. A minute without a
+/// byte is a failure (the phone lost the network).
+async fn download(recv: &mut (impl tokio::io::AsyncRead + Unpin), u: &AppUpdate, path: &std::path::Path) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let part = path.with_extension("part");
+    let mut file = tokio::fs::File::create(&part).await.with_context(|| format!("{}", part.display()))?;
+    let res = async {
+        let mut hash = Sha256::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut got = 0u64;
+        while got < u.size {
+            let want = buf.len().min((u.size - got) as usize);
+            let n = tokio::time::timeout(Duration::from_secs(60), recv.read(&mut buf[..want]))
+                .await
+                .context("the download stalled")??;
+            if n == 0 {
+                anyhow::bail!("the download ended at {got} of {} bytes", u.size);
+            }
+            hash.update(&buf[..n]);
+            file.write_all(&buf[..n]).await?;
+            got += n as u64;
+        }
+        let sum: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        anyhow::ensure!(sum == u.sha256, "the download's sha256 doesn't match");
+        file.sync_all().await?;
+        anyhow::Ok(())
+    }
+    .await;
+    if res.is_err() {
+        let _ = tokio::fs::remove_file(&part).await;
+        return res;
+    }
+    tokio::fs::rename(&part, path).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -440,5 +584,57 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    #[test]
+    fn parses_the_gates_answer() {
+        assert_eq!(super::parse("{}\n").unwrap(), None);
+        let u = super::parse(r#"{"app":"com.kivan.tether","version_code":230,"version_name":"1.0.230","size":7,"sha256":"ab","file":"230.apk","notes":"For you: x","published_ms":1}"#)
+            .unwrap()
+            .unwrap();
+        assert_eq!((u.version_code, u.size, u.notes.as_str()), (230, 7, "For you: x"));
+        assert!(super::parse("nope").is_err());
+    }
+
+    #[tokio::test]
+    async fn download_checks_size_and_sum() {
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("u.apk");
+        let sum: String = Sha256::digest(b"apk 230").iter().map(|b| format!("{b:02x}")).collect();
+        let u = super::AppUpdate { version_code: 230, version_name: String::new(), size: 7, sha256: sum, notes: String::new() };
+        super::download(&mut &b"apk 230"[..], &u, &path).await.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"apk 230");
+        std::fs::remove_file(&path).unwrap();
+        // Short, or not the bytes announced: nothing is left behind.
+        assert!(super::download(&mut &b"apk"[..], &u, &path).await.is_err());
+        assert!(super::download(&mut &b"apk 231"[..], &u, &path).await.is_err());
+        assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+    }
+
+    /// A real update through a gate: `FORUM_TICKET=… FORUM_SECRET=… BUILD_APP=… BUILD_SHA=… cargo test
+    /// -p tether-ffi -- --ignored update_through_the_gate`, against a gate (the jarvis repo's
+    /// `forum-gate listen`) with a build published for BUILD_APP and a key it lets in.
+    #[test]
+    #[ignore]
+    fn update_through_the_gate() {
+        let env = |k: &str| std::env::var(k).unwrap();
+        super::forum_start(env("FORUM_TICKET"), 18082, 18792, env("FORUM_SECRET"));
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let t = std::time::Instant::now();
+        let u = rt.block_on(super::update_check(env("BUILD_APP"))).unwrap().expect("nothing published");
+        eprintln!("check {:?}: {u:?}", t.elapsed());
+        assert!(rt.block_on(super::update_check("com.example.none".into())).unwrap().is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("u.apk");
+        let t = std::time::Instant::now();
+        let got = rt.block_on(super::update_fetch(env("BUILD_APP"), path.to_str().unwrap().into())).unwrap();
+        eprintln!("fetch {} bytes in {:?}", got.size, t.elapsed());
+        assert_eq!(got, u);
+        assert_eq!(got.sha256, env("BUILD_SHA"));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), u.size);
     }
 }

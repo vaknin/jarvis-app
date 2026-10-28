@@ -34,6 +34,11 @@ val uniffiBindgen = tasks.register<UniffiBindgenTask>("uniffiBindgen") {
 
 val home = System.getProperty("user.home")
 
+// Every commit is a higher versionCode, so the phone can tell a newer build from Jarvis's server
+// (Updater.kt) from its own. The first lean builds were 200; the count passed that at commit 225.
+val commits = providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+    .standardOutput.asText.get().trim().toInt()
+
 // Release signing: Jarvis's key, kept on the server outside git. An update installs only over a
 // build signed with the same key, so keep ~/.config/jarvis/tether-keystore* safe.
 val keys = Properties().apply {
@@ -72,8 +77,8 @@ android {
         applicationId = "com.kivan.tether"
         minSdk = 34
         targetSdk = 36
-        versionCode = 200
-        versionName = "1.0.0"
+        versionCode = commits
+        versionName = "1.0.$commits"
         // A call goes to jarvis-voice through the forum tunnel's voice port (Voice.PORT).
         buildConfigField("String", "VOICE_URL", "\"ws://127.0.0.1:8791/call\"")
         buildConfigField("String", "FORUM_SECRET", "\"$forumSecret\"")
@@ -102,6 +107,9 @@ android {
             buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
         }
         release {
+            // The phone only: half the APK, which updates download over mobile data (Updater). Debug
+            // builds keep x86_64 for the emulator.
+            ndk { abiFilters += "arm64-v8a" }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

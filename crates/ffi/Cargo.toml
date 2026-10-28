@@ -30,6 +30,12 @@ uuid.workspace = true
 iroh.workspace = true
 iroh-tickets = "1"
 futures-util = "0.3"
+# App updates through the tunnel (forum.rs).
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni-sys = "0.4.1"

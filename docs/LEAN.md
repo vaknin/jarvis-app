@@ -34,10 +34,23 @@ answers whenever Chrome opens it; the tunnel's iroh endpoint starts only then an
 minutes idle. The service itself holds no network and no wakelock. No WorkManager: the live process
 is enough.
 
+## Updates from the server
+
+Jarvis publishes a finished build on the server (`scripts/publish-app.sh` after
+`assembleRelease`; it runs the jarvis repo's `forum-gate publish`), and the app takes it through the
+forum tunnel, from anywhere, mobile data too (`Updater.kt`; `update_check`/`update_fetch` in
+`crates/ffi/src/forum.rs`: the gate's `build` handshake). versionCode is the repo's commit count, so
+every commit is newer. The app checks on opening (at most every 10 min), from the ⋮ menu, and every
+6 hours in the background; a newer build is downloaded (in the background only on Wi-Fi and never
+during a call), checked against its sha256 and handed to Android's installer, which asks for one tap.
+In the background it posts "Tether 1.0.N is ready" with the commits' "For you:" lines; its tap opens
+the app, which asks. A "Cancel" on that question isn't asked again on its own for 12 hours. The very
+first update from the app needs Android's "Install unknown apps" switch for Tether, once.
+
 ## What's gone
 
 Everything else in the old app: dibs's screens and channels, the hand-over, ride, ring, phone
-media control, notification mirroring, presence, the adb helper, self-update, dictation, usage
+media control, notification mirroring, presence, the adb helper, dictation, usage
 rings, live-update transfer chips. The laptop's commands for those (`tether ring`, the media
 widget, `tether notifications`, `tether adb`) get no answer from the phone now.
 

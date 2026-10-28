@@ -22,12 +22,22 @@ class MainActivity : ComponentActivity() {
         askBatteryExemption()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         Core.setVisible(true)
+        Updater.foreground = true
+        // From "Update ready": download if needed and ask Android's one question now.
+        Updater.onOpen(this, tapped = intent.getBooleanExtra(Updater.EXTRA_INSTALL, false))
+        intent.removeExtra(Updater.EXTRA_INSTALL)
     }
 
     override fun onPause() {
+        Updater.foreground = false
         Core.setVisible(false)
         super.onPause()
     }

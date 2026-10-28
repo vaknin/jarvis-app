@@ -32,6 +32,7 @@ class LinkService : Service() {
         // After a boot or an update, deliver anything left queued; the node stops again once idle.
         Core.scope.launch { runCatching { Core.start() }.onFailure { Log.w("Tether", "node start failed", it) } }
         runCatching { Forum.start() }.onFailure { Log.w("Tether", "forum tunnel failed", it) }
+        Updater.loop(this)
         return START_STICKY
     }
 

@@ -43,6 +43,7 @@ object Notifier {
                 NotificationChannel(ALERTS, "Problems", NotificationManager.IMPORTANCE_DEFAULT),
             ),
         )
+        Updater.channel(nm)
     }
 
     fun laptop(context: Context): Person = Person.Builder()

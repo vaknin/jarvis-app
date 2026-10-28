@@ -25,6 +25,9 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   tunnel (`crates/ffi/src/forum.rs`). Package `com.kivan.tether`, signed with `~/.config/jarvis/tether.keystore`.
   `LinkService` (a quiet foreground service, started with the app and at boot) keeps the node running, so the
   laptop can always dial it; no FCM. `Native.load` hands iroh the app context (the phone's DNS servers).
+  Updates come from Jarvis's server through the forum tunnel, from anywhere (`Updater.kt`, docs/LEAN.md
+  "Updates from the server"): after `assembleRelease` on committed master, `scripts/publish-app.sh` offers it,
+  and the phone asks for one tap. versionCode is the commit count (`git rev-list --count HEAD`).
   Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
   (now in the dibs repo's history): the lean app doesn't answer those.
 - Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of

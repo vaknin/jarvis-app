@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Keeps the network up through Doze for the short sync after a wake. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Updates from Jarvis's server (Updater): Android asks once to allow it, then one tap per update. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".TetherApp"
@@ -121,6 +123,11 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- Android's installer reports an update here (its question, done, or why not). -->
+        <receiver
+            android:name=".Updater$StatusReceiver"
+            android:exported="false" />
 
         <!-- Reply and Mark as read on the message notification. -->
         <receiver

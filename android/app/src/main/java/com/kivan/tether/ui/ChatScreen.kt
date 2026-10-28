@@ -73,7 +73,9 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.kivan.tether.CallActivity
 import com.kivan.tether.Core
 import com.kivan.tether.Downloads
+import com.kivan.tether.BuildConfig
 import com.kivan.tether.Forum
+import com.kivan.tether.Updater
 import com.kivan.tether.Outgoing
 import com.kivan.tether.R
 import com.kivan.tether.core.ChatMessage
@@ -176,6 +178,7 @@ private fun Chat(peer: String, queued: ULong) {
     val connected by Core.connected.collectAsState()
     val refused by Core.refused.collectAsState()
     val progress by Core.progress.collectAsState()
+    val update by Updater.state.collectAsState()
     var text by rememberSaveable { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
     val chat = remember(messages) { messages.filter { it.channel == null }.reversed() }
@@ -212,6 +215,10 @@ private fun Chat(peer: String, queued: ULong) {
                 IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.lucide_ellipsis_vertical), "More") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("Forum tunnel: ${Forum.status()}") }, onClick = { menu = false })
+                    DropdownMenuItem(
+                        text = { Text(update.ifEmpty { "Check for update (${BuildConfig.VERSION_NAME})" }) },
+                        onClick = { menu = false; Updater.checkNow(ctx) },
+                    )
                     DropdownMenuItem(text = { Text("Unpair") }, onClick = {
                         menu = false
                         scope.launch { Core.unpair() }
