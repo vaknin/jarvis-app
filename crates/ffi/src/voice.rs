@@ -40,6 +40,8 @@ pub trait VoiceListener: Send + Sync {
     fn on_error(&self, text: String);
     /// Jarvis was talked over: drop what the AudioTrack still holds.
     fn on_flush(&self);
+    /// Jarvis's reply is paused (a tap, "hold", or Aviv talking over him) or goes on.
+    fn on_paused(&self, on: bool);
 }
 
 struct Bridge(Box<dyn VoiceListener>);
@@ -56,6 +58,9 @@ impl Events for Bridge {
     }
     fn flush(&self) {
         self.0.on_flush();
+    }
+    fn paused(&self, on: bool) {
+        self.0.on_paused(on);
     }
 }
 
@@ -85,6 +90,11 @@ impl VoiceCall {
 
     pub fn set_muted(&self, on: bool) {
         self.0.set_muted(on);
+    }
+
+    /// Pause Jarvis mid-reply (true), or let him go on (false).
+    pub fn set_paused(&self, on: bool) {
+        self.0.set_paused(on);
     }
 
     pub fn hangup(&self) {

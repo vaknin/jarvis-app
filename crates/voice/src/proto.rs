@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub enum Up {
     Hello { version: u32, resume: Option<String> },
     Mute { on: bool },
+    /// Aviv tapped pause (Jarvis goes quiet, his reply kept) or play (it goes on).
+    Pause { on: bool },
     Hangup,
 }
 
@@ -25,6 +27,8 @@ pub enum Down {
     State { state: String },
     Flush,
     Text { who: String, text: String },
+    /// Jarvis's reply is paused (a tap, "hold", or Aviv talking over him) or not any more.
+    Paused { on: bool },
     Error { text: String },
     #[serde(other)]
     Unknown,
@@ -48,6 +52,7 @@ mod tests {
             r#"{"type":"hello","version":1,"resume":"c1"}"#
         );
         assert_eq!(Up::Mute { on: true }.json(), r#"{"type":"mute","on":true}"#);
+        assert_eq!(Up::Pause { on: false }.json(), r#"{"type":"pause","on":false}"#);
         assert_eq!(Up::Hangup.json(), r#"{"type":"hangup"}"#);
     }
 
@@ -60,6 +65,7 @@ mod tests {
             Down::parse(r#"{"type":"text","who":"jarvis","text":"hi"}"#),
             Some(Down::Text { who: "jarvis".into(), text: "hi".into() })
         );
+        assert_eq!(Down::parse(r#"{"type":"paused","on":true}"#), Some(Down::Paused { on: true }));
         assert_eq!(Down::parse(r#"{"type":"error","text":"x"}"#), Some(Down::Error { text: "x".into() }));
         assert_eq!(Down::parse(r#"{"type":"later","x":1}"#), Some(Down::Unknown));
         assert_eq!(Down::parse("not json"), None);
