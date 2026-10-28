@@ -33,6 +33,14 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   channel and answers its id, or nothing, and the server falls back to Chrome push. Once started, the endpoint stays
   up (iroh's relay ping every 15 s is the standing battery cost; no connection is held). Design: the jarvis repo's
   `notes/tether-notify.md`.
+  One app, voice first (thread #112, 2026-10-29; the forum app `com.vaknin.forum` folded in): the label is "Jarvis".
+  Home (`MainActivity`, `ui/HomeScreen.kt`) is the big Call button plus What's new (`Brief.kt`, `GET /brief` on the
+  tunnel's 8791; the forum's unread list until that answers). The top bar opens the forum (`forum/ForumActivity`, a
+  WebView on `Forum.URL`) and the laptop chat (`LaptopActivity`). `forum/Watch.kt` runs in `LinkService`. It notifies
+  only for what is aimed at Aviv: Discourse's unread notifications of types 1/6/7/15, and chat DMs and @mentions. It
+  never marks anything read. Assistant: `Assist.kt` (VoiceInteractionService; the session opens `CallActivity` START),
+  and `CallActivity` takes ACTION_ASSIST. Media keys: `MediaKeys.kt`. A call holds a MediaSession, so afterwards
+  "next" (the AirPods double-press) reaches `MediaKeys.Receiver` and calls, until another media app plays.
   Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
   (now in the dibs repo's history): the lean app doesn't answer those.
 - Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of

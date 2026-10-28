@@ -57,7 +57,7 @@ object Notifier {
         .build()
 
     private fun openChat(context: Context): PendingIntent = PendingIntent.getActivity(
-        context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        context, 0, Intent(context, LaptopActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         PendingIntent.FLAG_IMMUTABLE,
     )
 
@@ -125,7 +125,7 @@ object Notifier {
 
     /**
      * A notification from Jarvis ([Alerts]): its own, one per [id], expandable to the whole text. A tap
-     * opens the forum at [url] (a path) in Chrome, or calls Jarvis when [url] is "/call". False when Android won't show it (notifications or
+     * opens the forum at [url] (a path) in the app, or calls Jarvis when [url] is "/call". False when Android won't show it (notifications or
      * the Jarvis channel turned off), so the sender takes its other route.
      */
     fun jarvis(context: Context, id: Long, title: String, text: String, url: String): Boolean {

@@ -76,6 +76,8 @@ class CallService : Service() {
     /** The call's audio device changed: the mic reopens on it. */
     @Volatile private var reroute = false
     private var routeWatch: AudioManager.OnCommunicationDeviceChangedListener? = null
+    /** Held while the call's audio plays, so media keys come to Tether after it ([MediaKeys]). */
+    private var keys: android.media.session.MediaSession? = null
 
     override fun onBind(intent: Intent?) = null
 
@@ -105,6 +107,8 @@ class CallService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
         runCatching { Forum.start() }
+        keys?.release()
+        keys = MediaKeys.session(this)
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         over = CompletableDeferred()
         heldMute = false
@@ -441,6 +445,8 @@ class CallService : Service() {
         }
         telecom = false
         routes.release()
+        keys?.release()
+        keys = null
         val scope = scope
         scope.launch {
             // Telecom's disconnect is launched by `over`; give it a moment before the scope goes.
@@ -459,6 +465,7 @@ class CallService : Service() {
     override fun onDestroy() {
         running = false
         call?.hangup()
+        keys?.release()
         super.onDestroy()
     }
 

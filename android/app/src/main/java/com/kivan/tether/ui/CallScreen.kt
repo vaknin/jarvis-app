@@ -241,7 +241,7 @@ private fun PauseButton(paused: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Round(icon: Int, label: String, bg: Color, fg: Color, size: Dp, onClick: () -> Unit) {
+internal fun Round(icon: Int, label: String, bg: Color, fg: Color, size: Dp, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier.size(size).clip(CircleShape).background(bg).clickable(onClickLabel = label, onClick = onClick),

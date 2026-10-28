@@ -10,15 +10,15 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import com.kivan.tether.ui.ChatScreen
+import com.kivan.tether.ui.HomeScreen
 
+/** Home: the big Call button and What's new; the forum and the laptop chat are one tap away. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContent { ChatScreen() }
+        setContent { HomeScreen() }
         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-        LinkService.start(this)
         askBatteryExemption()
     }
 
@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        Core.setVisible(true)
+        LinkService.start(this) // here, not in onCreate: also brings back a service killed while the app was open
         Updater.foreground = true
         // From "Update ready": download if needed and ask Android's one question now.
         Updater.onOpen(this, tapped = intent.getBooleanExtra(Updater.EXTRA_INSTALL, false))
@@ -38,7 +38,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         Updater.foreground = false
-        Core.setVisible(false)
         super.onPause()
     }
 

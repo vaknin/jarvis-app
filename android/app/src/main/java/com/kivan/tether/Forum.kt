@@ -5,14 +5,17 @@ import android.content.Intent
 import android.net.Uri
 import com.kivan.tether.core.forumStart
 import com.kivan.tether.core.forumStatus
+import com.kivan.tether.forum.ForumActivity
 
 /**
  * The forum on Jarvis's server, at localhost:8080 on the phone: the Rust tunnel (crates/ffi
  * forum.rs) carries it over iroh to the forum's gate, which lets in only this phone's key.
  */
 object Forum {
-    const val URL = "http://localhost:8080"
-    private const val PORT: UShort = 8080u
+    const val PORT: UShort = 8080u
+    const val HOST_NAME = "jarvis.localhost"
+    const val HOST = "$HOST_NAME:8080"
+    const val URL = "http://$HOST"
 
     /** The gate's dumbpipe ticket on dibs (`forum-iroh.service`, fixed key, so it never changes). */
     private const val TICKET =
@@ -23,13 +26,11 @@ object Forum {
     /** "starting", "on", "on (last error: …)", or why it's down. */
     fun status(): String = forumStatus()
 
-    /** Opens the forum in Chrome, where it can be added to the home screen as an app. */
+    /** Opens the forum in the app (ForumActivity, the WebView). */
     fun open(context: Context) = context.startActivity(view(context, "/"))
 
-    /** The intent that opens the forum at [path] (`/t/42`), in Chrome when it's there. */
-    fun view(context: Context, path: String): Intent {
-        val view = Intent(Intent.ACTION_VIEW, Uri.parse(URL + path)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val chrome = Intent(view).setPackage("com.android.chrome")
-        return if (chrome.resolveActivity(context.packageManager) != null) chrome else view
-    }
+    /** The intent that opens the forum at [path] (`/t/42`) in the app. */
+    fun view(context: Context, path: String): Intent =
+        Intent(Intent.ACTION_VIEW, Uri.parse(URL + path), context, ForumActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 }

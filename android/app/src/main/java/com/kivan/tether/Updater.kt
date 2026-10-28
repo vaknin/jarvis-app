@@ -187,7 +187,7 @@ object Updater {
         val text = u.notes.lines().map { it.removePrefix("For you:").trim() }.filter { it.isNotEmpty() }.joinToString("\n")
         val n = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Tether ${u.versionName} is ready$size")
+            .setContentTitle("Jarvis ${u.versionName} is ready$size")
             .setContentText(text.ifEmpty { "Tap to install" })
             .setStyle(NotificationCompat.BigTextStyle().bigText(text.ifEmpty { "Tap to install" }))
             .setContentIntent(PendingIntent.getActivity(context, NOTIFY_ID, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))

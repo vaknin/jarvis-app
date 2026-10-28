@@ -19,7 +19,7 @@ object Shortcuts {
             .setShortLabel("Laptop")
             .setLongLabel("Laptop")
             .setIcon(laptop.icon)
-            .setIntent(Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW))
+            .setIntent(Intent(context, LaptopActivity::class.java).setAction(Intent.ACTION_VIEW))
             .setCategories(setOf(SHARE_CATEGORY))
             .setLongLived(true)
             .setPerson(laptop)

@@ -19,7 +19,8 @@ import kotlinx.coroutines.launch
 
 /**
  * The call screen: one big button to call, then Mute, Hang up and the audio route. Shown over the lock screen, and
- * opened with [START] by the Quick Settings tile and the "Call Jarvis" shortcut, which call at once.
+ * opened with [START] by the Quick Settings tile and the "Call Jarvis" shortcut, which call at once, as an assist request
+ * (ACTION_ASSIST) does.
  * While a call is up, the proximity sensor turns the screen off in a pocket, so nothing gets pressed.
  */
 class CallActivity : ComponentActivity() {
@@ -30,7 +31,7 @@ class CallActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
         setContent { CallScreen(onCall = ::call, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }) }
-        if (intent?.action == START && savedInstanceState == null) call()
+        if (calls(intent) && savedInstanceState == null) call()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 Voice.ui.collect { ui ->
@@ -47,8 +48,10 @@ class CallActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == START) call()
+        if (calls(intent)) call()
     }
+
+    private fun calls(i: Intent?) = i?.action == START || i?.action == Intent.ACTION_ASSIST
 
     private fun call() {
         if (CallService.micGranted(this)) Voice.start(this) else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC)
