@@ -2,7 +2,9 @@
 //! `cargo run -p tether-voice --example fake_server [ADDR]` (default `127.0.0.1:8790`, which the
 //! emulator reaches as `10.0.2.2:8790`). It speaks the wire of PROTOCOL.md: `ready` after `hello`,
 //! then every time it has heard 2 s of mic audio it "answers" with a 3 s tone, and the first answer
-//! of each call is cut off with `flush` halfway, as if Aviv talked over it. `hangup` closes.
+//! of each call is cut off with `flush` halfway, as if Aviv talked over it. `hangup` closes. Its
+//! `text` frames are whole lines that grow, as the real server's do: Aviv's line twice (live words,
+//! then the turn's end), Jarvis's a sentence at a time; each replaces the speaker's line on the screen.
 //! Everything it sees is printed, one line per event, so a test can grep it.
 
 use std::time::Duration;
@@ -113,11 +115,18 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
 }
 
 async fn answer(mut ws: Out, n: usize, k: usize) -> anyhow::Result<()> {
-    ws.send(Message::text(format!(r#"{{"type":"text","who":"aviv","text":"(fake) heard you, part {k}"}}"#))).await?;
+    let line = |who: &str, text: String| Message::text(format!(r#"{{"type":"text","who":"{who}","text":"{text}"}}"#));
+    ws.send(line("aviv", "(fake) heard you,".into())).await?;
+    ws.send(line("aviv", format!("(fake) heard you, part {k}."))).await?;
     ws.send(Message::text(r#"{"type":"state","state":"thinking"}"#.to_string())).await?;
     tokio::time::sleep(Duration::from_millis(400)).await;
     ws.send(Message::text(r#"{"type":"state","state":"speaking"}"#.to_string())).await?;
-    ws.send(Message::text(format!(r#"{{"type":"text","who":"jarvis","text":"(fake) a 3 second tone, answer {k}"}}"#))).await?;
+    let first = format!("(fake) Answer {k}.");
+    ws.send(line("jarvis", first.clone())).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    ws.send(line("jarvis", format!("{first} A 3 second tone."))).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    ws.send(line("jarvis", format!("{first} A 3 second tone. Its line grows a sentence at a time."))).await?;
     let audio = tone(3000, 440.0);
     // 100 ms chunks, a little faster than real time, as a TTS stream would come.
     let cut = k == 1;
