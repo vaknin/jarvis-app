@@ -72,7 +72,7 @@ class CallService : Service() {
     /** When this call started: its pieces in [CallLog] share it. */
     private var started = 0L
     /** The notification's last text, so a state that reads the same isn't posted again. */
-    private var shown: String? = null
+    private var shown: Pair<String, Boolean>? = null
     /** The call's audio device changed: the mic reopens on it. */
     @Volatile private var reroute = false
     private var routeWatch: AudioManager.OnCommunicationDeviceChangedListener? = null
@@ -84,6 +84,7 @@ class CallService : Service() {
             HANGUP -> call?.hangup() ?: stopSelf()
             MUTE -> call?.let { heldMute = false; setMuted(!Voice.ui.value.muted) }
             ROUTE -> if (call != null) routes.next()
+            PAUSE -> call?.let { setPaused(!Voice.ui.value.paused) }
             // A redial while the last call's ended earcon still plays starts once that one is gone.
             else -> if (call == null) begin() else if (!running) redial = true
         }
@@ -126,12 +127,23 @@ class CallService : Service() {
         notify(Voice.ui.value.state)
     }
 
+    /** Shown at once; the server's `paused` then keeps it true (it may say there was nothing to pause). */
+    private fun setPaused(on: Boolean) {
+        Voice.update(this) { it.copy(paused = on) }
+        call?.setPaused(on)
+        notify(Voice.ui.value.state)
+    }
+
     private inner class Listener : VoiceListener {
         override fun onState(state: CallState) {
             Log.i(TAG, "call: $state")
             val up = state is CallState.Listening || state is CallState.Thinking || state is CallState.Speaking
             Voice.update(this@CallService) {
-                it.copy(state = state, connectedAt = it.connectedAt ?: if (up) System.currentTimeMillis() else null)
+                it.copy(
+                    state = state,
+                    connectedAt = it.connectedAt ?: if (up) System.currentTimeMillis() else null,
+                    paused = it.paused && state !is CallState.Ended,
+                )
             }
             if (state is CallState.Ended) running = false else notify(state)
         }
@@ -147,6 +159,12 @@ class CallService : Service() {
 
         override fun onFlush() {
             flushTrack = true
+        }
+
+        override fun onPaused(on: Boolean) {
+            Log.i(TAG, "call: paused $on")
+            Voice.update(this@CallService) { it.copy(paused = on) }
+            notify(Voice.ui.value.state)
         }
     }
 
@@ -447,12 +465,15 @@ class CallService : Service() {
     private fun notify(state: CallState?) {
         if (call == null || state == null || state is CallState.Ended) return
         val muted = Voice.ui.value.muted
-        val text = label(state, muted)
-        if (text == shown) return
+        if (key(state, muted) == shown) return
         getSystemService(android.app.NotificationManager::class.java).notify(ID, notification(state, muted))
     }
 
-    private fun label(state: CallState, muted: Boolean) = Voice.label(state) + if (muted) " · muted" else ""
+    private fun label(state: CallState, muted: Boolean) =
+        Voice.label(Voice.ui.value.copy(state = state)) + if (muted) " · muted" else ""
+
+    /** What the notification shows: its text, and whether it has the pause action. */
+    private fun key(state: CallState, muted: Boolean) = label(state, muted) to Voice.ui.value.copy(state = state).pausable
 
     private fun notification(state: CallState, muted: Boolean): Notification {
         fun pending(action: String, code: Int) = PendingIntent.getService(
@@ -467,9 +488,16 @@ class CallService : Service() {
             if (muted) "Unmute" else "Mute",
             pending(MUTE, 2),
         ).build()
+        // From the lock screen mid-workout: Jarvis stops and continues without unlocking.
+        val ui = Voice.ui.value.copy(state = state)
+        val pause = if (ui.pausable) Notification.Action.Builder(
+            Icon.createWithResource(this, if (ui.paused) R.drawable.lucide_play else R.drawable.lucide_pause),
+            if (ui.paused) "Continue" else "Pause",
+            pending(PAUSE, 3),
+        ).build() else null
         return Notification.Builder(this, Notifier.CALLS)
             .setSmallIcon(R.drawable.lucide_phone)
-            .setContentText(label(state, muted).also { shown = it })
+            .setContentText(label(state, muted).also { shown = key(state, muted) })
             // Updated at every turn: only the first post may alert, or each one can wake the screen.
             .setOnlyAlertOnce(true)
             // The call's length from when it connected; without this each update started it again.
@@ -478,6 +506,7 @@ class CallService : Service() {
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_CALL)
             .setStyle(Notification.CallStyle.forOngoingCall(jarvis, pending(HANGUP, 1)))
+            .apply { pause?.let { addAction(it) } }
             .addAction(mute)
             .build()
     }
@@ -486,6 +515,7 @@ class CallService : Service() {
         const val HANGUP = "hangup"
         const val MUTE = "mute"
         const val ROUTE = "route"
+        const val PAUSE = "pause"
         private const val TAG = "TetherCall"
         private const val ID = 20
         private const val RATE = 16_000

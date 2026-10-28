@@ -95,6 +95,9 @@ impl Events for Log {
     fn flush(&self) {
         self.0.lock().unwrap().push("flush".into());
     }
+    fn paused(&self, on: bool) {
+        self.0.lock().unwrap().push(format!("paused {on}"));
+    }
 }
 
 async fn wait_for(log: &Log, s: &str) {
@@ -252,6 +255,85 @@ async fn a_muted_call_stays_muted_after_a_resume() {
     let mut s = accept.recv().await.unwrap();
     s.text().await;
     s.send(r#"{"type":"ready","call":"c1"}"#);
+    assert_eq!(s.text().await, r#"{"type":"mute","on":true}"#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn pause_goes_quiet_at_once_and_drops_what_was_on_its_way() {
+    let (call, mut s, _a, _r, log) = up().await;
+    call.pull_audio(Earcon::Connected.samples().len());
+    s.send(r#"{"type":"state","state":"speaking"}"#);
+    s.audio(16_000, 300);
+    while call.buffered_ms() < 1000 {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    call.set_paused(true);
+    assert_eq!(call.buffered_ms(), 0, "the tap didn't silence him here");
+    assert!(log.has("flush"), "the app's AudioTrack wasn't told to drop its part");
+    assert_eq!(s.text().await, r#"{"type":"pause","on":true}"#);
+    // Sent before the server heard the tap: none of it plays.
+    s.audio(8_000, 300);
+    s.send(r#"{"type":"paused","on":true}"#);
+    wait_for(&log, "paused true").await;
+    assert_eq!(call.buffered_ms(), 0, "audio in flight played after the tap");
+    assert!(pcm_values(&call.pull_audio(320)).iter().all(|&v| v == 0));
+
+    // Continue: the server goes on, and what it sends plays.
+    call.set_paused(false);
+    assert_eq!(s.text().await, r#"{"type":"pause","on":false}"#);
+    s.send(r#"{"type":"paused","on":false}"#);
+    s.audio(16_000, 400);
+    wait_for(&log, "paused false").await;
+    while call.buffered_ms() < 1000 {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert!(pcm_values(&call.pull_audio(320)).iter().all(|&v| v == 400));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pause_with_nothing_to_pause_lets_the_next_reply_play() {
+    let (call, mut s, _a, _r, log) = up().await;
+    call.pull_audio(Earcon::Connected.samples().len());
+    call.set_paused(true);
+    assert_eq!(s.text().await, r#"{"type":"pause","on":true}"#);
+    // The server had nothing to pause and says so: the button goes back, the next reply plays.
+    s.send(r#"{"type":"paused","on":false}"#);
+    wait_for(&log, "paused false").await;
+    s.audio(16_000, 500);
+    while call.buffered_ms() < 1000 {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pause_is_sent_again_on_resume() {
+    let (call, mut s, mut accept, _r, log) = up().await;
+    call.set_paused(true);
+    assert_eq!(s.text().await, r#"{"type":"pause","on":true}"#);
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    assert_eq!(s.text().await, r#"{"type":"mute","on":false}"#);
+    assert_eq!(s.text().await, r#"{"type":"pause","on":true}"#);
+    // Answered this time, then dropped again: still paused, so said again.
+    s.send(r#"{"type":"paused","on":true}"#);
+    wait_for(&log, "paused true").await;
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    assert_eq!(s.text().await, r#"{"type":"mute","on":false}"#);
+    assert_eq!(s.text().await, r#"{"type":"pause","on":true}"#);
+    // Continued: a resume says nothing of pause.
+    call.set_paused(false);
+    assert_eq!(s.text().await, r#"{"type":"pause","on":false}"#);
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    assert_eq!(s.text().await, r#"{"type":"mute","on":false}"#);
+    call.set_muted(true);
     assert_eq!(s.text().await, r#"{"type":"mute","on":true}"#);
 }
 

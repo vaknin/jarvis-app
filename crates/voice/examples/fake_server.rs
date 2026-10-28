@@ -1,8 +1,9 @@
 //! A stand-in for `jarvis-voice`, to try the phone's call end to end while the real one isn't up:
 //! `cargo run -p tether-voice --example fake_server [ADDR]` (default `127.0.0.1:8790`, which the
 //! emulator reaches as `10.0.2.2:8790`). It speaks the wire of PROTOCOL.md: `ready` after `hello`,
-//! then every time it has heard 2 s of mic audio it "answers" with a 3 s tone, and the first answer
-//! of each call is cut off with `flush` halfway, as if Aviv talked over it. `hangup` closes. Its
+//! then every time it has heard 2 s of mic audio it "answers" with an 8 s tone, and the first answer
+//! of each call is cut off with `flush` after 1.6 s, as if Aviv talked over it. `pause` holds the
+//! answer (`flush`, `paused`, listening) and play goes on with it, as the real one does. `hangup` closes. Its
 //! `text` frames are whole lines that grow, as the real server's do: Aviv's line twice (live words,
 //! then the turn's end), Jarvis's a sentence at a time; each replaces the speaker's line on the screen.
 //! Everything it sees is printed, one line per event, so a test can grep it.
@@ -63,6 +64,8 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
         }
     });
     let mut out = Out(tx);
+    let (paused, _) = tokio::sync::watch::channel(false);
+    let paused = std::sync::Arc::new(paused);
     let started = Instant::now();
     let (mut mic_bytes, mut loud_frames, mut since_answer, mut answers) = (0usize, 0usize, 0usize, 0usize);
     let mut last_report = Instant::now();
@@ -77,6 +80,18 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
                     out.send(Message::text(format!(r#"{{"type":"ready","call":"{id}"}}"#))).await?;
                     out.send(Message::text(r#"{"type":"state","state":"listening"}"#.to_string())).await?;
                     println!("[{n}] sent ready {id}");
+                }
+                Some("pause") => {
+                    let on = v["on"].as_bool().unwrap_or(false);
+                    paused.send_replace(on);
+                    if on {
+                        out.send(Message::text(r#"{"type":"flush"}"#.to_string())).await?;
+                        out.send(Message::text(r#"{"type":"state","state":"listening"}"#.to_string())).await?;
+                    } else {
+                        out.send(Message::text(r#"{"type":"state","state":"speaking"}"#.to_string())).await?;
+                    }
+                    out.send(Message::text(format!(r#"{{"type":"paused","on":{on}}}"#))).await?;
+                    println!("[{n}] paused {on}");
                 }
                 Some("hangup") => {
                     println!("[{n}] hangup after {:.1}s, mic {mic_bytes} bytes", started.elapsed().as_secs_f32());
@@ -100,8 +115,8 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
             if since_answer >= RATE * 2 * 2 {
                 since_answer = 0;
                 answers += 1;
-                let out = out.clone();
-                tokio::spawn(async move { answer(out, n, answers).await });
+                let (out, paused) = (out.clone(), paused.subscribe());
+                tokio::spawn(async move { answer(out, paused, n, answers).await });
             }
         } else if m.is_ping() {
             println!("[{n}] ping");
@@ -114,7 +129,7 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn answer(mut ws: Out, n: usize, k: usize) -> anyhow::Result<()> {
+async fn answer(mut ws: Out, mut paused: tokio::sync::watch::Receiver<bool>, n: usize, k: usize) -> anyhow::Result<()> {
     let line = |who: &str, text: String| Message::text(format!(r#"{{"type":"text","who":"{who}","text":"{text}"}}"#));
     ws.send(line("aviv", "(fake) heard you,".into())).await?;
     ws.send(line("aviv", format!("(fake) heard you, part {k}."))).await?;
@@ -124,13 +139,18 @@ async fn answer(mut ws: Out, n: usize, k: usize) -> anyhow::Result<()> {
     let first = format!("(fake) Answer {k}.");
     ws.send(line("jarvis", first.clone())).await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    ws.send(line("jarvis", format!("{first} A 3 second tone."))).await?;
+    ws.send(line("jarvis", format!("{first} An 8 second tone."))).await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    ws.send(line("jarvis", format!("{first} A 3 second tone. Its line grows a sentence at a time."))).await?;
-    let audio = tone(3000, 440.0);
+    ws.send(line("jarvis", format!("{first} An 8 second tone. Its line grows a sentence at a time."))).await?;
+    let audio = tone(8000, 440.0);
     // 100 ms chunks, a little faster than real time, as a TTS stream would come.
     let cut = k == 1;
     for (i, chunk) in audio.chunks(RATE * 2 / 10).enumerate() {
+        if *paused.borrow() {
+            println!("[{n}] answer {k}: paused at {:.1} s", i as f32 / 10.0);
+            let _ = paused.wait_for(|p| !p).await;
+            println!("[{n}] answer {k}: goes on");
+        }
         ws.send(Message::binary(chunk.to_vec())).await?;
         tokio::time::sleep(Duration::from_millis(80)).await;
         if cut && i == 15 {
@@ -140,7 +160,7 @@ async fn answer(mut ws: Out, n: usize, k: usize) -> anyhow::Result<()> {
         }
     }
     if !cut {
-        println!("[{n}] answer {k}: sent 3 s of tone");
+        println!("[{n}] answer {k}: sent 8 s of tone");
     }
     ws.send(Message::text(r#"{"type":"state","state":"listening"}"#.to_string())).await?;
     Ok(())

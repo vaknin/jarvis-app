@@ -22,6 +22,8 @@ object Voice {
         /** Null when there's no call. */
         val state: CallState? = null,
         val muted: Boolean = false,
+        /** Jarvis's reply is paused (the button, or "stop" said on the call); "continue" goes on. */
+        val paused: Boolean = false,
         val error: String? = null,
         /** Where the call sounds now, and every place it can (the route button cycles them). */
         val route: AudioRoute? = null,
@@ -30,6 +32,8 @@ object Voice {
         val connectedAt: Long? = null,
     ) {
         val live get() = state != null && state !is CallState.Ended
+        /** The pause button shows while there's something to pause, or while paused. */
+        val pausable get() = live && (paused || state is CallState.Speaking || state is CallState.Thinking)
     }
 
     private val _ui = MutableStateFlow(Ui())
@@ -56,6 +60,8 @@ object Voice {
 
     fun nextRoute(context: Context) = command(context, CallService.ROUTE)
 
+    fun togglePause(context: Context) = command(context, CallService.PAUSE)
+
     private fun command(context: Context, action: String) {
         if (!_ui.value.live) return
         context.startService(Intent(context, CallService::class.java).setAction(action))
@@ -67,6 +73,9 @@ object Voice {
         val (h, m, s) = Triple(t / 3600, t / 60 % 60, t % 60)
         return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
     }
+
+    /** The call's status line: "Paused" over the state it paused in. */
+    fun label(ui: Ui): String = if (ui.live && ui.paused) "Paused" else label(ui.state)
 
     fun label(s: CallState?): String = when (s) {
         null -> "Call Jarvis"

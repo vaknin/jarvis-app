@@ -58,7 +58,7 @@ private val Stop = Color(0xFFE5534B)
 
 /** The call: who, where it is, what was said (this call and the ones before), and buttons big enough to hit without looking. */
 @Composable
-fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onRoute: () -> Unit) {
+fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onRoute: () -> Unit, onPause: () -> Unit) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Bg)) {
         val ui by Voice.ui.collectAsState()
         val pieces by CallLog.pieces(LocalContext.current.applicationContext).collectAsState()
@@ -72,7 +72,7 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                 Text("Jarvis", style = MaterialTheme.typography.displaySmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (ui.live) Voice.label(ui.state) + if (ui.muted) " · muted" else "" else Voice.label(ui.state),
+                    if (ui.live) Voice.label(ui) + if (ui.muted) " · muted" else "" else Voice.label(ui.state),
                     color = if (ui.live) Accent else Muted,
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
@@ -84,6 +84,12 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                 }
                 Spacer(Modifier.height(16.dp))
                 if (ui.live) {
+                    // Stop Jarvis mid-reply and read; continue from the sentence he stopped in.
+                    // The same height whether shown or not, so the buttons below never move.
+                    Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
+                        if (ui.pausable) PauseButton(ui.paused, onPause)
+                    }
+                    Spacer(Modifier.height(24.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
                         Round(
                             if (ui.muted) R.drawable.lucide_mic_off else R.drawable.lucide_mic,
@@ -185,6 +191,22 @@ private fun Bubble(t: CallLog.Piece) {
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodyLarge,
         )
+    }
+}
+
+@Composable
+private fun PauseButton(paused: Boolean, onClick: () -> Unit) {
+    val label = if (paused) "Continue" else "Pause"
+    Row(
+        Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(32.dp))
+            .background(if (paused) Accent else Raised).clickable(onClickLabel = label, onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val fg = if (paused) Bg else Color.White
+        Icon(painterResource(if (paused) R.drawable.lucide_play else R.drawable.lucide_pause), null, Modifier.size(24.dp), tint = fg)
+        Spacer(Modifier.size(12.dp))
+        Text(label, color = fg, style = MaterialTheme.typography.titleMedium)
     }
 }
 

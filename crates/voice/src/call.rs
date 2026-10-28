@@ -115,6 +115,8 @@ pub trait Events: Send + Sync + 'static {
     fn error(&self, text: &str);
     /// Jarvis was talked over: the app drops what its speaker still holds.
     fn flush(&self);
+    /// Jarvis's reply is paused or not (the pause button follows it).
+    fn paused(&self, _on: bool) {}
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +166,7 @@ impl Default for Timing {
 
 enum Cmd {
     Mute(bool),
+    Pause(bool),
     Hangup,
     NetworkChanged,
 }
@@ -174,6 +177,11 @@ struct Shared {
     status: Mutex<Option<Status>>,
     live: AtomicBool,
     muted: AtomicBool,
+    /// Pause tapped, and the server hasn't said `paused` or `flush` yet: the audio it sent before
+    /// it heard the tap is dropped, so none of it plays after the tap.
+    pausing: AtomicBool,
+    /// Paused, as last tapped or as the server last said: a resume tells the server again.
+    paused: AtomicBool,
 }
 
 impl Shared {
@@ -222,6 +230,8 @@ impl Call {
             status: Mutex::new(None),
             live: AtomicBool::new(false),
             muted: AtomicBool::new(false),
+            pausing: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
         });
         let (cmd, cmd_rx) = mpsc::unbounded_channel();
         // 10 frames (200 ms): a send that lags more than that drops the newest speech, not the call.
@@ -248,6 +258,18 @@ impl Call {
         if self.shared.muted.swap(on, Ordering::SeqCst) != on {
             let _ = self.cmd.send(Cmd::Mute(on));
         }
+    }
+
+    /// Aviv tapped pause or play. Pause silences Jarvis here at once (the server pauses his reply,
+    /// keeping it, and says `paused`); play asks the server to go on from the sentence he paused in.
+    pub fn set_paused(&self, on: bool) {
+        self.shared.pausing.store(on, Ordering::SeqCst);
+        self.shared.paused.store(on, Ordering::SeqCst);
+        if on {
+            self.shared.player.lock().unwrap().flush();
+            self.shared.events.flush();
+        }
+        let _ = self.cmd.send(Cmd::Pause(on));
     }
 
     pub fn muted(&self) -> bool {
@@ -417,6 +439,10 @@ async fn run(
                     r.send(Frame::Text(Up::Mute { on }.json())).await;
                     None
                 }
+                Some(Cmd::Pause(on)) => {
+                    r.send(Frame::Text(Up::Pause { on }.json())).await;
+                    None
+                }
                 Some(Cmd::NetworkChanged) => {
                     r.network_changed().await;
                     None
@@ -548,6 +574,7 @@ impl Run {
             Some(Ok(_)) => {}
         }
         match f {
+            Some(Ok(Frame::Binary(_))) if sh.pausing.load(Ordering::SeqCst) => {}
             Some(Ok(Frame::Binary(b))) => sh.player.lock().unwrap().push(&b, now),
             Some(Ok(Frame::Text(s))) => match Down::parse(&s) {
                 Some(Down::State { state }) => {
@@ -562,10 +589,16 @@ impl Run {
                     sh.set_status(s);
                 }
                 Some(Down::Flush) => {
+                    sh.pausing.store(false, Ordering::SeqCst);
                     sh.player.lock().unwrap().flush();
                     sh.events.flush();
                 }
                 Some(Down::Text { who, text }) => sh.events.text(&who, &text),
+                Some(Down::Paused { on }) => {
+                    sh.pausing.store(false, Ordering::SeqCst);
+                    sh.paused.store(on, Ordering::SeqCst);
+                    sh.events.paused(on);
+                }
                 Some(Down::Error { text }) => sh.events.error(&text),
                 Some(Down::Ready { .. }) | Some(Down::Unknown) | None => {}
             },
@@ -621,6 +654,11 @@ impl Run {
         let muted = self.sh.muted.load(Ordering::SeqCst);
         if muted || resumed {
             self.send(Frame::Text(Up::Mute { on: muted }.json())).await;
+        }
+        // Paused when the line dropped (or tapped while it was down): the server hears it again, so
+        // the button and Jarvis agree whatever the server kept.
+        if resumed && self.sh.paused.load(Ordering::SeqCst) {
+            self.send(Frame::Text(Up::Pause { on: true }.json())).await;
         }
         if self.shown {
             self.shown = false;

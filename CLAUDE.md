@@ -36,7 +36,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
   (now in the dibs repo's history): the lean app doesn't answer those.
 - Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of
-  `~/Projects/jarvis/voice/PROTOCOL.md` (WebSocket, PCM16 mono 16 kHz, `hello`/`ready`/`state`/`flush`/`mute`/`hangup`,
+  `~/Projects/jarvis/voice/PROTOCOL.md` (WebSocket, PCM16 mono 16 kHz, `hello`/`ready`/`state`/`flush`/`mute`/`pause`/`paused`/`hangup`,
   `resume` after a drop with backoff, given up 285 s after it; jitter buffer and earcons in `player.rs`). Its tests run
   on a fake socket on tokio's paused clock; `cargo run -p tether-voice --example real_server -- CLIP.wav [URL]` drives this crate against a real `jarvis-voice` (use a `serve --dry-run` on another port); `cargo run -p tether-voice --example fake_server` stands in for
   `jarvis-voice` on 127.0.0.1:8790. The ffi's `VoiceCall` wraps it; the forum tunnel's second port 8791 opens its pipe
@@ -48,7 +48,13 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   the transcript as a chat that scrolls back through past calls (`CallLog`, `filesDir/call-log.jsonl`, newest 2000
   pieces; a `text` frame is the speaker's whole line so far, so one from the same speaker replaces the last piece
   (`CallLog.fold`, unit-tested), never appended; it follows new lines only at the bottom), shown over the lock screen, proximity off in a pocket),
-  the Quick Settings tile "Jarvis" and the "Call Jarvis" shortcut. A turn makes no sound (only connect, drop and end
+  the Quick Settings tile "Jarvis" and the "Call Jarvis" shortcut. Pause (2026-10-28, the jarvis repo's
+  `notes/voice-fixes/tap-pause.md`): a wide Pause/Continue pill over the buttons and the same action in the call
+  notification (the lock screen, mid-workout), shown while Jarvis speaks or thinks, or is paused. A tap silences
+  the phone at once and drops the audio still on its way until the server answers `paused` (`Call::set_paused`);
+  the server keeps the reply and continues from the sentence he stopped in; `paused` from the server (a tap,
+  the spoken "stop", or Aviv talking over him) drives `Voice.Ui.paused`, and a pause the server never heard is
+  sent again on resume. Aviv's spoken words are "stop" and "continue", so the button says Pause/Continue. A turn makes no sound (only connect, drop and end
   have earcons) and the call notification is quiet (low channel, alerts once), so the screen stays off. Debug
   builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator, and carry the
   emulator's forum key (`~/.config/jarvis/forum-emu-iroh-secret`), never the Pixel's: an endpoint with the phone's
