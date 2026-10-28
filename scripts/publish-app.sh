@@ -22,7 +22,7 @@ fi
 # Signed with Jarvis's release key, or the phone refuses it after the download.
 sdk=${ANDROID_HOME:-$HOME/Android/Sdk}
 signer=$(ls -d "$sdk"/build-tools/*/apksigner | tail -n1)
-if ! "$signer" verify --print-certs "$apk" | grep -q "^Signer #1 certificate DN: .*"; then
+if ! "$signer" verify --print-certs "$apk" | grep -qE "^(V[0-9.]+ )?Signer( #1)?:? certificate DN: "; then
     echo "the APK isn't signed: is ~/.config/jarvis/tether-keystore.properties there?" >&2
     exit 1
 fi

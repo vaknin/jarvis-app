@@ -17,8 +17,8 @@
 
 ## Found on the way: the laptop link's socket is dead after a network change
 `WARN netwatch::udp: socket closed` ~70 times a second (980 lines in 12 s), which wipes the phone's
-256 KiB logcat in seconds. `/proc/net/udp` shows uid 10707 holding the forum endpoint's ports and mDNS,
-but **nothing on 47114**: the Tether node's socket is `Closed`. In netwatch 0.19.3 (`udp.rs`), a failed
+256 KiB logcat in seconds. (Not "nothing on 47114", as first read: the phone's node binds a random port,
+`Net::Internet { port: None }` in `crates/ffi/src/lib.rs`; only the laptop uses 47114.) In netwatch 0.19.3 (`udp.rs`), a failed
 `rebind()` (iroh calls it on a major network change) leaves the state `Closed` with `is_broken` false,
 so nothing ever retries, and every send/recv warns. The laptop link stays dead until the app restarts.
 Fix options: `[patch]` netwatch so a failed rebind marks the socket broken (retried on the next poll),
