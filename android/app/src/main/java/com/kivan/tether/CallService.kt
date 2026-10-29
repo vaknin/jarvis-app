@@ -78,6 +78,8 @@ class CallService : Service() {
     private var routeWatch: AudioManager.OnCommunicationDeviceChangedListener? = null
     /** Held while the call's audio plays, so media keys come to Tether after it ([MediaKeys]). */
     private var keys: android.media.session.MediaSession? = null
+    /** The phone's own recognizer hearing Aviv's turns (thread #118), when on-device en-US is installed. */
+    private var stt: PhoneStt? = null
 
     override fun onBind(intent: Intent?) = null
 
@@ -114,7 +116,10 @@ class CallService : Service() {
         heldMute = false
         started = System.currentTimeMillis()
         shown = null
-        val c = VoiceCall(BuildConfig.VOICE_URL, Listener())
+        stt?.stop()
+        stt = if (PhoneStt.available(this)) PhoneStt(this) else null
+        val c = VoiceCall(BuildConfig.VOICE_URL, Listener(stt), stt != null)
+        stt?.call = c
         call = c
         running = true
         locks()
@@ -138,7 +143,7 @@ class CallService : Service() {
         notify(Voice.ui.value.state)
     }
 
-    private inner class Listener : VoiceListener {
+    private inner class Listener(private val stt: PhoneStt?) : VoiceListener {
         override fun onState(state: CallState) {
             Log.i(TAG, "call: $state")
             val up = state is CallState.Listening || state is CallState.Thinking || state is CallState.Speaking
@@ -169,6 +174,18 @@ class CallService : Service() {
             Log.i(TAG, "call: paused $on")
             Voice.update(this@CallService) { it.copy(paused = on) }
             notify(Voice.ui.value.state)
+        }
+
+        override fun onSttOpen(id: ULong) {
+            stt?.open(id.toLong())
+        }
+
+        override fun onSttAudio(id: ULong, pcm: ByteArray) {
+            stt?.audio(id.toLong(), pcm)
+        }
+
+        override fun onSttClose(id: ULong) {
+            stt?.close(id.toLong())
         }
     }
 
@@ -444,6 +461,9 @@ class CallService : Service() {
             routed = false
         }
         telecom = false
+        stt?.stop()
+        stt = null
+        PhoneStt.check(this)
         routes.release()
         keys?.release()
         keys = null
