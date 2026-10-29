@@ -7,19 +7,18 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * How Jarvis may reach Aviv off a call (jarvis voice/src/avail.rs): talking (at home it asks on the
- * speaker, away a notification opens a call), quiet (text only) or away. A plain GET on the voice
- * port, which the forum tunnel pipes to jarvis-voice.
+ * How Jarvis may reach Aviv off a call (jarvis voice/src/avail.rs): available (at home he asks on the
+ * speaker, out he rings the phone) or unavailable (text only). A plain GET on the voice port, which
+ * the forum tunnel pipes to jarvis-voice.
  */
 object Avail {
-    val modes = listOf("talking", "quiet", "away")
+    val modes = listOf("available", "unavailable")
 
     fun next(mode: String) = modes[(modes.indexOf(mode) + 1) % modes.size]
 
     fun label(mode: String) = when (mode) {
-        "talking" -> "Talking"
-        "quiet" -> "Quiet: text only"
-        "away" -> "Away"
+        "available" -> "Available"
+        "unavailable" -> "Unavailable: text only"
         else -> mode
     }
 

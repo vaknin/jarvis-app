@@ -30,7 +30,7 @@ class CallActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
-        setContent { CallScreen(onCall = { call() }, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }) }
+        setContent { CallScreen(onCall = { call() }, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }, onDecline = { Callback.decline(this); finish() }) }
         if (calls(intent) && savedInstanceState == null) call(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {

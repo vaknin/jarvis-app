@@ -62,11 +62,12 @@ private val Stop = Color(0xFFE5534B)
 
 /** The call: who, where it is, what was said (this call and the ones before), and buttons big enough to hit without looking. */
 @Composable
-fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onRoute: () -> Unit, onPause: () -> Unit) {
+fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onRoute: () -> Unit, onPause: () -> Unit, onDecline: () -> Unit) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Bg)) {
         val ui by Voice.ui.collectAsState()
         val pieces by CallLog.pieces(LocalContext.current.applicationContext).collectAsState()
         Surface(Modifier.fillMaxSize(), color = Bg) {
+            if (ui.ringing && !ui.live) return@Surface Incoming(onCall, onDecline)
             Column(
                 Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -132,7 +133,31 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
     }
 }
 
-/** How Jarvis may reach Aviv off a call; a tap moves it on: talking -> quiet -> away. Hidden while jarvis-voice can't be reached. */
+/** Jarvis ringing (thread #36): a regular incoming call, "Jarvis" on the screen, Decline and Answer. */
+@Composable
+private fun Incoming(onAnswer: () -> Unit, onDecline: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(48.dp))
+        Text("Incoming call", color = Muted, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(28.dp))
+        Box(Modifier.size(120.dp).clip(CircleShape).background(Mine), contentAlignment = Alignment.Center) {
+            Text("J", color = Accent, style = MaterialTheme.typography.displayMedium)
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Jarvis", style = MaterialTheme.typography.displaySmall)
+        Spacer(Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
+            Round(R.drawable.lucide_phone_off, "Decline", Stop, Color.White, 88.dp, onDecline)
+            Round(R.drawable.lucide_phone, "Answer", Go, Color.White, 88.dp, onAnswer)
+        }
+        Spacer(Modifier.height(56.dp))
+    }
+}
+
+/** How Jarvis may reach Aviv off a call; a tap moves it on: available -> unavailable. Hidden while jarvis-voice can't be reached. */
 @Composable
 private fun AvailChip() {
     var mode by remember { mutableStateOf<String?>(null) }
@@ -142,7 +167,7 @@ private fun AvailChip() {
     val m = mode ?: return
     Text(
         Avail.label(m) + if (busy) " …" else "",
-        Modifier.clip(RoundedCornerShape(50)).background(if (m == "talking") Raised else Mine)
+        Modifier.clip(RoundedCornerShape(50)).background(if (m == "available") Raised else Mine)
             .clickable(enabled = !busy, onClickLabel = "Change how Jarvis reaches you") {
                 busy = true
                 scope.launch {
@@ -151,7 +176,7 @@ private fun AvailChip() {
                 }
             }
             .padding(horizontal = 14.dp, vertical = 6.dp),
-        color = if (m == "talking") Color.White else Accent,
+        color = if (m == "available") Color.White else Accent,
         style = MaterialTheme.typography.labelLarge,
     )
 }

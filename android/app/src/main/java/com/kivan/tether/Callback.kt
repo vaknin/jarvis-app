@@ -18,13 +18,15 @@ import android.util.Log
 
 /**
  * Jarvis ringing Aviv (thread #132): calling back a call that dropped (the server's `/callback/<id>`
- * alert, while the app isn't redialing it itself), and calling him when he's needed (the `/call`
- * alert, reach's "wants to talk"). Answering (the notification, the full-screen call screen, or the
+ * alert, while the app isn't redialing it itself), and calling him when he's needed (thread #36: the
+ * `/ring/<item>` alert, reach ringing him while he's out; the older `/call` too). It looks like a
+ * regular incoming call from "Jarvis". Answering (the notification, the full-screen call screen, or the
  * AirPods' stem press through [MediaKeys.Receiver]) continues the dropped call, or starts one Jarvis
- * opens with what he needed.
+ * opens with why he called. Declining a ring tells the server, which sends what it rang for as text.
  *
  * It rings only with the ringer on and Do Not Disturb off ([loud]); otherwise the same call shows as
- * a silent notification. Unanswered after [RING_MS] it becomes a missed call with "Call back";
+ * a silent notification. Unanswered after [RING_MS] it becomes a missed call with "Call back" (a ring
+ * for an item stops after [REACH_RING_MS] without one: the server texts the item instead);
  * Decline, or dismissing the missed call, hangs the dropped call up for good.
  */
 object Callback {
@@ -33,13 +35,19 @@ object Callback {
     private const val RING_ID = 40
     private const val MISSED_ID = 41
     private const val RING_MS = 45_000L
+    /** Reach's ring: a minute, then the server sends it as text. */
+    private const val REACH_RING_MS = 60_000L
     /** The dropped call an answer continues (absent: a new call). */
     const val CALL = "call"
+    /** The reach item a ring is for (`reach-...`): Decline sends it to the server. */
+    private const val RING = "ring"
     private const val DECLINE = "com.kivan.tether.DECLINE"
 
     /** What's ringing now: the dropped call it continues, or "" for a new call. */
     @Volatile var ringing: String? = null
         private set
+    /** The reach item ringing now, if it's a ring for one. */
+    @Volatile private var ringFor: String? = null
     /** A dropped call whose callback went unanswered: the next call Aviv starts (a press too) continues it. */
     @Volatile private var missedCall: String? = null
     private val main = Handler(Looper.getMainLooper())
@@ -70,9 +78,13 @@ object Callback {
             nm.currentInterruptionFilter == NotificationManager.INTERRUPTION_FILTER_ALL
     }
 
-    /** Rings for the dropped call `call`, or for a new one (null). True once it's on the phone. */
-    fun ring(context: Context, call: String?, title: String, text: String): Boolean {
+    /**
+     * Rings for the dropped call `call`, or for a new one (null); `reach`: the item the server rings
+     * for. True once it's on the phone.
+     */
+    fun ring(context: Context, call: String?, title: String, text: String, reach: String? = null): Boolean {
         if (Voice.ui.value.live) return true
+        val ms = if (reach != null) REACH_RING_MS else RING_MS
         val loud = loud(context)
         val jarvis = Person.Builder().setName("Jarvis").setImportant(true).build()
         val answer = answerIntent(context, call, 50)
@@ -81,7 +93,7 @@ object Callback {
             context, 54, CallActivity.intent(context, start = false), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val decline = PendingIntent.getBroadcast(
-            context, 51, Intent(context, Action::class.java).setAction(DECLINE).putExtra(CALL, call),
+            context, 51, Intent(context, Action::class.java).setAction(DECLINE).putExtra(CALL, call).putExtra(RING, reach),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val b = Notification.Builder(context, if (loud) CHANNEL else Notifier.JARVIS)
@@ -91,7 +103,7 @@ object Callback {
             .setCategory(Notification.CATEGORY_CALL)
             .setContentIntent(screen)
             .setOngoing(loud)
-            .setTimeoutAfter(RING_MS + 5_000)
+            .setTimeoutAfter(ms + 5_000)
         if (loud) {
             // Full screen on a locked phone, a heads-up otherwise; the ringtone loops until answered.
             b.setFullScreenIntent(screen, true)
@@ -109,12 +121,13 @@ object Callback {
         if (!posted) return false
         nm.cancel(MISSED_ID)
         ringing = call ?: ""
+        ringFor = reach
         Voice.update(context) { it.copy(ringing = true) }
         Log.i(TAG, "ringing (${if (loud) "loud" else "silent"}) for ${call ?: "a new call"}")
         // The AirPods' press answers: the keys come to Tether's receiver while nothing else plays.
         MediaKeys.claim(context, "ringing")
         main.removeCallbacksAndMessages(this)
-        main.postAtTime({ missed(context, call, title) }, this, android.os.SystemClock.uptimeMillis() + RING_MS)
+        main.postAtTime({ missed(context, call, title, reach) }, this, android.os.SystemClock.uptimeMillis() + ms)
         return true
     }
 
@@ -129,6 +142,7 @@ object Callback {
 
     private fun stop(context: Context) {
         ringing = null
+        ringFor = null
         Voice.update(context) { it.copy(ringing = false) }
         main.removeCallbacksAndMessages(this)
         context.getSystemService(NotificationManager::class.java).cancel(RING_ID)
@@ -140,15 +154,20 @@ object Callback {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    private fun missed(context: Context, call: String?, title: String) {
+    private fun missed(context: Context, call: String?, title: String, reach: String? = null) {
         if (ringing == null) return
         stop(context)
+        // A ring for an item: the server's text of it follows, one notice for one thing.
+        if (reach != null) {
+            Log.i(TAG, "missed the ring for $reach: the server sends it as text")
+            return
+        }
         missedCall = call
         val back = answerIntent(context, call, 52)
         // On the quiet channel: the ringing was the alert.
         val n = Notification.Builder(context, Notifier.CALLS)
             .setSmallIcon(R.drawable.lucide_phone)
-            .setContentTitle(if (call != null) "Missed call from Jarvis" else title.ifEmpty { "Jarvis called" })
+            .setContentTitle("Missed call from Jarvis")
             .setContentText(if (call != null) "Call back to go on where you were." else "He wanted to talk. Call back when you can.")
             .setCategory(Notification.CATEGORY_MISSED_CALL)
             .setContentIntent(back)
@@ -171,20 +190,36 @@ object Callback {
         Log.i(TAG, "missed: ${call ?: "a new call"}")
     }
 
+    /** Decline on the ringing screen: as the notification's. */
+    fun decline(context: Context) {
+        decline(context, ringing?.ifEmpty { null }, ringFor, null)
+    }
+
+    /** Declined: a dropped call is hung up; a ring for a reach item tells the server, which texts it. */
+    private fun decline(context: Context, call: String?, reach: String?, done: BroadcastReceiver.PendingResult?) {
+        if (call == missedCall) missedCall = null
+        stop(context)
+        context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
+        Log.i(TAG, "declined: ${call ?: reach ?: "a new call"}")
+        if (call == null && reach == null) {
+            done?.finish()
+            return
+        }
+        val app = context.applicationContext
+        Thread({
+            try {
+                if (call != null) CallStore.end(app, call)
+                // The same hangup frame, for the item: the server sends it as text now.
+                if (reach != null) Log.i(TAG, "decline for $reach: ${if (runCatching { com.kivan.tether.core.voiceEnd(BuildConfig.VOICE_URL, reach) }.getOrDefault(false)) "the server has it" else "not delivered (texted after the minute)"}")
+            } finally { done?.finish() }
+        }, "tether-call-decline").start()
+    }
+
     /** Decline, or the missed callback dismissed: that dropped call is hung up. */
     class Action : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != DECLINE) return
-            val call = intent.getStringExtra(CALL)
-            if (call == missedCall) missedCall = null
-            stop(context)
-            context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
-            Log.i(TAG, "declined: ${call ?: "a new call"}")
-            if (call == null) return
-            val done = goAsync()
-            Thread({
-                try { CallStore.end(context.applicationContext, call) } finally { done.finish() }
-            }, "tether-call-decline").start()
+            decline(context, intent.getStringExtra(CALL), intent.getStringExtra(RING), goAsync())
         }
     }
 }
