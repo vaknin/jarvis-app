@@ -76,7 +76,7 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                 Text("Jarvis", style = MaterialTheme.typography.displaySmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (ui.live) Voice.label(ui) + if (ui.muted) " · muted" else "" else Voice.label(ui.state),
+                    if (ui.live) Voice.label(ui) + if (ui.muted) " · muted" else "" else if (ui.ringing) "Jarvis calling" else Voice.label(ui.state),
                     color = if (ui.live) Accent else Muted,
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
@@ -124,7 +124,7 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                         )
                     }
                 } else {
-                    Round(R.drawable.lucide_phone, "Call", Go, Color.White, 144.dp, onCall)
+                    Round(R.drawable.lucide_phone, if (ui.ringing) "Answer" else "Call", Go, Color.White, 144.dp, onCall)
                 }
                 Spacer(Modifier.height(40.dp))
             }

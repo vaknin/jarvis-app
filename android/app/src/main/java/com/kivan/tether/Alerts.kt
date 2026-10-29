@@ -47,6 +47,10 @@ class Alerts private constructor(private val context: Context) : AlertListener {
         private const val RECENT = "shown"
         private const val KEEP = 30
 
+        /** Tests: an alert as if the gate brought it. */
+        fun test(context: Context, title: String, text: String, url: String) =
+            Alerts(context.applicationContext).show(System.nanoTime().toULong(), title, text, url)
+
         fun start(context: Context) {
             runCatching { alertsStart(Alerts(context.applicationContext)) }
                 .onFailure { Log.w("Tether", "alerts not started", it) }

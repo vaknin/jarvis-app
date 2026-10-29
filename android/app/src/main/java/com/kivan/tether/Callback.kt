@@ -71,6 +71,10 @@ object Callback {
         val loud = loud(context)
         val jarvis = Person.Builder().setName("Jarvis").setImportant(true).build()
         val answer = answerIntent(context, call, 50)
+        // The ringing screen (full screen on a locked phone): its Call button answers, nothing before it.
+        val screen = PendingIntent.getActivity(
+            context, 54, CallActivity.intent(context, start = false), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         val decline = PendingIntent.getBroadcast(
             context, 51, Intent(context, Action::class.java).setAction(DECLINE).putExtra(CALL, call),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
@@ -80,12 +84,12 @@ object Callback {
             .setContentTitle(title.ifEmpty { "Jarvis" })
             .setContentText(text)
             .setCategory(Notification.CATEGORY_CALL)
-            .setContentIntent(answer)
+            .setContentIntent(screen)
             .setOngoing(loud)
             .setTimeoutAfter(RING_MS + 5_000)
         if (loud) {
             // Full screen on a locked phone, a heads-up otherwise; the ringtone loops until answered.
-            b.setFullScreenIntent(answer, true)
+            b.setFullScreenIntent(screen, true)
                 .setStyle(Notification.CallStyle.forIncomingCall(jarvis, decline, answer))
         } else {
             b.setStyle(Notification.BigTextStyle().bigText(text))
@@ -100,6 +104,7 @@ object Callback {
         if (!posted) return false
         nm.cancel(MISSED_ID)
         ringing = call ?: ""
+        Voice.update(context) { it.copy(ringing = true) }
         Log.i(TAG, "ringing (${if (loud) "loud" else "silent"}) for ${call ?: "a new call"}")
         // The AirPods' press answers: the keys come to Tether's receiver while nothing else plays.
         MediaKeys.claim(context, "ringing")
@@ -118,6 +123,7 @@ object Callback {
 
     private fun stop(context: Context) {
         ringing = null
+        Voice.update(context) { it.copy(ringing = false) }
         main.removeCallbacksAndMessages(this)
         context.getSystemService(NotificationManager::class.java).cancel(RING_ID)
     }

@@ -75,7 +75,13 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   have earcons) and the call notification is quiet (low channel, alerts once), so the screen stays off. Debug
   builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator, and carry the
   emulator's forum key (`~/.config/jarvis/forum-emu-iroh-secret`), never the Pixel's: an endpoint with the phone's
-  id anywhere else takes its relay traffic. Why calls dropped and what the call/pipe logs mean: `docs/voice-link-drops.md`. A stall or break kicks iroh at once (`Events::kick` → `forum_network_changed`) and again 3 s on if the
+  id anywhere else takes its relay traffic. Why calls dropped and what the call/pipe logs mean: `docs/voice-link-drops.md`. A dropped call is never over until Aviv hangs up (thread #132): `CallStore` keeps the call the app
+  is in (a restart, an update included, rejoins it at once: `Voice.resume` from `BootReceiver`/`LinkService`) and the
+  hangups the server never confirmed (sent again with the ffi's `voice_end`). The server rings for a dropped call
+  the app isn't redialing (alert url `/callback/<id>`), and reach's "wants to talk" (`/call`) rings too: `Callback.kt`,
+  an incoming-call notification with the ringtone only with the ringer on and Do Not Disturb off, else silent; the
+  stem press answers; a missed one says "Call back", and Decline or dismissing it hangs the dropped call up. Debug:
+  `am startservice -n com.kivan.tether.debug/com.kivan.tether.LinkService -a com.kivan.tether.ALERT --es url /callback/ID`. A stall or break kicks iroh at once (`Events::kick` → `forum_network_changed`) and again 3 s on if the
   second dial hasn't said hello; a call that went down sends its recent log lines to the server once (`crates/ffi/src/phonelog.rs`,
   handshake `logup`, kept in the server's `~/.jarvis/phone-logs/`).
 - adb on any network (`Adb.kt`, `tether adb [--enable]`, 2026-10-05): dibs asks where the phone's adb listens

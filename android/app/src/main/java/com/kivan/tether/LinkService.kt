@@ -46,9 +46,9 @@ class LinkService : Service() {
         Updater.loop(this)
         CallStore.settle(this)
         Voice.resume(this)
-        // Tests: `am startservice -a com.kivan.tether.RING --es call ID` stands in for the server calling back.
-        if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.RING") {
-            Callback.ring(this, intent.getStringExtra("call"), "Jarvis calling back", "Our call dropped. Answer to go on where we were.")
+        // Tests: `am startservice -a com.kivan.tether.ALERT --es url /callback/ID` stands in for a Jarvis alert (the server calling back).
+        if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.ALERT") {
+            Alerts.test(this, intent.getStringExtra("title") ?: "Jarvis calling back", intent.getStringExtra("text") ?: "Our call dropped.", intent.getStringExtra("url") ?: "/call")
         }
         // Tests: on the emulator (root) `am startservice -a com.kivan.tether.CLAIM_KEYS` stands in for AirPods connecting.
         if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.CLAIM_KEYS") MediaKeys.claim(this, "test")

@@ -30,6 +30,8 @@ object Voice {
         val routes: List<AudioRoute> = emptyList(),
         /** When the call first connected (wall clock, ms): the duration counts from it, through every turn and reconnect. */
         val connectedAt: Long? = null,
+        /** Jarvis is ringing ([Callback]): the Call button answers. */
+        val ringing: Boolean = false,
     ) {
         val live get() = state != null && state !is CallState.Ended
         /** The pause button shows while there's something to pause, or while paused. */
