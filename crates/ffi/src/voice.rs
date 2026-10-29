@@ -60,6 +60,10 @@ pub trait VoiceListener: Send + Sync {
     fn on_stt_audio(&self, id: u64, pcm: Vec<u8>);
     /// No more audio for session `id`: the recognizer finishes it.
     fn on_stt_close(&self, id: u64);
+    /// The server has this call as `id`: keep it, so a call the app dies in can be rejoined.
+    fn on_joined(&self, id: String);
+    /// Aviv hung up but the server may not have heard: deliver it later with [`voice_end`].
+    fn on_hangup_owed(&self, id: String);
 }
 
 /// One word the phone's recognizer heard: as formatted, and its start in ms from its session's first sample.
@@ -138,6 +142,30 @@ impl Events for Bridge {
     fn resumed(&self) {
         self.1.send("resumed".into(), LOG_AFTER_RESUME);
     }
+    fn joined(&self, id: &str) {
+        self.0.on_joined(id.into());
+    }
+    fn hangup_owed(&self, id: &str) {
+        self.0.on_hangup_owed(id.into());
+    }
+}
+
+/// Hangs up the dropped call `id` on `url` without joining it (Aviv declined Jarvis calling back,
+/// or a hangup the line didn't carry). Blocks up to half a minute: call it off the main thread.
+/// True once the server has it.
+#[uniffi::export]
+pub fn voice_end(url: String, id: String) -> bool {
+    crate::init_logging();
+    match RT.block_on(tether_voice::call::end(websocket(url), id.clone(), Timing::default())) {
+        Ok(()) => {
+            tracing::info!("voice: hung up the dropped call {id}");
+            true
+        }
+        Err(e) => {
+            tracing::warn!("voice: couldn't hang up the dropped call {id}: {e:#}");
+            false
+        }
+    }
 }
 
 fn bridge(listener: Box<dyn VoiceListener>) -> Arc<Bridge> {
@@ -166,6 +194,15 @@ impl VoiceCall {
         let _rt = RT.enter();
         let about = tether_voice::proto::About { topic, title, text };
         Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
+    }
+
+    /// Back to the dropped call `id` the app had left (its process died mid-call, or Aviv answered
+    /// Jarvis calling back): Jarvis opens with where they were cut off.
+    #[uniffi::constructor]
+    pub fn rejoin(url: String, listener: Box<dyn VoiceListener>, id: String, phone_stt: bool) -> Arc<Self> {
+        crate::init_logging();
+        let _rt = RT.enter();
+        Arc::new(VoiceCall(Call::rejoin(websocket(url), bridge(listener), Timing::default(), id, phone_stt)))
     }
 
     /// One 20 ms mic frame (640 bytes PCM16 LE mono 16 kHz). Never blocks.
@@ -200,5 +237,11 @@ impl VoiceCall {
 
     pub fn network_changed(&self) {
         self.0.network_changed();
+    }
+
+    /// The phone has a network or not (Android's default network came or went): offline, a dropped
+    /// call waits; back online, it dials at once.
+    pub fn set_online(&self, on: bool) {
+        self.0.set_online(on);
     }
 }

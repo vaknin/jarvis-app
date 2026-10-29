@@ -50,7 +50,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   (now in the dibs repo's history): the lean app doesn't answer those.
 - Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of
   `~/Projects/jarvis/voice/PROTOCOL.md` (WebSocket, PCM16 mono 16 kHz, `hello`/`ready`/`state`/`flush`/`mute`/`pause`/`paused`/`hangup`,
-  `resume` after a drop with backoff, given up 285 s after it; jitter buffer and earcons in `player.rs`). Its tests run
+  `resume` after a drop with backoff, never given up while the server has the call (it waits for a network when offline; a call the app left is rejoined, thread #132); jitter buffer and earcons in `player.rs`). Its tests run
   on a fake socket on tokio's paused clock; `cargo run -p tether-voice --example real_server -- CLIP.wav [URL]` drives this crate against a real `jarvis-voice` (use a `serve --dry-run` on another port); `cargo run -p tether-voice --example fake_server` stands in for
   `jarvis-voice` on 127.0.0.1:8790. The ffi's `VoiceCall` wraps it; the forum tunnel's second port 8791 opens its pipe
   with `voice`, which the gate sends to jarvis-voice. In the app: `CallService` (foreground, phoneCall + microphone; a

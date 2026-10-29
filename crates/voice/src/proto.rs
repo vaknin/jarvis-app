@@ -15,6 +15,14 @@ pub enum Up {
         /// `Some("phone")`: this phone transcribes Aviv's turns itself, and answers each `cut` with `heard`.
         #[serde(skip_serializing_if = "Option::is_none")]
         stt: Option<&'static str>,
+        /// Back to the dropped call `resume` after leaving it (the app died, or Aviv answered Jarvis
+        /// calling back), not a redial: Jarvis opens with where they were cut off.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        rejoin: bool,
+        /// Not a call: Aviv hung up the dropped call `resume` (declined the call back, or the line
+        /// didn't carry his hangup). The server ends it and closes.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        end: bool,
     },
     /// The phone's words for `cut` `id` (`None`: it has none, the server uses its own); `ms`: its
     /// recognizer's time after the cut.
@@ -69,18 +77,18 @@ mod tests {
 
     #[test]
     fn up_is_the_contracts_json() {
-        assert_eq!(Up::Hello { version: 1, resume: None, about: None, stt: None }.json(), r#"{"type":"hello","version":1,"resume":null}"#);
+        assert_eq!(Up::Hello { version: 1, resume: None, about: None, stt: None, rejoin: false, end: false }.json(), r#"{"type":"hello","version":1,"resume":null}"#);
         assert_eq!(
-            Up::Hello { version: 1, resume: Some("c1".into()), about: None, stt: None }.json(),
+            Up::Hello { version: 1, resume: Some("c1".into()), about: None, stt: None, rejoin: false, end: false }.json(),
             r#"{"type":"hello","version":1,"resume":"c1"}"#
         );
         let about = About { topic: 112, title: "One app".into(), text: "Keep it?".into() };
         assert_eq!(
-            Up::Hello { version: 1, resume: None, about: Some(about), stt: None }.json(),
+            Up::Hello { version: 1, resume: None, about: Some(about), stt: None, rejoin: false, end: false }.json(),
             r#"{"type":"hello","version":1,"resume":null,"about":{"topic":112,"title":"One app","text":"Keep it?"}}"#
         );
         assert_eq!(
-            Up::Hello { version: 1, resume: None, about: None, stt: Some("phone") }.json(),
+            Up::Hello { version: 1, resume: None, about: None, stt: Some("phone"), rejoin: false, end: false }.json(),
             r#"{"type":"hello","version":1,"resume":null,"stt":"phone"}"#
         );
         assert_eq!(Up::Heard { id: 3, text: Some("Check it.".into()), ms: 900 }.json(), r#"{"type":"heard","id":3,"text":"Check it.","ms":900}"#);

@@ -11,7 +11,14 @@
 //!   flushing what's queued to play. If the old line answers before the second one has sent
 //!   `hello`, the second is called off. A socket that breaks (EOF, an error, a write that doesn't
 //!   finish within [`Timing::send_timeout`], or nothing in for [`Timing::dead_after`]) is redialled
-//!   at once, then with backoff, until [`Timing::resume_give_up`] (the server keeps a call 5 minutes).
+//!   at once, then with backoff, for as long as it takes: a call the server has is never given up
+//!   (thread #132: the server keeps it until Aviv hangs up). While the phone has no network
+//!   ([`Call::set_online`]) it waits instead, and dials the moment one is back.
+//! - A call can start as a rejoin ([`Call::rejoin`]): back to a dropped call the app had left (it
+//!   was killed, or Aviv answered Jarvis calling back). Its first hello says `rejoin`, so Jarvis
+//!   opens with where they were cut off.
+//! - A hangup the server didn't confirm (no line, or no Close within [`Timing::hangup_wait`]) is
+//!   owed ([`Events::hangup_owed`]): the app delivers it later, or the dropped call stays open.
 //! - When the line stalls or breaks, the transport is kicked at once ([`Events::kick`]: the ffi has
 //!   iroh look for its paths again, as Android's network callback would, which can come half a
 //!   minute later when Wi-Fi fades), and again after [`Timing::rekick`] if the dial still hasn't
@@ -135,6 +142,12 @@ pub trait Events: Send + Sync + 'static {
     fn kick(&self) {}
     /// The call is back on a new socket after the line went down (the server may have lost it).
     fn resumed(&self) {}
+    /// The server has this call as `id` (on the first `ready`, and if a resume became a new call):
+    /// the app keeps it, so a call its process dies in can be rejoined.
+    fn joined(&self, _id: &str) {}
+    /// Aviv hung up and the server may not have heard it (no line, or no Close after it): the app
+    /// owes it the hangup of call `id` (an `"end":true` hello), or Jarvis keeps the call open.
+    fn hangup_owed(&self, _id: &str) {}
 }
 
 #[derive(Debug, Clone)]
@@ -142,8 +155,6 @@ pub struct Timing {
     pub connect_timeout: Duration,
     /// Give up on the very first connect after this.
     pub first_give_up: Duration,
-    /// Give up on a dropped call after this (the server keeps it 5 minutes).
-    pub resume_give_up: Duration,
     pub backoff_min: Duration,
     pub backoff_max: Duration,
     /// Ping when nothing came in for this long.
@@ -170,7 +181,6 @@ impl Default for Timing {
         Timing {
             connect_timeout: Duration::from_secs(15),
             first_give_up: Duration::from_secs(45),
-            resume_give_up: Duration::from_secs(285),
             backoff_min: Duration::from_millis(500),
             backoff_max: Duration::from_secs(10),
             ping_after: Duration::from_secs(2),
@@ -191,6 +201,7 @@ enum Cmd {
     Pause(bool),
     Hangup,
     NetworkChanged,
+    Online(bool),
     SttDone(u64, Option<Vec<Word>>),
 }
 
@@ -258,6 +269,17 @@ impl Call {
     /// [`Call::start_about`]; `phone_stt`: the app's own recognizer transcribes Aviv's turns (the
     /// hello says `"stt":"phone"`, and [`Events::stt_open`] and its kin feed it; see `stt.rs`).
     pub fn start_full(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool) -> Call {
+        Self::begin(connector, events, timing, about, phone_stt, None)
+    }
+
+    /// Back to the dropped call `id` the app had left (its process died mid-call, or Aviv answered
+    /// Jarvis calling back): its first hello resumes `id` with `rejoin`, and from there it's a call
+    /// like any other.
+    pub fn rejoin(connector: Connector, events: Arc<dyn Events>, timing: Timing, id: String, phone_stt: bool) -> Call {
+        Self::begin(connector, events, timing, None, phone_stt, Some(id))
+    }
+
+    fn begin(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, rejoin: Option<String>) -> Call {
         let shared = Arc::new(Shared {
             player: Mutex::new(Player::new(timing.jitter)),
             events,
@@ -270,7 +292,7 @@ impl Call {
         let (cmd, cmd_rx) = mpsc::unbounded_channel();
         // 10 frames (200 ms): a send that lags more than that drops the newest speech, not the call.
         let (mic, mic_rx) = mpsc::channel(10);
-        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, phone_stt));
+        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, phone_stt, rejoin));
         Call { shared, cmd, mic }
     }
 
@@ -325,6 +347,12 @@ impl Call {
         let _ = self.cmd.send(Cmd::NetworkChanged);
     }
 
+    /// Whether the phone has a network at all. Offline, a dropped call waits rather than dialling
+    /// into nothing; back online, it dials at once.
+    pub fn set_online(&self, on: bool) {
+        let _ = self.cmd.send(Cmd::Online(on));
+    }
+
     pub fn status(&self) -> Option<Status> {
         self.shared.status.lock().unwrap().clone()
     }
@@ -339,6 +367,26 @@ impl Drop for Call {
     fn drop(&mut self) {
         let _ = self.cmd.send(Cmd::Hangup);
     }
+}
+
+/// Hangs up the dropped call `id` without joining it (Aviv declined Jarvis calling back, or the
+/// line didn't carry his hangup): an `"end":true` hello, and the server closes once it has it.
+pub async fn end(connector: Connector, id: String, t: Timing) -> Result<()> {
+    let (mut tx, mut rx) = timeout(t.connect_timeout, connector()).await.context("connect timed out")??;
+    let hello = Up::Hello { version: 1, resume: Some(id), about: None, stt: None, rejoin: false, end: true };
+    timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await.context("send timed out")??;
+    timeout(t.connect_timeout, async {
+        loop {
+            match rx.next().await {
+                Some(Ok(Frame::Close)) => return Ok(()),
+                Some(Ok(_)) => {}
+                Some(Err(e)) => return Err(e),
+                None => return Err(anyhow!("closed without a close frame")),
+            }
+        }
+    })
+    .await
+    .context("no close")?
 }
 
 /// The socket the call is on, and what came in on it lately.
@@ -377,7 +425,7 @@ struct Dial {
     stop: Option<oneshot::Sender<()>>,
 }
 
-fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, stt: bool) -> Dial {
+fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, stt: bool, rejoin: bool) -> Dial {
     let (hello, (stop, mut stopped)) = (Arc::new(AtomicBool::new(false)), oneshot::channel::<()>());
     let (connect, said, t) = (connector(), hello.clone(), t.clone());
     let fut = Box::pin(async move {
@@ -390,7 +438,7 @@ fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<Strin
             Ok(Err(e)) => return Dialed::Failed(format!("{e:#}")),
             Ok(Ok(s)) => s,
         };
-        match timeout(t.send_timeout, tx.send(Frame::Text(Up::Hello { version: 1, resume, about, stt: stt.then_some("phone") }.json()))).await {
+        match timeout(t.send_timeout, tx.send(Frame::Text(Up::Hello { version: 1, resume, about, stt: stt.then_some("phone"), rejoin, end: false }.json()))).await {
             Ok(Ok(())) => said.store(true, Ordering::SeqCst),
             Ok(Err(e)) => return Dialed::Failed(format!("send: {e:#}")),
             Err(_) => return Dialed::Failed("send timed out".into()),
@@ -447,6 +495,10 @@ struct Run {
     stt: Option<Stt>,
     /// Text frames to send once the frame that asked for them is handled.
     out: Vec<Up>,
+    /// The phone has a network (as the app last said).
+    online: bool,
+    /// Back to a call the app had left: hellos say `rejoin` until the server has it.
+    rejoin: bool,
 }
 
 async fn run(
@@ -457,15 +509,18 @@ async fn run(
     t: Timing,
     about: Option<About>,
     phone_stt: bool,
+    rejoin: Option<String>,
 ) {
     sh.set_status(Status::Connecting);
-    let next = Some(dial(&connector, sh.clone(), &t, None, about.clone(), phone_stt));
+    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), phone_stt, rejoin.is_some()));
     let mut r = Run {
         connector,
         sh: sh.clone(),
         mic,
         t,
-        id: None,
+        rejoin: rejoin.is_some(),
+        id: rejoin,
+        online: true,
         about,
         line: None,
         next,
@@ -505,6 +560,10 @@ async fn run(
                 }
                 Some(Cmd::NetworkChanged) => {
                     r.network_changed().await;
+                    None
+                }
+                Some(Cmd::Online(on)) => {
+                    r.set_online(on).await;
                     None
                 }
                 Some(Cmd::SttDone(id, words)) => {
@@ -620,9 +679,31 @@ impl Run {
 
     fn redial(&mut self) {
         self.retry_at = None;
+        if !self.online {
+            // Nothing to dial over: `set_online` dials the moment there is.
+            self.next = None;
+            return;
+        }
         // Until the server has the call, a redial is still its first hello, and says what it's about.
         let about = if self.id.is_none() { self.about.clone() } else { None };
-        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, self.stt.is_some()));
+        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, self.stt.is_some(), self.rejoin));
+    }
+
+    async fn set_online(&mut self, on: bool) {
+        if on == self.online {
+            return;
+        }
+        self.online = on;
+        tracing::info!("voice: the phone is {}", if on { "online again" } else { "offline" });
+        if on {
+            if self.line.is_none() && self.next.is_none() {
+                // Down and waiting for a network: dial now, from the shortest backoff.
+                self.tries = 0;
+                self.redial();
+            } else {
+                self.network_changed().await;
+            }
+        }
     }
 
     async fn network_changed(&mut self) {
@@ -643,26 +724,33 @@ impl Run {
     }
 
     async fn hangup(&mut self) {
+        let mut heard = false;
         if let Some(stop) = self.next.as_mut().and_then(|d| d.stop.take()) {
             let _ = stop.send(());
             let fut = self.next.take().map(|d| d.fut);
             let _ = timeout(self.t.send_timeout, async { if let Some(f) = fut { f.await; } }).await;
         }
         if let Some(mut l) = self.line.take() {
-            // Even on a line that just broke: a hangup ends the call, it never reconnects.
-            // The server ends a call it doesn't hear back from after 5 minutes anyway.
+            // Even on a line that just broke: a hangup ends the call, it never reconnects. If the
+            // server never hears it, the app owes it (below).
             let _ = timeout(self.t.send_timeout, l.tx.send(Frame::Text(Up::Hangup.json()))).await;
             // Over for Aviv now; the socket stays a moment, since the server checks for a
             // conclusion worth keeping, then closes.
             self.sh.end("hung up".into());
-            let _ = timeout(self.t.hangup_wait, async {
+            heard = timeout(self.t.hangup_wait, async {
                 while let Some(Ok(f)) = l.rx.next().await {
                     if f == Frame::Close {
-                        break;
+                        return true;
                     }
                 }
+                false
             })
-            .await;
+            .await
+            .unwrap_or(false);
+        }
+        if !heard && let Some(id) = &self.id {
+            tracing::info!("voice: the server didn't confirm the hangup of {id}: owed");
+            self.sh.events.hangup_owed(id);
         }
     }
 
@@ -757,7 +845,7 @@ impl Run {
             Dialed::Ended(why) => return Some(why),
             Dialed::Failed(why) => {
                 tracing::info!("voice: dial failed: {why}");
-                if self.down.is_some() {
+                if self.down.is_some() && self.online {
                     let wait = (self.t.backoff_min * 2u32.saturating_pow(self.tries.min(16))).min(self.t.backoff_max);
                     self.tries += 1;
                     self.retry_at = Some(Instant::now() + wait);
@@ -774,6 +862,10 @@ impl Run {
             // The server no longer had the old call: this is a new one, without what was said before.
             self.sh.events.error("new call: Jarvis lost the old one");
         }
+        if !resumed {
+            self.sh.events.joined(&call);
+        }
+        self.rejoin = false;
         self.id = Some(call);
         // The old socket (if any) goes here: the server has handed the call to this one.
         self.line = Some(Line::new(tx, rx));
@@ -839,9 +931,9 @@ impl Run {
             self.sh.earcon(Earcon::Dropped);
             self.sh.set_status(Status::Reconnecting);
         }
-        let first = self.id.is_none();
-        if down.elapsed() >= if first { self.t.first_give_up } else { self.t.resume_give_up } {
-            return Some(if first { "couldn't reach Jarvis".into() } else { "lost the line".into() });
+        // A call the server has is never given up: it waits for Aviv, and so does the phone.
+        if self.id.is_none() && down.elapsed() >= self.t.first_give_up {
+            return Some("couldn't reach Jarvis".into());
         }
         None
     }

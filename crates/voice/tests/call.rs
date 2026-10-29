@@ -116,6 +116,12 @@ impl Events for Log {
     fn resumed(&self) {
         self.0.lock().unwrap().push("resumed".into());
     }
+    fn joined(&self, id: &str) {
+        self.0.lock().unwrap().push(format!("joined {id}"));
+    }
+    fn hangup_owed(&self, id: &str) {
+        self.0.lock().unwrap().push(format!("owed {id}"));
+    }
 }
 
 async fn wait_for(log: &Log, s: &str) {
@@ -471,14 +477,91 @@ async fn a_network_change_checks_the_line_at_once() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn gives_up_about_five_minutes_after_a_drop() {
-    let (_call, s, _accept, refuse, log) = up().await;
+async fn a_dropped_call_is_never_given_up() {
+    let (_call, s, mut accept, refuse, log) = up().await;
     refuse.store(true, Ordering::SeqCst);
-    let t0 = tokio::time::Instant::now();
     drop(s);
-    wait_for(&log, r#"status Ended("lost the line")"#).await;
-    let took = t0.elapsed();
-    assert!(took >= Duration::from_secs(280) && took <= Duration::from_secs(300), "{took:?}");
+    // An hour without the server: still trying, never ended (the server keeps the call too).
+    tokio::time::sleep(Duration::from_secs(3600)).await;
+    assert!(!log.0.lock().unwrap().iter().any(|l| l.starts_with("status Ended")), "{:?}", log.statuses());
+    assert_eq!(log.statuses().last().unwrap(), "status Reconnecting");
+    // Back, within the longest backoff: the same call.
+    refuse.store(false, Ordering::SeqCst);
+    let mut s = tokio::time::timeout(Duration::from_secs(11), accept.recv()).await.expect("redialled").unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    while log.statuses().last().unwrap() != "status Listening" {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn offline_it_waits_and_dials_the_moment_the_network_is_back() {
+    let (conn, mut accept, refuse) = fake();
+    let log = Arc::new(Log::default());
+    let call = Call::start(conn, log.clone(), Timing::default());
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    refuse.store(true, Ordering::SeqCst);
+    call.set_online(false);
+    drop(s);
+    wait_for(&log, "status Reconnecting").await;
+    // The drop's own redial fails; after that, nothing is dialled while offline.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    refuse.store(false, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(600)).await;
+    assert!(accept.try_recv().is_err(), "dialled while offline");
+    let t0 = tokio::time::Instant::now();
+    call.set_online(true);
+    let mut s = accept.recv().await.unwrap();
+    assert!(t0.elapsed() < Duration::from_millis(50), "dialled at once: {:?}", t0.elapsed());
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    while log.statuses().last().unwrap() != "status Listening" {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rejoin_resumes_the_call_saying_so_once_and_never_gives_up() {
+    let (conn, mut accept, refuse) = fake();
+    let log = Arc::new(Log::default());
+    refuse.store(true, Ordering::SeqCst);
+    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c7".into(), false);
+    // Not the first connect's 45 s: the server has this call.
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert!(!log.0.lock().unwrap().iter().any(|l| l.starts_with("status Ended")));
+    refuse.store(false, Ordering::SeqCst);
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c7","rejoin":true}"#);
+    s.send(r#"{"type":"ready","call":"c7"}"#);
+    wait_for(&log, "status Listening").await;
+    assert!(!log.has("joined c7"), "the app already has it");
+    // A drop after it is a plain resume.
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c7"}"#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_app_hears_the_calls_id_and_a_hangup_the_server_never_confirmed() {
+    let (call, mut s, _a, _r, log) = up().await;
+    assert!(log.has("joined c1"));
+    call.hangup();
+    assert_eq!(s.text().await, r#"{"type":"hangup"}"#);
+    // No Close within the wait: the app owes the server this hangup.
+    wait_for(&log, "owed c1").await;
+    drop(s);
+
+    let (call, mut s, _a, _r, log) = up().await;
+    call.hangup();
+    assert_eq!(s.text().await, r#"{"type":"hangup"}"#);
+    let _ = s.to_phone.send(Ok(Frame::Close));
+    wait_for(&log, r#"status Ended("hung up")"#).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    assert!(!log.has("owed c1"), "the server closed: it has the hangup");
 }
 
 #[tokio::test(start_paused = true)]
@@ -790,4 +873,20 @@ async fn a_stalled_line_that_answers_ends_the_rekick() {
     }
     assert_eq!(log.count("kick"), 1, "{:?}", log.0.lock().unwrap());
     assert!(accept.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn end_hangs_up_a_dropped_call_without_joining_it() {
+    let (conn, mut accept, _refuse) = fake();
+    let done = tokio::spawn(tether_voice::call::end(conn, "c3".into(), Timing::default()));
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c3","end":true}"#);
+    let _ = s.to_phone.send(Ok(Frame::Close));
+    done.await.unwrap().expect("the server closed: it has the hangup");
+
+    // A server that never closes: not delivered (the app tries again).
+    let (conn, mut accept, _refuse) = fake();
+    let done = tokio::spawn(tether_voice::call::end(conn, "c3".into(), Timing::default()));
+    let _s = accept.recv().await.unwrap();
+    assert!(done.await.unwrap().is_err());
 }
