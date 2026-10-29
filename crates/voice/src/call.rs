@@ -12,6 +12,10 @@
 //!   `hello`, the second is called off. A socket that breaks (EOF, an error, a write that doesn't
 //!   finish within [`Timing::send_timeout`], or nothing in for [`Timing::dead_after`]) is redialled
 //!   at once, then with backoff, until [`Timing::resume_give_up`] (the server keeps a call 5 minutes).
+//! - When the line stalls or breaks, the transport is kicked at once ([`Events::kick`]: the ffi has
+//!   iroh look for its paths again, as Android's network callback would, which can come half a
+//!   minute later when Wi-Fi fades), and again after [`Timing::rekick`] if the dial still hasn't
+//!   said `hello`, which then starts over.
 //! - Aviv hears about it (Reconnecting, the Dropped earcon, the mic off, the stale reply dropped)
 //!   only once the line has been down for [`Timing::grace`]: a quick switch goes unnoticed.
 
@@ -125,6 +129,12 @@ pub trait Events: Send + Sync + 'static {
     fn stt_audio(&self, _id: u64, _pcm: &[u8]) {}
     /// No more audio for session `id`: the recognizer finishes it.
     fn stt_close(&self, _id: u64) {}
+    /// The line stalled or broke, or the dial after it is slow: the transport should look for its
+    /// paths again now (the ffi: iroh's `network_change`) instead of waiting for the system to say
+    /// the network changed.
+    fn kick(&self) {}
+    /// The call is back on a new socket after the line went down (the server may have lost it).
+    fn resumed(&self) {}
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +154,9 @@ pub struct Timing {
     pub dead_after: Duration,
     /// After a network change, the line has stalled unless something comes in within this.
     pub net_check: Duration,
+    /// The line went down and the dial after it hasn't said `hello` this long after the kick: kick
+    /// again, and start that dial over.
+    pub rekick: Duration,
     /// Aviv hears of a stall or a drop only once the line has been down this long.
     pub grace: Duration,
     pub send_timeout: Duration,
@@ -164,6 +177,7 @@ impl Default for Timing {
             pong_wait: Duration::from_secs(3),
             dead_after: Duration::from_secs(15),
             net_check: Duration::from_secs(3),
+            rekick: Duration::from_secs(3),
             grace: Duration::from_millis(2500),
             send_timeout: Duration::from_secs(3),
             hangup_wait: Duration::from_secs(3),
@@ -425,6 +439,8 @@ struct Run {
     /// Failed dials since the line was last up.
     tries: u32,
     retry_at: Option<Instant>,
+    /// The line went down and the transport was kicked: kick again then, unless a dial got through.
+    rekick_at: Option<Instant>,
     /// What the server last said it's doing, to show again if a stalled line comes back.
     state: Status,
     /// The phone's own speech to text, if this call has it.
@@ -457,6 +473,7 @@ async fn run(
         shown: true,
         tries: 0,
         retry_at: None,
+        rekick_at: None,
         state: Status::Listening,
         stt: phone_stt.then(Stt::default),
         out: Vec::new(),
@@ -572,10 +589,33 @@ impl Run {
     fn broke(&mut self, why: &str) {
         tracing::info!("voice: line down: {why}");
         self.line = None;
-        self.down.get_or_insert_with(Instant::now);
+        if self.down.is_none() {
+            self.down = Some(Instant::now());
+            self.kick();
+        }
         if self.next.is_none() {
             self.redial();
         }
+    }
+
+    /// The line just went down: the transport looks for its paths now, and again in a moment if the
+    /// dial hasn't got through by then.
+    fn kick(&mut self) {
+        self.sh.events.kick();
+        self.rekick_at = Some(Instant::now() + self.t.rekick);
+    }
+
+    /// [`Timing::rekick`] after the line went down: a dial that still hasn't said hello rode the old
+    /// path, so kick the transport again and start the dial over (a backoff wait ends now too).
+    fn rekick(&mut self) {
+        self.rekick_at = None;
+        if self.down.is_none() || self.next.as_ref().is_some_and(|d| d.hello.load(Ordering::SeqCst)) {
+            return;
+        }
+        tracing::info!("voice: no second socket {} ms after the kick: kicking again and redialling", self.t.rekick.as_millis());
+        self.sh.events.kick();
+        self.tries = 0;
+        self.redial();
     }
 
     fn redial(&mut self) {
@@ -586,6 +626,11 @@ impl Run {
     }
 
     async fn network_changed(&mut self) {
+        tracing::info!("voice: the phone's network changed");
+        // The dial starts over now: give it the whole wait before a rekick starts it over again.
+        if self.rekick_at.is_some() {
+            self.rekick_at = Some(Instant::now() + self.t.rekick);
+        }
         // A dial that hasn't said hello yet was on the old network: start it over on the new one.
         if self.next.as_ref().is_some_and(|d| !d.hello.load(Ordering::SeqCst)) || self.retry_at.is_some() {
             self.tries = 0;
@@ -695,6 +740,7 @@ impl Run {
         }
         self.next = None;
         self.retry_at = None;
+        self.rekick_at = None;
         self.tries = 0;
         self.down = None;
         if self.shown {
@@ -720,6 +766,10 @@ impl Run {
             }
         };
         let resumed = self.id.as_ref() == Some(&call);
+        if let Some(down) = self.down.filter(|_| self.id.is_some()) {
+            tracing::info!("voice: back on a new socket after {} ms down{}", down.elapsed().as_millis(), if resumed { "" } else { ", as a new call" });
+            self.sh.events.resumed();
+        }
         if self.id.as_ref().is_some_and(|old| *old != call) {
             // The server no longer had the old call: this is a new one, without what was said before.
             self.sh.events.error("new call: Jarvis lost the old one");
@@ -732,6 +782,7 @@ impl Run {
         self.down = None;
         self.tries = 0;
         self.retry_at = None;
+        self.rekick_at = None;
         // A new call starts unmuted; a resumed one may have been muted or unmuted while the line was down.
         let muted = self.sh.muted.load(Ordering::SeqCst);
         if muted || resumed {
@@ -763,8 +814,9 @@ impl Run {
                 self.broke(&format!("nothing for {}s", quiet.as_secs()));
             } else if l.stalled(&self.t) {
                 if self.down.is_none() {
-                    tracing::info!("voice: line stalled after {} ms quiet: dialling a second socket", quiet.as_millis());
+                    tracing::info!("voice: line stalled after {} ms quiet: kicking the network, dialling a second socket", quiet.as_millis());
                     self.down = Some(Instant::now());
+                    self.kick();
                     if self.next.is_none() && self.retry_at.is_none() {
                         self.redial();
                     }
@@ -773,6 +825,9 @@ impl Run {
                 l.pinged = true;
                 self.send(Frame::Ping).await;
             }
+        }
+        if self.rekick_at.is_some_and(|at| Instant::now() >= at) {
+            self.rekick();
         }
         let down = self.down?;
         if !self.shown && down.elapsed() >= self.t.grace {

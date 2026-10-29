@@ -71,7 +71,9 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   have earcons) and the call notification is quiet (low channel, alerts once), so the screen stays off. Debug
   builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator, and carry the
   emulator's forum key (`~/.config/jarvis/forum-emu-iroh-secret`), never the Pixel's: an endpoint with the phone's
-  id anywhere else takes its relay traffic. Why calls dropped and what the call/pipe logs mean: `docs/voice-link-drops.md`.
+  id anywhere else takes its relay traffic. Why calls dropped and what the call/pipe logs mean: `docs/voice-link-drops.md`. A stall or break kicks iroh at once (`Events::kick` → `forum_network_changed`) and again 3 s on if the
+  second dial hasn't said hello; a call that went down sends its recent log lines to the server once (`crates/ffi/src/phonelog.rs`,
+  handshake `logup`, kept in the server's `~/.jarvis/phone-logs/`).
 - adb on any network (`Adb.kt`, `tether adb [--enable]`, 2026-10-05): dibs asks where the phone's adb listens
   when adb can't see it (the phone's Wi-Fi filter drops multicast mDNS while the screen is off). The daemon wakes
   the phone (FCM), sends a live `App` frame on the reserved channel `_adb` (`{"op":"endpoint","enable":bool}`) and

@@ -7,6 +7,7 @@
 
 mod alerts;
 mod forum;
+mod phonelog;
 mod voice;
 
 use std::{
@@ -548,11 +549,15 @@ impl TetherNode {
 fn init_logging() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
+        use tracing_subscriber::{Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
         let filter = tracing_subscriber::EnvFilter::new("info,tether_core=debug,iroh=warn,netwatch=error,swarm_discovery=error");
-        let b = tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false);
         #[cfg(target_os = "android")]
-        let b = b.without_time().with_writer(logcat::Writer::default);
-        let _ = b.try_init();
+        let out = fmt::layer().with_ansi(false).without_time().with_writer(logcat::Writer::default);
+        #[cfg(not(target_os = "android"))]
+        let out = fmt::layer().with_ansi(false);
+        // The call's own lines, with the wall-clock time, for the upload after a drop (`phonelog`).
+        let ring = fmt::layer().with_ansi(false).with_writer(phonelog::Line::default).with_filter(phonelog::targets());
+        let _ = tracing_subscriber::registry().with(filter).with(out).with(ring).try_init();
     });
 }
 

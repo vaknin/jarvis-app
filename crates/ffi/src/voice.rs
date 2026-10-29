@@ -1,8 +1,19 @@
 //! Voice calls with Jarvis for the app: [`tether_voice::Call`] behind a uniffi object. The app's
 //! mic thread pushes 20 ms frames with `send_audio`, its speaker thread pulls with `pull_audio`
 //! (blocking writes to the AudioTrack pace it), and the listener hears the call's state.
+//!
+//! When the line stalls or breaks, the call kicks the forum tunnel's iroh endpoint at once
+//! ([`crate::forum::forum_network_changed`]) rather than waiting for Android's network callback. A call
+//! that went down sends its recent log lines to the server once ([`crate::phonelog`]): shortly after
+//! it's back, or when it ends without coming back.
 
-use std::sync::Arc;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use tether_voice::{Call, Events, Status, Timing, Word, websocket};
 
@@ -58,10 +69,45 @@ pub struct SttWord {
     pub start_ms: u64,
 }
 
-struct Bridge(Box<dyn VoiceListener>);
+/// After the line is back, this long before the log goes: the old pipe's own end line (its path,
+/// bytes and why) lands within a few seconds of the switch.
+const LOG_AFTER_RESUME: Duration = Duration::from_secs(15);
+/// After a call that went down ends, this long before the log goes (the pipes' end lines).
+const LOG_AFTER_END: Duration = Duration::from_secs(6);
+
+struct Bridge(Box<dyn VoiceListener>, Arc<Drops>);
+
+/// What this call's line did, for its one log upload.
+#[derive(Default)]
+struct Drops {
+    went_down: AtomicBool,
+    sent: AtomicBool,
+}
+
+impl Drops {
+    /// Sends the log once per call, `after` from now.
+    fn send(&self, why: String, after: Duration) {
+        if self.sent.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        RT.spawn(async move {
+            tokio::time::sleep(after).await;
+            let lines = crate::phonelog::recent(crate::phonelog::SEND_WINDOW, crate::phonelog::SEND_MAX);
+            match crate::forum::send_log(&why, &lines).await {
+                Ok(answer) => tracing::info!("voice: log sent ({} B, {why}): {answer}", lines.len()),
+                Err(e) => tracing::warn!("voice: log not sent ({why}): {e:#}"),
+            }
+        });
+    }
+}
 
 impl Events for Bridge {
     fn status(&self, s: Status) {
+        if let Status::Ended(why) = &s
+            && self.1.went_down.load(Ordering::SeqCst)
+        {
+            self.1.send(format!("ended after a drop: {why}"), LOG_AFTER_END);
+        }
         self.0.on_state(s.into());
     }
     fn text(&self, who: &str, text: &str) {
@@ -85,6 +131,17 @@ impl Events for Bridge {
     fn stt_close(&self, id: u64) {
         self.0.on_stt_close(id);
     }
+    fn kick(&self) {
+        self.1.went_down.store(true, Ordering::SeqCst);
+        crate::forum::forum_network_changed();
+    }
+    fn resumed(&self) {
+        self.1.send("resumed".into(), LOG_AFTER_RESUME);
+    }
+}
+
+fn bridge(listener: Box<dyn VoiceListener>) -> Arc<Bridge> {
+    Arc::new(Bridge(listener, Default::default()))
 }
 
 #[derive(uniffi::Object)]
@@ -98,7 +155,7 @@ impl VoiceCall {
     pub fn new(url: String, listener: Box<dyn VoiceListener>, phone_stt: bool) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
-        Arc::new(VoiceCall(Call::start_full(websocket(url), Arc::new(Bridge(listener)), Timing::default(), None, phone_stt)))
+        Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), None, phone_stt)))
     }
 
     /// [`VoiceCall::new`] for a call about forum thread `topic` (its notification's Call button): the
@@ -108,7 +165,7 @@ impl VoiceCall {
         crate::init_logging();
         let _rt = RT.enter();
         let about = tether_voice::proto::About { topic, title, text };
-        Arc::new(VoiceCall(Call::start_full(websocket(url), Arc::new(Bridge(listener)), Timing::default(), Some(about), phone_stt)))
+        Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
     }
 
     /// One 20 ms mic frame (640 bytes PCM16 LE mono 16 kHz). Never blocks.

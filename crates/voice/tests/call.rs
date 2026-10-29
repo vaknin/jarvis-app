@@ -74,6 +74,9 @@ fn fake_slow(slow: Duration) -> (Connector, mpsc::UnboundedReceiver<Server>, Arc
 struct Log(Mutex<Vec<String>>);
 
 impl Log {
+    fn count(&self, s: &str) -> usize {
+        self.0.lock().unwrap().iter().filter(|l| *l == s).count()
+    }
     fn has(&self, s: &str) -> bool {
         self.0.lock().unwrap().iter().any(|l| l == s)
     }
@@ -106,6 +109,12 @@ impl Events for Log {
     }
     fn stt_close(&self, id: u64) {
         self.0.lock().unwrap().push(format!("stt close {id}"));
+    }
+    fn kick(&self) {
+        self.0.lock().unwrap().push("kick".into());
+    }
+    fn resumed(&self) {
+        self.0.lock().unwrap().push("resumed".into());
     }
 }
 
@@ -686,4 +695,99 @@ async fn the_old_sockets_close_during_a_takeover_does_not_end_the_call() {
             break;
         }
     }
+}
+
+/// Waits (on the paused clock) until `log` has `n` of `s`; how long that took from `t0`.
+async fn wait_count(log: &Log, s: &str, n: usize, t0: tokio::time::Instant) -> Duration {
+    for _ in 0..60_000 {
+        if log.count(s) >= n {
+            return t0.elapsed();
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("never got {n} of {s:?}; log: {:?}", log.0.lock().unwrap());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stall_kicks_the_network_at_once_and_again_while_the_second_dial_hangs() {
+    // Every connect takes 10 s, as a dial on a path that went with the old Wi-Fi does.
+    let (conn, mut accept, _refuse) = fake_slow(Duration::from_secs(10));
+    let log = Arc::new(Log::default());
+    let _call = Call::start(conn, log.clone(), Timing::default());
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    assert_eq!(log.count("kick"), 0, "the first connect kicks nothing");
+    let t0 = tokio::time::Instant::now();
+    // The ping at 2 s goes unanswered: the stall at 5 s kicks at once, with the second dial.
+    let at = wait_count(&log, "kick", 1, t0).await;
+    assert!(at >= Duration::from_millis(4900) && at < Duration::from_millis(5300), "{at:?}");
+    // 3 s on, that dial still hasn't said hello: kicked again, and the dial starts over.
+    let at = wait_count(&log, "kick", 2, t0).await;
+    assert!(at >= Duration::from_millis(7900) && at < Duration::from_millis(8300), "{at:?}");
+    // Only the dial started at 8 s gets through (the one from 5 s was dropped), and no more kicks.
+    let mut s2 = accept.recv().await.unwrap();
+    assert!(t0.elapsed() >= Duration::from_millis(17_900) && t0.elapsed() < Duration::from_millis(18_300), "{:?}", t0.elapsed());
+    assert_eq!(s2.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+    s2.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "resumed").await;
+    // (Under 5 s, or the new line, unanswered here, would stall in its turn.)
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert!(accept.try_recv().is_err(), "the first second dial was called off");
+    assert_eq!(log.count("kick"), 2, "{:?}", log.0.lock().unwrap());
+    assert_eq!(log.count("resumed"), 1);
+    drop(s);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_second_dial_that_gets_through_is_not_kicked_again() {
+    let (_call, _s, mut accept, _r, log) = up().await;
+    let t0 = tokio::time::Instant::now();
+    let mut s2 = accept.recv().await.unwrap();
+    assert_eq!(log.count("kick"), 1, "kicked with the stall's dial");
+    s2.text().await;
+    // Hello went out: the server takes its time with ready, but the path works. No rekick.
+    tokio::time::sleep_until(t0 + Duration::from_secs(9)).await;
+    s2.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "resumed").await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert_eq!(log.count("kick"), 1, "{:?}", log.0.lock().unwrap());
+    assert!(accept.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hard_drop_kicks_once_and_a_quick_resume_needs_no_more() {
+    let (_call, s, mut accept, _r, log) = up().await;
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(log.count("kick"), 1, "kicked as the line broke");
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "resumed").await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert_eq!(log.count("kick"), 1, "{:?}", log.0.lock().unwrap());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stalled_line_that_answers_ends_the_rekick() {
+    let (conn, mut accept, _refuse) = fake_slow(Duration::from_secs(2));
+    let log = Arc::new(Log::default());
+    let _call = Call::start(conn, log.clone(), Timing::default());
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    let t0 = tokio::time::Instant::now();
+    wait_count(&log, "kick", 1, t0).await;
+    // The old line answers before the second dial (2 s to connect) has said hello: no rekick.
+    let _ = s.to_phone.send(Ok(Frame::Pong));
+    let until = t0 + Duration::from_secs(12);
+    while let Ok(Some(f)) = tokio::time::timeout_at(until, s.from_phone.recv()).await {
+        if f == Frame::Ping {
+            let _ = s.to_phone.send(Ok(Frame::Pong));
+        }
+    }
+    assert_eq!(log.count("kick"), 1, "{:?}", log.0.lock().unwrap());
+    assert!(accept.try_recv().is_err());
 }

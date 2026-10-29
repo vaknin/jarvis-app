@@ -59,3 +59,22 @@ after a gate restart (twice); not chased.
    rebind marks the socket broken and the next poll binds again; the first failure and the recovery are
    logged at error level (`netwatch: rebind failed, retrying on the next poll: …` / `rebind recovered`),
    so the next one also says why the bind failed. Upstream 0.20.0 has the same bug.
+
+## 2026-10-29: a drop leaving home Wi-Fi took ~35 s (thread #132)
+At 07:13:40 the call stalled as Aviv left home; the gate's old voice connection idle-timed out at 07:14:11
+and the new one only opened at 07:14:15, via the relay, though the stall's second dial should have gone at
+~07:13:44. Likely: that dial rode the same iroh endpoint, whose relay link and selected path were on the
+dying Wi-Fi, and nothing made iroh look again until Android's default-network callback fired.
+
+5. A stall or a break now kicks the transport at once (`Events::kick`; the ffi calls
+   `forum_network_changed`, iroh's `network_change`), and if the second dial still hasn't said `hello`
+   3 s later (`Timing::rekick`), kicks again and starts that dial over (once; a network change from
+   Android pushes the rekick back 3 s, since it restarts the dial itself). Tests: `a_stall_kicks_...`,
+   `a_second_dial_that_gets_through_...`, `a_hard_drop_kicks_once_...`, `a_stalled_line_that_answers_ends_the_rekick`.
+6. The phone's call log reaches the server: the ffi keeps its own lines (the voice crate, the ffi's forum
+   and voice, iroh warnings, netwatch errors; 15 min, 512 KiB) in a ring (`crates/ffi/src/phonelog.rs`), and a
+   call that went down sends the last 5 minutes (at most 128 KiB) once: 15 s after it's back, or 6 s after
+   it ends without coming back. Handshake `logup` on the forum tunnel (`forum::send_log`); the gate keeps it
+   in `~/.jarvis/phone-logs/` on the server. New lines that help read it: `voice: the phone's network
+   changed`, `forum: network change: endpoint N looks for its paths again`, `voice: back on a new socket
+   after N ms down`, `voice: log sent`.

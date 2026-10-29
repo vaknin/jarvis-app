@@ -20,6 +20,8 @@
 //! The same endpoint asks the gate for app updates ([`update_check`], [`update_fetch`]): the
 //! handshake `build`, which the gate answers itself from the builds Jarvis published there (the
 //! jarvis repo's `forum-gate publish`, `forum/phone/tunnel/src/builds.rs`, which has the wire format).
+//! And it sends the call's recent log lines after a drop ([`send_log`], the handshake `logup`, the
+//! gate's `forum/phone/tunnel/src/phonelogs.rs`), so the next drop can be read away from home.
 
 use std::{
     collections::HashMap,
@@ -47,6 +49,7 @@ const ALPN: &[u8] = b"DUMBPIPEV0";
 const HANDSHAKE: &[u8; 5] = b"hello";
 const VOICE_HANDSHAKE: &[u8; 5] = b"voice";
 const BUILD_HANDSHAKE: &[u8; 5] = b"build";
+const LOG_HANDSHAKE: &[u8; 5] = b"logup";
 /// The endpoint closes this long after the last forum connection ended.
 const IDLE: Duration = Duration::from_secs(180);
 /// At most one rebuild this often, so a gate that's really down doesn't churn endpoints.
@@ -98,7 +101,8 @@ pub fn forum_network_changed() {
     let Some(lazy) = ENDPOINT.lock().unwrap().clone() else { return };
     RT.spawn(async move {
         let ep = lazy.ep.lock().await.clone();
-        if let Some((_, ep)) = ep {
+        if let Some((n, ep)) = ep {
+            tracing::info!("forum: network change: endpoint {n} looks for its paths again");
             ep.network_change().await;
         }
     });
@@ -438,8 +442,8 @@ impl Drop for Busy {
     }
 }
 
-async fn ask_build(app: &str, into: Option<&std::path::Path>) -> Result<Option<AppUpdate>> {
-    // The tunnel starts with the app's service; give it a moment if this ask came first.
+/// The tunnel's endpoint, waiting a moment for it if the app's service hasn't started it yet.
+async fn tunnel() -> Result<Arc<Lazy>> {
     let mut lazy = None;
     for _ in 0..50 {
         lazy = ENDPOINT.lock().unwrap().clone();
@@ -448,7 +452,12 @@ async fn ask_build(app: &str, into: Option<&std::path::Path>) -> Result<Option<A
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let lazy = lazy.context("the forum tunnel isn't running")?;
+    lazy.context("the forum tunnel isn't running")
+}
+
+async fn ask_build(app: &str, into: Option<&std::path::Path>) -> Result<Option<AppUpdate>> {
+    // The tunnel starts with the app's service; give it a moment if this ask came first.
+    let lazy = tunnel().await?;
     lazy.open.fetch_add(1, Ordering::SeqCst);
     let _busy = Busy(lazy.clone());
     let (which, ep) = lazy.get().await?;
@@ -485,6 +494,35 @@ async fn ask_build(app: &str, into: Option<&std::path::Path>) -> Result<Option<A
     }
     conn.close(0u8.into(), b"done");
     Ok(update)
+}
+
+/// Sends `lines` (the call's recent log, [`crate::phonelog`]) to the gate, which keeps them under
+/// `~/.jarvis/phone-logs/`. The wire, after the `logup` handshake: one line of JSON about the upload
+/// (`why`, `sent_ms`), then the lines as UTF-8 text until the stream ends; the gate answers `ok <file>`
+/// on one line. Best effort: a failure never touches the endpoint (a live call may be on it).
+pub(crate) async fn send_log(why: &str, lines: &str) -> Result<String> {
+    let lazy = tunnel().await?;
+    lazy.open.fetch_add(1, Ordering::SeqCst);
+    let _busy = Busy(lazy.clone());
+    let (_, ep) = lazy.get().await?;
+    let sent_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    let head = serde_json::json!({ "why": why, "sent_ms": sent_ms });
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let conn = ep.connect(lazy.addr.clone(), ALPN).await.context("connect")?;
+        let (mut send, recv) = conn.open_bi().await.context("open")?;
+        send.write_all(LOG_HANDSHAKE).await?;
+        send.write_all(format!("{head}\n").as_bytes()).await?;
+        send.write_all(lines.as_bytes()).await?;
+        send.finish()?;
+        let mut answer = String::new();
+        BufReader::new(recv).take(1024).read_line(&mut answer).await?;
+        conn.close(0u8.into(), b"done");
+        let answer = answer.trim();
+        anyhow::ensure!(answer.starts_with("ok"), "the gate said {answer:?}");
+        anyhow::Ok(answer.to_string())
+    })
+    .await
+    .context("the gate didn't take the log in 60 s")?
 }
 
 fn parse(line: &str) -> Result<Option<AppUpdate>> {
