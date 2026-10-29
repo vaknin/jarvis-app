@@ -11,5 +11,6 @@ class TetherApp : Application() {
         Core.init(this)
         Shortcuts.publish(this)
         LinkService.start(this)
+        PhoneStt.check(this)
     }
 }
