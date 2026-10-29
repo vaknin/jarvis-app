@@ -630,6 +630,13 @@ impl Run {
         l.check = None;
         let now = l.last_in;
         match f {
+            // A resume that said hello takes the call over: the old socket's Close is that, not
+            // Jarvis ending the call (the server before #178 sent it without a code, and the phone
+            // often read it before the new socket's `ready`: 3 of 4 resumes on 2026-10-29 ended).
+            Some(Ok(Frame::Close)) if self.next.as_ref().is_some_and(|d| d.hello.load(Ordering::SeqCst)) => {
+                self.broke("taken over by the resume");
+                return None;
+            }
             Some(Ok(Frame::Close)) => return Some("Jarvis ended the call".into()),
             Some(Err(e)) => {
                 self.broke(&format!("{e:#}"));

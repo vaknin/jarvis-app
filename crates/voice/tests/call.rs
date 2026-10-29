@@ -664,3 +664,26 @@ async fn phone_stt_says_so_feeds_the_recognizer_and_answers_each_cut() {
     let heard = s.text().await;
     assert!(heard.starts_with(r#"{"type":"heard","id":1,"text":"Check it.","ms":9"#), "{heard}");
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_old_sockets_close_during_a_takeover_does_not_end_the_call() {
+    let (call, s, mut accept, _r, log) = up().await;
+    call.pull_audio(Earcon::Connected.samples().len());
+    // The line stalls and a resume says hello; the server takes the call over and closes the old
+    // socket before the new one's `ready` reaches the phone (thread #178).
+    let mut s2 = accept.recv().await.unwrap();
+    assert_eq!(s2.text().await, r#"{"type":"hello","version":1,"resume":"c1"}"#);
+    let _ = s.to_phone.send(Ok(Frame::Close));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    s2.send(r#"{"type":"ready","call":"c1"}"#);
+    assert_eq!(s2.text().await, r#"{"type":"mute","on":false}"#);
+    let statuses = log.statuses();
+    assert!(!statuses.iter().any(|l| l.contains("Ended") || l.contains("Reconnecting")), "{statuses:?}");
+    call.send_audio(vec![3; 640]);
+    loop {
+        if let Frame::Binary(b) = s2.from_phone.recv().await.unwrap() {
+            assert_eq!(b, vec![3; 640]);
+            break;
+        }
+    }
+}
