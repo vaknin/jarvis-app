@@ -55,7 +55,10 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   `jarvis-voice` on 127.0.0.1:8790. The ffi's `VoiceCall` wraps it; the forum tunnel's second port 8791 opens its pipe
   with `voice`, which the gate sends to jarvis-voice. In the app: `CallService` (foreground, phoneCall + microphone; a
   self-managed Telecom call through androidx core-telecom, so the AirPods use their call profile and a press hangs
-  up; communication mode by hand only if Telecom refuses), `CallActivity` (big Call button, Mute, Hang up, and the audio route
+  up; communication mode by hand only if Telecom refuses; the mic reopens on each route change, and a headset mic
+  that gives near-silence (peak < 400 for 3 s) while a second recording on the phone's mic hears speech is given up
+  on until the call leaves that headset: the phone's mic hears Aviv, logged as `mic check:` / `hears nothing`, since
+  the AirPods once gave a dead uplink at the Bluetooth level, 2026-10-29), `CallActivity` (big Call button, Mute, Hang up, and the audio route
   (`AudioRoutes.kt`: a tap cycles earpiece, speaker, Bluetooth, wired; through Telecom's endpoints, AudioManager's
   communication device when routed by hand), the call's length from connect (also the notification's chronometer),
   the transcript as a chat that scrolls back through past calls (`CallLog`, `filesDir/call-log.jsonl`, newest 2000
