@@ -40,7 +40,12 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   only for what is aimed at Aviv: Discourse's unread notifications of types 1/6/7/15, and chat DMs and @mentions. It
   never marks anything read. Assistant: `Assist.kt` (VoiceInteractionService; the session opens `CallActivity` START),
   and `CallActivity` takes ACTION_ASSIST. Media keys: `MediaKeys.kt`. A call holds a MediaSession, so afterwards
-  "next" (the AirPods double-press) reaches `MediaKeys.Receiver` and calls, until another media app plays.
+  the keys reach `MediaKeys.Receiver`, until another media app plays; headphones connecting with nothing playing
+  re-claim them (`MediaKeys.claim`, 300 ms of silence under a PLAYING session, from `LinkService`). With nothing
+  playing the AirPods send PLAY for a press and a double-press alike (never NEXT; the Pixel's `dumpsys
+  bluetooth_manager` "Media Key Events", 2026-10-29), so NEXT, PLAY and PLAY_PAUSE all call. If the call screen
+  hasn't opened 3 s after a press, a full-screen "Call Jarvis" notification stands in. Logs: tag `TetherKeys`;
+  what the receiver got: `dumpsys activity broadcasts history` (MEDIA_BUTTON).
   Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
   (now in the dibs repo's history): the lean app doesn't answer those.
 - Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of

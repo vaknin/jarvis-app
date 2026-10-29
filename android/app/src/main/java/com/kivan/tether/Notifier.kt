@@ -17,7 +17,7 @@ import com.kivan.tether.core.ChatMessage
 object Notifier {
     const val LINK = "link"
     const val CALLS = "calls"
-    private const val JARVIS = "jarvis"
+    const val JARVIS = "jarvis"
     private const val MESSAGES = "messages"
     private const val FILES = "files"
     private const val ALERTS = "alerts"

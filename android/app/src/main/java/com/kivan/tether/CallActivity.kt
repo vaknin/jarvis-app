@@ -51,7 +51,7 @@ class CallActivity : ComponentActivity() {
         if (calls(intent)) call()
     }
 
-    private fun calls(i: Intent?) = i?.action == START || i?.action == Intent.ACTION_ASSIST
+    private fun calls(i: Intent?) = (i?.action == START || i?.action == Intent.ACTION_ASSIST).also { if (it) MediaKeys.opened(this) }
 
     private fun call() {
         if (CallService.micGranted(this)) Voice.start(this) else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC)

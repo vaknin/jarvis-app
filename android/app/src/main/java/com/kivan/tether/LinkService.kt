@@ -14,11 +14,19 @@ import kotlinx.coroutines.launch
 /**
  * Keeps the process up so the forum tunnel's localhost port always answers, Jarvis's notifications
  * arrive ([Alerts], which keeps the tunnel's iroh endpoint up: its relay ping every 15 s) and the forum's
- * own notifications come ([Watch], its long poll; its status is this notification's line). No wakelock.
+ * own notifications come ([Watch], its long poll; its status is this notification's line), and headphones that
+ * connect give the media keys to Tether ([MediaKeys.claim]). No wakelock.
  * The link node isn't kept up: the laptop wakes it through FCM ([Push]). Started with the app and at boot.
  */
 class LinkService : Service() {
+    private var headphones: android.media.AudioDeviceCallback? = null
+
     override fun onBind(intent: Intent?) = null
+
+    override fun onDestroy() {
+        headphones?.let { getSystemService(android.media.AudioManager::class.java).unregisterAudioDeviceCallback(it) }
+        super.onDestroy()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
@@ -36,6 +44,9 @@ class LinkService : Service() {
         Alerts.start(this)
         Watch.start(this)
         Updater.loop(this)
+        // Tests: on the emulator (root) `am startservice -a com.kivan.tether.CLAIM_KEYS` stands in for AirPods connecting.
+        if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.CLAIM_KEYS") MediaKeys.claim(this, "test")
+        if (headphones == null) headphones = runCatching { MediaKeys.watchHeadphones(this) }.getOrNull()
         return START_STICKY
     }
 
