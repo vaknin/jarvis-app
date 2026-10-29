@@ -197,12 +197,13 @@ impl VoiceCall {
     }
 
     /// Back to the dropped call `id` the app had left (its process died mid-call, or Aviv answered
-    /// Jarvis calling back): Jarvis opens with where they were cut off.
+    /// Jarvis calling back). `aviv_left`: Jarvis opens with where they were cut off; without it (a
+    /// restart Aviv never noticed, like an update in a pause) the call just goes on.
     #[uniffi::constructor]
-    pub fn rejoin(url: String, listener: Box<dyn VoiceListener>, id: String, phone_stt: bool) -> Arc<Self> {
+    pub fn rejoin(url: String, listener: Box<dyn VoiceListener>, id: String, phone_stt: bool, aviv_left: bool) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
-        Arc::new(VoiceCall(Call::rejoin(websocket(url), bridge(listener), Timing::default(), id, phone_stt)))
+        Arc::new(VoiceCall(Call::rejoin(websocket(url), bridge(listener), Timing::default(), id, phone_stt, aviv_left)))
     }
 
     /// One 20 ms mic frame (640 bytes PCM16 LE mono 16 kHz). Never blocks.

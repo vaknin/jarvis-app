@@ -37,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -113,6 +114,7 @@ class CallService : Service() {
             stopSelf()
             return
         }
+        micLater = false
         try {
             startForeground(
                 ID, notification(CallState.Connecting, false),
@@ -120,12 +122,20 @@ class CallService : Service() {
             )
         } catch (e: Exception) {
             // Started from the background (the app restarting after an update): Android keeps the mic
-            // from it, so Jarvis rings and Aviv's answer brings the call back.
-            Log.w(TAG, "the call can't start from here", e)
-            Voice.update(this) { Voice.Ui() }
-            stopSelf()
-            if (rejoin != null) ringBack(this, rejoin)
-            return
+            // from it until the call is Telecom's again, which lends the app its own call service with
+            // the mic ([telecom] takes it then). Without even that, Jarvis rings and Aviv's answer
+            // brings the call back.
+            val ok = rejoin != null && runCatching {
+                startForeground(ID, notification(CallState.Connecting, false), ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
+            }.onFailure { Log.w(TAG, "the call can't start from here", it) }.isSuccess
+            if (!ok) {
+                Voice.update(this) { Voice.Ui() }
+                stopSelf()
+                if (rejoin != null) ringBack(this, rejoin)
+                return
+            }
+            Log.i(TAG, "started in the background: the mic comes with the Telecom call (${e.message?.take(80)})")
+            micLater = true
         }
         runCatching { Forum.start() }
         keys?.release()
@@ -143,7 +153,7 @@ class CallService : Service() {
         val c = if (rejoin != null) {
             Log.i(TAG, "rejoining call $rejoin${if (auto) " (the app restarted)" else ""}")
             CallStore.joined(this, rejoin)
-            VoiceCall.rejoin(BuildConfig.VOICE_URL, listener, rejoin, stt != null)
+            VoiceCall.rejoin(BuildConfig.VOICE_URL, listener, rejoin, stt != null, !auto)
         } else {
             VoiceCall(BuildConfig.VOICE_URL, listener, stt != null)
         }
@@ -596,6 +606,7 @@ class CallService : Service() {
                 launch {
                     val r = setActive()
                     Log.i(TAG, "telecom active: $r")
+                    if (micLater) takeMic()
                 }
                 // The system's own mute (a headset, the call panel) is Aviv's.
                 launch { isMuted.drop(1).collect { heldMute = false; setMuted(it) } }
@@ -612,6 +623,34 @@ class CallService : Service() {
             Log.w(TAG, "telecom refused the call; routing by hand", e)
             if (!telecom) { routeByHand(); routes.followByHand() }
         }
+    }
+
+    /** Started in the background: the mic waits for Telecom's call service (see [begin]). */
+    @Volatile private var micLater = false
+
+    /** The mic, once Telecom has lent the call its service; else the call hangs and Jarvis rings. */
+    private suspend fun takeMic() {
+        val since = System.currentTimeMillis()
+        while (System.currentTimeMillis() - since < MIC_WAIT_MS) {
+            val got = runCatching {
+                startForeground(
+                    ID, notification(Voice.ui.value.state ?: CallState.Connecting, Voice.ui.value.muted),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                )
+            }.isSuccess
+            if (got) {
+                micLater = false
+                Log.i(TAG, "mic back after ${System.currentTimeMillis() - since} ms of Telecom's call")
+                return
+            }
+            delay(250)
+        }
+        // Aviv would hear Jarvis and never be heard: ring instead, and his answer brings the call back.
+        Log.w(TAG, "no mic from the background after $MIC_WAIT_MS ms; ringing instead")
+        // The process goes, so the line drops without a hangup and the server keeps the call; the
+        // ring stays on the phone (the notification is the system's).
+        CallStore.active(this)?.let { ringBack(this, it) }
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     private var routed = false
@@ -768,6 +807,8 @@ class CallService : Service() {
         const val AUTO = "auto"
         /** A mic frame this loud is Aviv talking: an update waits for a pause ([Voice.quiet]). */
         private const val VOICE_PEAK = 2000
+        /** How long a call started in the background waits for Telecom to lend it the mic. */
+        private const val MIC_WAIT_MS = 5_000L
 
         fun ringBack(context: Context, id: String) =
             Callback.ring(context, id, "Jarvis calling back", "Our call dropped. Answer to go on where we were.")

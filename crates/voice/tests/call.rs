@@ -529,7 +529,7 @@ async fn a_rejoin_resumes_the_call_saying_so_once_and_never_gives_up() {
     let (conn, mut accept, refuse) = fake();
     let log = Arc::new(Log::default());
     refuse.store(true, Ordering::SeqCst);
-    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c7".into(), false);
+    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c7".into(), false, true);
     // Not the first connect's 45 s: the server has this call.
     tokio::time::sleep(Duration::from_secs(120)).await;
     assert!(!log.0.lock().unwrap().iter().any(|l| l.starts_with("status Ended")));
@@ -543,6 +543,17 @@ async fn a_rejoin_resumes_the_call_saying_so_once_and_never_gives_up() {
     drop(s);
     let mut s = accept.recv().await.unwrap();
     assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c7"}"#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_restart_aviv_never_noticed_resumes_without_saying_so() {
+    let (conn, mut accept, _refuse) = fake();
+    let log = Arc::new(Log::default());
+    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c8".into(), false, false);
+    let mut s = accept.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c8"}"#);
+    s.send(r#"{"type":"ready","call":"c8"}"#);
+    wait_for(&log, "status Listening").await;
 }
 
 #[tokio::test(start_paused = true)]

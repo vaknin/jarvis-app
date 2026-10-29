@@ -15,8 +15,9 @@
 //!   (thread #132: the server keeps it until Aviv hangs up). While the phone has no network
 //!   ([`Call::set_online`]) it waits instead, and dials the moment one is back.
 //! - A call can start as a rejoin ([`Call::rejoin`]): back to a dropped call the app had left (it
-//!   was killed, or Aviv answered Jarvis calling back). Its first hello says `rejoin`, so Jarvis
-//!   opens with where they were cut off.
+//!   was killed, or Aviv answered Jarvis calling back). When Aviv had left it, its first hello says
+//!   `rejoin`, so Jarvis opens with where they were cut off; a restart he never noticed (an update
+//!   in a pause) resumes it like any dropped line.
 //! - A hangup the server didn't confirm (no line, or no Close within [`Timing::hangup_wait`]) is
 //!   owed ([`Events::hangup_owed`]): the app delivers it later, or the dropped call stays open.
 //! - When the line stalls or breaks, the transport is kicked at once ([`Events::kick`]: the ffi has
@@ -273,13 +274,13 @@ impl Call {
     }
 
     /// Back to the dropped call `id` the app had left (its process died mid-call, or Aviv answered
-    /// Jarvis calling back): its first hello resumes `id` with `rejoin`, and from there it's a call
-    /// like any other.
-    pub fn rejoin(connector: Connector, events: Arc<dyn Events>, timing: Timing, id: String, phone_stt: bool) -> Call {
-        Self::begin(connector, events, timing, None, phone_stt, Some(id))
+    /// Jarvis calling back): its first hello resumes `id`, with `rejoin` when Aviv had left it
+    /// (`aviv_left`), and from there it's a call like any other.
+    pub fn rejoin(connector: Connector, events: Arc<dyn Events>, timing: Timing, id: String, phone_stt: bool, aviv_left: bool) -> Call {
+        Self::begin(connector, events, timing, None, phone_stt, Some((id, aviv_left)))
     }
 
-    fn begin(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, rejoin: Option<String>) -> Call {
+    fn begin(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, rejoin: Option<(String, bool)>) -> Call {
         let shared = Arc::new(Shared {
             player: Mutex::new(Player::new(timing.jitter)),
             events,
@@ -509,16 +510,17 @@ async fn run(
     t: Timing,
     about: Option<About>,
     phone_stt: bool,
-    rejoin: Option<String>,
+    rejoin: Option<(String, bool)>,
 ) {
     sh.set_status(Status::Connecting);
-    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), phone_stt, rejoin.is_some()));
+    let (rejoin, aviv_left) = rejoin.map_or((None, false), |(id, left)| (Some(id), left));
+    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), phone_stt, aviv_left));
     let mut r = Run {
         connector,
         sh: sh.clone(),
         mic,
         t,
-        rejoin: rejoin.is_some(),
+        rejoin: aviv_left,
         id: rejoin,
         online: true,
         about,
