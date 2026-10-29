@@ -152,7 +152,7 @@ object MediaKeys {
             if (live || !enabled(context) || again) return
             pressedAt = now
             // Jarvis ringing: the press answers (the call screen continues the call it rang for).
-            context.startActivity(CallActivity.intent(context, start = true).putExtra(Callback.CALL, Callback.ringing?.ifEmpty { null }))
+            context.startActivity(CallActivity.intent(context, start = true).putExtra(Callback.CALL, Callback.pending()))
             // If Android kept the call screen from opening (a background launch it blocked), ask with a notification,
             // which opens by itself on a locked phone. The launch works on the emulator's SDK 36; SDK 37 is untested.
             val done = goAsync()

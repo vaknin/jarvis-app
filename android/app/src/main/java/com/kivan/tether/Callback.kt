@@ -40,7 +40,12 @@ object Callback {
     /** What's ringing now: the dropped call it continues, or "" for a new call. */
     @Volatile var ringing: String? = null
         private set
+    /** A dropped call whose callback went unanswered: the next call Aviv starts (a press too) continues it. */
+    @Volatile private var missedCall: String? = null
     private val main = Handler(Looper.getMainLooper())
+
+    /** The dropped call a call Aviv starts now continues: the one ringing, or the one he missed. */
+    fun pending(): String? = ringing?.ifEmpty { null } ?: missedCall
 
     fun channel(nm: NotificationManager) {
         nm.createNotificationChannel(
@@ -115,7 +120,8 @@ object Callback {
 
     /** What an answer continues: the call it rang for, or null for a new call. Stops the ringing. */
     fun answered(context: Context, intent: Intent?): String? {
-        val call = intent?.getStringExtra(CALL) ?: ringing?.ifEmpty { null }
+        val call = intent?.getStringExtra(CALL) ?: pending()
+        missedCall = null
         stop(context)
         context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
         return call
@@ -137,6 +143,7 @@ object Callback {
     private fun missed(context: Context, call: String?, title: String) {
         if (ringing == null) return
         stop(context)
+        missedCall = call
         val back = answerIntent(context, call, 52)
         // On the quiet channel: the ringing was the alert.
         val n = Notification.Builder(context, Notifier.CALLS)
@@ -169,6 +176,7 @@ object Callback {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != DECLINE) return
             val call = intent.getStringExtra(CALL)
+            if (call == missedCall) missedCall = null
             stop(context)
             context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
             Log.i(TAG, "declined: ${call ?: "a new call"}")
