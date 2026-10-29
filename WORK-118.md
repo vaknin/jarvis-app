@@ -12,7 +12,7 @@ Done, on branch jarvis/thread-118-part-2-the-phone-s:
   (Call::start_full(.., phone_stt), Events::stt_open/stt_audio/stt_close, Call::stt_done). cargo test -p tether-voice:
   16 + 28 pass, incl. phone_stt_says_so_feeds_the_recognizer_and_answers_each_cut.
 - crates/ffi voice.rs: VoiceListener.on_stt_open/audio/close, SttWord record, VoiceCall(url, listener, phone_stt),
-  about(.., phone_stt), stt_done. (ffi build was running when the context ran out.)
+  about(.., phone_stt), stt_done. cargo build -p tether-ffi ok, its tests pass (4).
 - Kotlin: PhoneStt.kt (on-device recognizer per session, pipe fed once ready, BUSY retry 250 ms x40, one at a time,
   watchdog 6 s, availability check cached in prefs "phone-stt"), CallService wiring, TetherApp check at start,
   manifest <queries> RecognitionService.
