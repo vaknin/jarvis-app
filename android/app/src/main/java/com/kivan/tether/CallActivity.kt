@@ -30,8 +30,8 @@ class CallActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
-        setContent { CallScreen(onCall = ::call, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }) }
-        if (calls(intent) && savedInstanceState == null) call()
+        setContent { CallScreen(onCall = { call() }, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }) }
+        if (calls(intent) && savedInstanceState == null) call(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 Voice.ui.collect { ui ->
@@ -48,20 +48,24 @@ class CallActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (calls(intent)) call()
+        if (calls(intent)) call(intent)
     }
 
     private fun calls(i: Intent?) = (i?.action == START || i?.action == Intent.ACTION_ASSIST).also { if (it) MediaKeys.opened(this) }
 
-    private fun call() {
-        if (CallService.micGranted(this)) Voice.start(this) else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC)
+    /** The dropped call a press continues: the one ringing, or the one the intent answers. */
+    private var rejoin: String? = null
+
+    private fun call(i: Intent? = null) {
+        rejoin = Callback.answered(this, i)
+        if (CallService.micGranted(this)) Voice.start(this, rejoin) else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC)
     }
 
     // The plain API, as MainActivity: the activity-result one needs a newer Fragment than core-telecom brings.
     @Deprecated("plain permission callback")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == MIC && CallService.micGranted(this)) Voice.start(this)
+        if (requestCode == MIC && CallService.micGranted(this)) Voice.start(this, rejoin)
     }
 
     private fun pocket(on: Boolean) {

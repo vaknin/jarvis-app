@@ -63,7 +63,7 @@ class CallService : Service() {
     private var over = CompletableDeferred<Unit>()
     @Volatile private var flushTrack = false
     @Volatile private var running = false
-    private var redial = false
+    private var redial: Intent? = null
     private var net: ConnectivityManager.NetworkCallback? = null
     private var wake: PowerManager.WakeLock? = null
     private var wifi: WifiManager.WifiLock? = null
@@ -96,12 +96,15 @@ class CallService : Service() {
             ROUTE -> if (call != null) routes.next()
             PAUSE -> call?.let { setPaused(!Voice.ui.value.paused) }
             // A redial while the last call's ended earcon still plays starts once that one is gone.
-            else -> if (call == null) begin() else if (!running) redial = true
+            else -> if (call == null) begin(intent) else if (!running) redial = intent ?: Intent()
         }
         return START_NOT_STICKY
     }
 
-    private fun begin() {
+    private fun begin(intent: Intent?) {
+        // A dropped call to continue: the one Aviv answered, or the one this process died in.
+        val rejoin = intent?.getStringExtra(REJOIN) ?: CallStore.active(this)
+        val auto = intent?.getBooleanExtra(AUTO, false) == true
         if (!micGranted(this)) {
             // Started with startForegroundService, so it must go foreground even to give up.
             startForeground(ID, notification(CallState.Connecting, false), ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
@@ -110,10 +113,20 @@ class CallService : Service() {
             stopSelf()
             return
         }
-        startForeground(
-            ID, notification(CallState.Connecting, false),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-        )
+        try {
+            startForeground(
+                ID, notification(CallState.Connecting, false),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
+        } catch (e: Exception) {
+            // Started from the background (the app restarting after an update): Android keeps the mic
+            // from it, so Jarvis rings and Aviv's answer brings the call back.
+            Log.w(TAG, "the call can't start from here", e)
+            Voice.update(this) { Voice.Ui() }
+            stopSelf()
+            if (rejoin != null) ringBack(this, rejoin)
+            return
+        }
         runCatching { Forum.start() }
         keys?.release()
         keys = MediaKeys.session(this)
@@ -126,7 +139,14 @@ class CallService : Service() {
         shown = null
         stt?.stop()
         stt = if (PhoneStt.available(this)) PhoneStt(this) else null
-        val c = VoiceCall(BuildConfig.VOICE_URL, Listener(stt), stt != null)
+        val listener = Listener(stt, rejoin.takeIf { auto })
+        val c = if (rejoin != null) {
+            Log.i(TAG, "rejoining call $rejoin${if (auto) " (the app restarted)" else ""}")
+            CallStore.joined(this, rejoin)
+            VoiceCall.rejoin(BuildConfig.VOICE_URL, listener, rejoin, stt != null)
+        } else {
+            VoiceCall(BuildConfig.VOICE_URL, listener, stt != null)
+        }
         stt?.call = c
         call = c
         running = true
@@ -151,7 +171,8 @@ class CallService : Service() {
         notify(Voice.ui.value.state)
     }
 
-    private inner class Listener(private val stt: PhoneStt?) : VoiceListener {
+    /** `resumed`: the call the app restarted into, which Aviv didn't ask for: one the server no longer has isn't started. */
+    private inner class Listener(private val stt: PhoneStt?, private val resumed: String?) : VoiceListener {
         override fun onState(state: CallState) {
             Log.i(TAG, "call: $state")
             val up = state is CallState.Listening || state is CallState.Thinking || state is CallState.Speaking
@@ -162,7 +183,25 @@ class CallService : Service() {
                     paused = it.paused && state !is CallState.Ended,
                 )
             }
-            if (state is CallState.Ended) running = false else notify(state)
+            if (state is CallState.Ended) {
+                CallStore.ended(this@CallService)
+                running = false
+            } else notify(state)
+        }
+
+        override fun onJoined(id: String) {
+            if (resumed != null) {
+                // The server didn't have it any more: that call is over, and nobody asked for a new one.
+                Log.i(TAG, "call $resumed is over on the server; not starting $id")
+                call?.hangup()
+                return
+            }
+            CallStore.joined(this@CallService, id)
+        }
+
+        override fun onHangupOwed(id: String) {
+            Log.i(TAG, "hangup for $id not confirmed; sent again later")
+            CallStore.owe(this@CallService, id)
         }
 
         override fun onText(who: String, text: String) {
@@ -222,6 +261,7 @@ class CallService : Service() {
             while (true) {
                 val pcm = c.pullAudio(FRAME_SAMPLES.toUInt())
                 if (pcm.isEmpty()) break
+                if (peakOf(pcm) > 0) Voice.soundAt = android.os.SystemClock.elapsedRealtime()
                 if (flushTrack) {
                     // Jarvis was talked over: what the track still holds goes too.
                     flushTrack = false
@@ -322,6 +362,7 @@ class CallService : Service() {
                 if (got != FRAME_BYTES) continue
                 c.sendAudio(buf.copyOf())
                 val p = peakOf(buf)
+                if (p > VOICE_PEAK) Voice.voiceAt = android.os.SystemClock.elapsedRealtime()
                 peak = maxOf(peak, p)
                 // A mic left on a device that went quiet gives exact zeros; a live one never does
                 // for 2 s. So does one that isn't on the headset it was asked for after a second.
@@ -589,13 +630,26 @@ class CallService : Service() {
         val cm = getSystemService(ConnectivityManager::class.java)
         val cb = object : ConnectivityManager.NetworkCallback() {
             var current: Network? = null
+            var offline = false
             override fun onAvailable(network: Network) {
                 val changed = current != null && current != network
                 current = network
-                if (changed) {
-                    Log.i(TAG, "network changed")
+                if (changed || offline) {
+                    Log.i(TAG, if (offline) "network back" else "network changed")
+                    offline = false
                     forumNetworkChanged()
-                    c.networkChanged()
+                    // Redials at once if the call is down; else checks the line is still good.
+                    c.setOnline(true)
+                }
+            }
+
+            override fun onLost(network: Network) {
+                // No network at all: the call waits for one instead of dialing into nothing.
+                if (cm.activeNetwork == null) {
+                    Log.i(TAG, "no network")
+                    offline = true
+                    current = null
+                    c.setOnline(false)
                 }
             }
         }
@@ -638,9 +692,9 @@ class CallService : Service() {
             withTimeoutOrNull(2000) { kotlinx.coroutines.delay(500) }
             scope.cancel()
         }
-        if (redial) {
-            redial = false
-            begin()
+        redial?.let {
+            redial = null
+            begin(it)
             return
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -708,6 +762,15 @@ class CallService : Service() {
         const val MUTE = "mute"
         const val ROUTE = "route"
         const val PAUSE = "pause"
+        /** The dropped call to continue (a String extra). */
+        const val REJOIN = "rejoin"
+        /** Started by the app itself after a restart, not by Aviv (a Boolean extra). */
+        const val AUTO = "auto"
+        /** A mic frame this loud is Aviv talking: an update waits for a pause ([Voice.quiet]). */
+        private const val VOICE_PEAK = 2000
+
+        fun ringBack(context: Context, id: String) =
+            Callback.ring(context, id, "Jarvis calling back", "Our call dropped. Answer to go on where we were.")
         private const val TAG = "TetherCall"
         private const val ID = 20
         private const val RATE = 16_000

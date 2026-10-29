@@ -21,13 +21,29 @@ class Alerts private constructor(private val context: Context) : AlertListener {
         val recent = prefs.getString(RECENT, "")!!.split(',').filter { it.isNotEmpty() }
         // The same one again (it came twice): it's already on screen.
         if (n.toString() in recent) return true
-        val shown = Notifier.jarvis(context, n, title, text, url)
+        val shown = when {
+            url.startsWith(CALLBACK) -> callBack(url.removePrefix(CALLBACK), title, text)
+            // Jarvis needs him (reach's "wants to talk"): it rings, if the phone may.
+            url == "/call" -> Voice.ui.value.live || Callback.ring(context, null, title, text)
+            else -> Notifier.jarvis(context, n, title, text, url)
+        }
         if (shown) prefs.edit().putString(RECENT, (recent + n.toString()).takeLast(KEEP).joinToString(",")).apply()
         Log.i("Tether", "jarvis alert $n ${if (shown) "shown" else "not shown"}")
         return shown
     }
 
+    /**
+     * The server, its call `id` dropped: the app redialing it already says it has it; one Aviv hung up
+     * whose hangup never got through sends it now; else Jarvis rings.
+     */
+    private fun callBack(id: String, title: String, text: String): Boolean = when {
+        Voice.ui.value.live -> true
+        id in CallStore.owed(context) -> { CallStore.settle(context); true }
+        else -> Callback.ring(context, id, title, text)
+    }
+
     companion object {
+        private const val CALLBACK = "/callback/"
         private const val RECENT = "shown"
         private const val KEEP = 30
 

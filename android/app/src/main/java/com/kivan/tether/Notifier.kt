@@ -48,6 +48,7 @@ object Notifier {
             ),
         )
         Updater.channel(nm)
+        Callback.channel(nm)
     }
 
     fun laptop(context: Context): Person = Person.Builder()

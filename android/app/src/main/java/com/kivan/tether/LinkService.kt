@@ -44,6 +44,12 @@ class LinkService : Service() {
         Alerts.start(this)
         Watch.start(this)
         Updater.loop(this)
+        CallStore.settle(this)
+        Voice.resume(this)
+        // Tests: `am startservice -a com.kivan.tether.RING --es call ID` stands in for the server calling back.
+        if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.RING") {
+            Callback.ring(this, intent.getStringExtra("call"), "Jarvis calling back", "Our call dropped. Answer to go on where we were.")
+        }
         // Tests: on the emulator (root) `am startservice -a com.kivan.tether.CLAIM_KEYS` stands in for AirPods connecting.
         if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.CLAIM_KEYS") MediaKeys.claim(this, "test")
         if (headphones == null) headphones = runCatching { MediaKeys.watchHeadphones(this) }.getOrNull()

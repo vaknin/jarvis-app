@@ -47,12 +47,53 @@ object Voice {
         }
     }
 
-    /** Starts a call (the mic permission must be granted already). Does nothing while one is up. */
-    fun start(context: Context) {
+    /** Starts a call (the mic permission must be granted already), or continues the dropped call
+     *  `rejoin`. Does nothing while one is up. */
+    fun start(context: Context, rejoin: String? = null) {
         if (_ui.value.live) return
         update(context) { Ui(state = CallState.Connecting) }
-        context.startForegroundService(Intent(context, CallService::class.java))
+        context.startForegroundService(Intent(context, CallService::class.java).putExtra(CallService.REJOIN, rejoin))
     }
+
+    /**
+     * The process died in a call (an update, the system): the app's next start rejoins it at once,
+     * Aviv doing nothing. Where Android won't let a call start from the background, Jarvis rings
+     * instead ([Callback]).
+     */
+    fun resume(context: Context) {
+        if (_ui.value.live) return
+        val id = CallStore.active(context) ?: return
+        if (!CallService.micGranted(context)) return
+        android.util.Log.i("TetherCall", "resuming call $id after a restart")
+        update(context) { Ui(state = CallState.Reconnecting) }
+        runCatching {
+            context.startForegroundService(
+                Intent(context, CallService::class.java).putExtra(CallService.REJOIN, id).putExtra(CallService.AUTO, true),
+            )
+        }.onFailure {
+            android.util.Log.w("TetherCall", "can't resume from the background; ringing", it)
+            update(context) { Ui() }
+            CallService.ringBack(context, id)
+        }
+    }
+
+    /** When the speaker last played a sound, and Aviv's voice last reached the mic (elapsedRealtime). */
+    @Volatile internal var soundAt = 0L
+    @Volatile internal var voiceAt = 0L
+
+    /**
+     * A pause an app update may fall in (its restart drops the line for a moment): no call, or Jarvis
+     * listening with nothing left to play and Aviv quiet for [QUIET_MS].
+     */
+    fun quiet(): Boolean {
+        val ui = _ui.value
+        if (!ui.live) return true
+        if (ui.state !is CallState.Listening && ui.state !is CallState.Reconnecting) return false
+        val now = android.os.SystemClock.elapsedRealtime()
+        return now - soundAt >= QUIET_MS && now - voiceAt >= QUIET_MS
+    }
+
+    private const val QUIET_MS = 1500L
 
     fun hangup(context: Context) = command(context, CallService.HANGUP)
 
