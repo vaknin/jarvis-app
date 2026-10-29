@@ -100,10 +100,12 @@ android {
     }
 
     buildTypes {
-        // Debug builds call a voice service on the emulator's host directly (no tunnel), for tests.
+        // Debug builds call a voice service on the emulator's host directly (no tunnel), for tests:
+        // the live one, or `-PvoiceUrl=ws://10.0.2.2:8811/call` for a `serve --dry-run` on another port.
         debug {
             applicationIdSuffix = ".debug"
-            buildConfigField("String", "VOICE_URL", "\"ws://10.0.2.2:8790/call\"")
+            val voiceUrl = (project.findProperty("voiceUrl") as String?) ?: "ws://10.0.2.2:8790/call"
+            buildConfigField("String", "VOICE_URL", "\"$voiceUrl\"")
             buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
         }
         release {

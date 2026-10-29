@@ -21,8 +21,10 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Keeps the network up through Doze for the short sync after a wake. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Updates from Jarvis's server (Updater): Android asks once to allow it, then one tap per update. -->
+    <!-- Updates from Jarvis's server (Updater): Android asks once to allow it. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Its own updates install without a question once Tether is their installer of record (Updater). -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <!-- The phone's own speech to text on calls (PhoneStt): the recognizer service must be visible. -->
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
@@ -196,6 +198,11 @@
         <!-- Android's installer reports an update here (its question, done, or why not). -->
         <receiver
             android:name=".Updater$StatusReceiver"
+            android:exported="false" />
+
+        <!-- Jarvis calling: Decline, and a missed callback dismissed (Callback). -->
+        <receiver
+            android:name=".Callback$Action"
             android:exported="false" />
 
         <!-- A forum notification's Reply and its dismissal. -->

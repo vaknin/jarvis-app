@@ -27,12 +27,18 @@ private const val TAG = "Tether"
 /**
  * Updates the app from Jarvis's server, from anywhere (mobile data too): the forum tunnel asks the
  * gate for the newest build Jarvis published (`forum-gate publish`, crates/ffi forum.rs), and a
- * higher versionCode than this one is downloaded, checked, and handed to Android's installer, which
- * asks for one tap.
+ * higher versionCode than this one is downloaded, checked, and installed by Android without a
+ * question (thread #132, Aviv: installs mid-call "seamlessly, without hanging up, and without me
+ * noticing it"). Tether asks to own its updates, so once it is the installer of record no install
+ * needs a tap; the first one after an adb install still asks, the old way ([StatusReceiver]).
+ *
+ * An install kills the process, so it's committed only in a pause ([Voice.quiet]: no call, or Jarvis
+ * not speaking, nothing queued to play and Aviv quiet); a call it lands in comes back at once on the
+ * restart (MY_PACKAGE_REPLACED, [BootReceiver]), so the gap falls in silence.
  *
  * When: on opening the app (at most every 10 min), from the ⋮ menu, and in the background every 6
- * hours. The background check downloads only on Wi-Fi and never during a call; otherwise it posts
- * "Update ready", whose tap opens the app, which downloads and asks.
+ * hours. The background check downloads only on Wi-Fi (an update is ~40 MB) and installs what it has;
+ * on mobile data it posts "Update ready", whose tap opens the app, which downloads and installs.
  */
 object Updater {
     const val EXTRA_INSTALL = "com.kivan.tether.INSTALL_UPDATE"
@@ -43,6 +49,8 @@ object Updater {
     private const val OPEN_EVERY_MS = 10 * 60 * 1000L
     /** After "Cancel" on Android's question, the app doesn't ask again on its own for this long. */
     private const val DECLINED_MS = 12 * 60 * 60 * 1000L
+    /** How often a waiting install looks for the call's pause. */
+    private const val PAUSE_POLL_MS = 200L
 
     /** What the ⋮ menu shows: "", "Checking…", "Downloading 1.0.230 (40 MB)…", "Up to date", or an error. */
     private val _state = MutableStateFlow("")
@@ -109,17 +117,13 @@ object Updater {
         val apk = File(dir, "${u.versionCode}.apk")
         val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
         val declined = prefs.getLong("declined${u.versionCode}", 0L)
-        if (Voice.ui.value.live) {
-            if (ask) _state.value = "${u.versionName} is ready: it installs after the call"
-            return@withLock
-        }
         if (!ask) {
-            if (!apk.isFile && unmetered(context)) {
-                val (_, got) = fetch(apk)
-                notice(context, got, downloaded = true)
-            } else {
-                notice(context, u, apk.isFile)
+            if (!apk.isFile && !unmetered(context)) {
+                notice(context, u, downloaded = false)
+                return@withLock
             }
+            val (file, got) = if (apk.isFile) apk to u else fetch(apk)
+            install(context, file, got)
             return@withLock
         }
         if (!force && System.currentTimeMillis() - declined < DECLINED_MS) {
@@ -150,14 +154,18 @@ object Updater {
         return cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true
     }
 
-    /** Hands the APK to Android's installer, which asks the one question ([StatusReceiver]). */
-    private fun install(context: Context, apk: File, u: AppUpdate) {
+    /**
+     * Hands the APK to Android's installer, without a question where Android allows it (Tether is the
+     * installer of record), else the one tap ([StatusReceiver]). Committed in the first pause of a call.
+     */
+    private suspend fun install(context: Context, apk: File, u: AppUpdate) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)
             setSize(apk.length())
-            // Always the one tap, so the app never closes under Aviv on its own.
-            setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+            setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            // Tether owns its updates from here on: the next ones need no tap either.
+            setRequestUpdateOwnership(true)
         }
         // A question left unanswered (the app went away before it opened) is replaced by this one.
         installer.mySessions.forEach { runCatching { installer.abandonSession(it.sessionId) } }
@@ -167,8 +175,23 @@ object Updater {
             val status = Intent(context, StatusReceiver::class.java).setAction(STATUS)
                 .putExtra("code", u.versionCode).putExtra("name", u.versionName)
             val pi = PendingIntent.getBroadcast(context, id, status, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            // The process dies with the install: never while Jarvis speaks or Aviv talks.
+            if (!Voice.quiet()) {
+                _state.value = "${u.versionName} installs in the call's next pause"
+                while (!Voice.quiet()) delay(PAUSE_POLL_MS)
+            }
+            Log.i(TAG, "update: installing ${u.versionName} in a pause (call ${if (Voice.ui.value.live) "on" else "off"}) at ${System.currentTimeMillis()}")
             s.commit(pi.intentSender)
         }
+    }
+
+    /**
+     * Tests (debug builds, [UpdaterTest]): installs [apk] through the same path as an update, the
+     * pause wait included. The version is whatever the file is; the installer allows the same one again.
+     */
+    suspend fun installFile(context: Context, apk: File) = lock.withLock {
+        _state.value = "Installing ${apk.name}…"
+        install(context.applicationContext, apk, AppUpdate(BuildConfig.VERSION_CODE.toLong(), apk.name, apk.length().toULong(), "", ""))
     }
 
     /**
@@ -206,6 +229,8 @@ object Updater {
             when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
                 PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                     val confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) ?: return
+                    // Tether isn't the installer of record yet (an adb install): this once, the tap.
+                    Log.i(TAG, "update: $name needs a tap (Tether isn't its installer of record yet)")
                     _state.value = "Waiting for your tap to install $name"
                     confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     val shown = foreground && runCatching { context.startActivity(confirm) }

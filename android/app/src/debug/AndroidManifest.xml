@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Tests: install an APK through the updater's own path, mid-call (UpdaterTest). Debug builds only. -->
+        <receiver
+            android:name=".UpdaterTest"
+            android:exported="true" />
+    </application>
+</manifest>

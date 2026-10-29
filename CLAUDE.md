@@ -27,7 +27,8 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   laptop can always dial it; no FCM. `Native.load` hands iroh the app context (the phone's DNS servers).
   Updates come from Jarvis's server through the forum tunnel, from anywhere (`Updater.kt`, docs/LEAN.md
   "Updates from the server"): after `assembleRelease` on committed master, `scripts/publish-app.sh` offers it,
-  and the phone asks for one tap. versionCode is the commit count (`git rev-list --count HEAD`).
+  and the phone installs it without a question once Tether is its installer of record (the first install after an
+  adb install still asks for one tap), mid-call too: only in a pause, and the call comes back on the restart (thread #132). versionCode is the commit count (`git rev-list --count HEAD`).
   Jarvis's notifications (`jarvis notify` on the server, 2026-10-28): the forum gate dials the tunnel's endpoint
   (ALPN `jarvis-alert/0`, the gate's id only; `crates/ffi/src/alerts.rs`), `Alerts.kt` shows each on the "Jarvis"
   channel and answers its id, or nothing, and the server falls back to Chrome push. Once started, the endpoint stays

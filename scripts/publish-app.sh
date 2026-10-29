@@ -1,6 +1,7 @@
 #!/bin/sh
 # Offers the finished release build to the phone: Tether updates itself from Jarvis's server through
-# the forum tunnel (android/.../Updater.kt), from anywhere, with one tap. Run on the server after
+# the forum tunnel (android/.../Updater.kt), from anywhere, without a tap (the first time after an adb
+# install, one). Publishing during a call is fine: the phone installs in a pause and the call goes on. Run on the server after
 # `./gradlew :app:assembleRelease` on a committed master. The notes are the "For you:" lines of the
 # commits since the build published last (versionCode is the commit count, so that's the newest N).
 # The publishing itself is the jarvis repo's `forum-gate publish` (forum/phone/tunnel/src/builds.rs).

@@ -41,11 +41,16 @@ Jarvis publishes a finished build on the server (`scripts/publish-app.sh` after
 forum tunnel, from anywhere, mobile data too (`Updater.kt`; `update_check`/`update_fetch` in
 `crates/ffi/src/forum.rs`: the gate's `build` handshake). versionCode is the repo's commit count, so
 every commit is newer. The app checks on opening (at most every 10 min), from the ⋮ menu, and every
-6 hours in the background; a newer build is downloaded (in the background only on Wi-Fi and never
-during a call), checked against its sha256 and handed to Android's installer, which asks for one tap.
-In the background it posts "Tether 1.0.N is ready" with the commits' "For you:" lines; its tap opens
-the app, which asks. A "Cancel" on that question isn't asked again on its own for 12 hours. The very
-first update from the app needs Android's "Install unknown apps" switch for Tether, once.
+6 hours in the background; a newer build is downloaded (in the background only on Wi-Fi), checked
+against its sha256 and installed by Android without a question: Tether holds
+`UPDATE_PACKAGES_WITHOUT_USER_ACTION` and asks to own its updates (`setRequestUpdateOwnership`), so once
+it is the installer of record no update asks. The first one after an adb install still asks for one
+tap; in the background that question waits in a "Tether 1.0.N is ready" notification. On mobile data
+the background check only posts that notification; its tap opens the app, which downloads and installs.
+A call doesn't hold an update off (thread #132): the install is committed in a pause (no reply playing
+or queued, Aviv quiet), the process restarts on MY_PACKAGE_REPLACED and the call comes back at once.
+A "Cancel" on the question isn't asked again on its own for 12 hours. The very first update from the
+app needs Android's "Install unknown apps" switch for Tether, once.
 
 ## What's gone
 
