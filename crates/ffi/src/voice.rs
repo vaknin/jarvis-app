@@ -53,6 +53,9 @@ pub trait VoiceListener: Send + Sync {
     fn on_flush(&self);
     /// Jarvis's reply is paused (a tap, "hold", or Aviv talking over him) or goes on.
     fn on_paused(&self, on: bool);
+    /// Aviv's mic is muted by voice ("mute my mic") or not any more. The mic keeps streaming (the
+    /// server listens for "unmute"); only the screen changes. A tap of mute or unmute ends it.
+    fn on_voice_muted(&self, on: bool);
     /// (A call with `phone_stt`) the phone's recognizer opens session `id`; the call's mic audio
     /// follows as the server got it (20 ms frames, or a backlog at once), then `on_stt_close`.
     /// Answer `VoiceCall.stt_done` once the session is over, however it ended. Never block here.
@@ -125,6 +128,9 @@ impl Events for Bridge {
     }
     fn paused(&self, on: bool) {
         self.0.on_paused(on);
+    }
+    fn voice_muted(&self, on: bool) {
+        self.0.on_voice_muted(on);
     }
     fn stt_open(&self, id: u64) {
         self.0.on_stt_open(id);

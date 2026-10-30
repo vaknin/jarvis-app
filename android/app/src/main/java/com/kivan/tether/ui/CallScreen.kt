@@ -77,7 +77,7 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                 Text("Jarvis", style = MaterialTheme.typography.displaySmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (ui.live) Voice.label(ui) + if (ui.muted) " · muted" else "" else if (ui.ringing) "Jarvis calling" else Voice.label(ui.state),
+                    if (ui.live) Voice.line(ui) else if (ui.ringing) "Jarvis calling" else Voice.label(ui.state),
                     color = if (ui.live) Accent else Muted,
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
@@ -99,10 +99,10 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                     Spacer(Modifier.height(24.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
                         Round(
-                            if (ui.muted) R.drawable.lucide_mic_off else R.drawable.lucide_mic,
-                            if (ui.muted) "Unmute" else "Mute",
-                            if (ui.muted) Color.White else Raised,
-                            if (ui.muted) Bg else Color.White,
+                            if (ui.micOff) R.drawable.lucide_mic_off else R.drawable.lucide_mic,
+                            if (ui.micOff) "Unmute" else "Mute",
+                            if (ui.micOff) Color.White else Raised,
+                            if (ui.micOff) Bg else Color.White,
                             96.dp,
                             onMute,
                         )

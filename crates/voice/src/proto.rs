@@ -65,6 +65,9 @@ pub enum Down {
     Text { who: String, text: String },
     /// Jarvis's reply is paused (a tap, "hold", or Aviv talking over him) or not any more.
     Paused { on: bool },
+    /// Aviv's mic is muted by voice ("mute my mic") or not any more: the phone keeps streaming
+    /// (the server listens for "unmute"); only the screen shows it.
+    Muted { on: bool },
     Error { text: String },
     /// (An `"stt":"phone"` hello only) Aviv's turn `id` ran from sample `from` to `to` of this socket's mic audio.
     Cut { id: u64, from: u64, to: u64 },
@@ -123,6 +126,7 @@ mod tests {
             Some(Down::Text { who: "jarvis".into(), text: "hi".into() })
         );
         assert_eq!(Down::parse(r#"{"type":"paused","on":true}"#), Some(Down::Paused { on: true }));
+        assert_eq!(Down::parse(r#"{"type":"muted","on":true}"#), Some(Down::Muted { on: true }));
         assert_eq!(Down::parse(r#"{"type":"error","text":"x"}"#), Some(Down::Error { text: "x".into() }));
         assert_eq!(Down::parse(r#"{"type":"cut","id":2,"from":16000,"to":48000}"#), Some(Down::Cut { id: 2, from: 16000, to: 48000 }));
         assert_eq!(Down::parse(r#"{"type":"sentence","seq":4}"#), Some(Down::Sentence { seq: 4 }));

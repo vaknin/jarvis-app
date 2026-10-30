@@ -107,6 +107,9 @@ impl Events for Log {
     fn paused(&self, on: bool) {
         self.0.lock().unwrap().push(format!("paused {on}"));
     }
+    fn voice_muted(&self, on: bool) {
+        self.0.lock().unwrap().push(format!("voice muted {on}"));
+    }
     fn stt_open(&self, id: u64) {
         self.0.lock().unwrap().push(format!("stt open {id}"));
     }
@@ -288,6 +291,55 @@ async fn a_muted_call_stays_muted_after_a_resume() {
     s.text().await;
     s.send(r#"{"type":"ready","call":"c1"}"#);
     assert_eq!(s.text().await, r#"{"type":"mute","on":true}"#);
+}
+
+/// The next binary frame from the phone, skipping text and pings.
+async fn next_audio(s: &mut Server) -> Vec<u8> {
+    loop {
+        if let Frame::Binary(b) = s.from_phone.recv().await.expect("phone closed") {
+            return b;
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_voice_mute_keeps_the_mic_streaming_and_a_tap_lifts_it() {
+    let (call, mut s, _a, _r, log) = up().await;
+    s.send(r#"{"type":"muted","on":true}"#);
+    wait_for(&log, "voice muted true").await;
+    assert!(call.voice_muted() && !call.muted());
+    // The server listens for "unmute": the mic still goes.
+    call.send_audio(vec![7; 640]);
+    assert_eq!(next_audio(&mut s).await, vec![7; 640]);
+    // Unmute tapped while muted by voice: sent although the tap state didn't change.
+    call.set_muted(false);
+    assert_eq!(s.text().await, r#"{"type":"mute","on":false}"#);
+    assert!(!call.voice_muted());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_resume_keeps_a_voice_mute_and_a_new_call_drops_it() {
+    let (call, s, mut accept, _r, log) = up().await;
+    s.send(r#"{"type":"muted","on":true}"#);
+    wait_for(&log, "voice muted true").await;
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    // No unmute on the resume: that would lift the voice mute on the server.
+    call.send_audio(vec![3; 640]);
+    match s.from_phone.recv().await.unwrap() {
+        Frame::Binary(b) => assert_eq!(b, vec![3; 640]),
+        f => panic!("sent {f:?} before the mic"),
+    }
+    assert!(call.voice_muted());
+    // The server lost the call: the new one isn't muted.
+    drop(s);
+    let mut s = accept.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c2"}"#);
+    wait_for(&log, "voice muted false").await;
+    assert!(!call.voice_muted());
 }
 
 #[tokio::test(start_paused = true)]

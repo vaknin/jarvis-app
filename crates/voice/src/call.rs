@@ -135,6 +135,8 @@ pub trait Events: Send + Sync + 'static {
     fn flush(&self);
     /// Jarvis's reply is paused or not (the pause button follows it).
     fn paused(&self, _on: bool) {}
+    /// Aviv's mic is muted by voice or not any more (the mic keeps streaming; the screen shows it).
+    fn voice_muted(&self, _on: bool) {}
     /// (A call started with phone speech to text) the app's recognizer opens session `id`: the
     /// call's mic audio follows, as the server got it, then [`Events::stt_close`]. The app answers
     /// [`Call::stt_done`] with its words once the session is over, however it ended.
@@ -217,6 +219,8 @@ struct Shared {
     status: Mutex<Option<Status>>,
     live: AtomicBool,
     muted: AtomicBool,
+    /// Muted by voice, as the server last said: the mic still streams. A tap either way ends it.
+    voice_muted: AtomicBool,
     /// Pause tapped, and the server hasn't said `paused` or `flush` yet: the audio it sent before
     /// it heard the tap is dropped, so none of it plays after the tap.
     pausing: AtomicBool,
@@ -292,6 +296,7 @@ impl Call {
             status: Mutex::new(None),
             live: AtomicBool::new(false),
             muted: AtomicBool::new(false),
+            voice_muted: AtomicBool::new(false),
             pausing: AtomicBool::new(false),
             paused: AtomicBool::new(false),
         });
@@ -316,8 +321,11 @@ impl Call {
         self.shared.player.lock().unwrap().pull(samples, Instant::now())
     }
 
+    /// A tap of mute or unmute. While muted by voice it's sent even if the tap state is the same:
+    /// the server lifts its voice mute on any tap.
     pub fn set_muted(&self, on: bool) {
-        if self.shared.muted.swap(on, Ordering::SeqCst) != on {
+        let voice = self.shared.voice_muted.swap(false, Ordering::SeqCst);
+        if self.shared.muted.swap(on, Ordering::SeqCst) != on || voice {
             let _ = self.cmd.send(Cmd::Mute(on));
         }
     }
@@ -336,6 +344,10 @@ impl Call {
 
     pub fn muted(&self) -> bool {
         self.shared.muted.load(Ordering::SeqCst)
+    }
+
+    pub fn voice_muted(&self) -> bool {
+        self.shared.voice_muted.load(Ordering::SeqCst)
     }
 
     pub fn hangup(&self) {
@@ -832,6 +844,10 @@ impl Run {
                     sh.paused.store(on, Ordering::SeqCst);
                     sh.events.paused(on);
                 }
+                Some(Down::Muted { on }) => {
+                    sh.voice_muted.store(on, Ordering::SeqCst);
+                    sh.events.voice_muted(on);
+                }
                 Some(Down::Error { text }) => sh.events.error(&text),
                 Some(Down::Cut { id, from, to }) => {
                     let d = self.stt.as_mut().map(|s| s.cut(id, from, to, now)).unwrap_or_default();
@@ -904,8 +920,14 @@ impl Run {
         self.retry_at = None;
         self.rekick_at = None;
         // A new call starts unmuted; a resumed one may have been muted or unmuted while the line was down.
+        // Still muted by voice (no tap since): an unmute here would lift it, so the server keeps it and
+        // says `muted` again after its `ready`.
         let muted = self.sh.muted.load(Ordering::SeqCst);
-        if muted || resumed {
+        let voice = self.sh.voice_muted.load(Ordering::SeqCst);
+        if !resumed && self.sh.voice_muted.swap(false, Ordering::SeqCst) {
+            self.sh.events.voice_muted(false);
+        }
+        if muted || resumed && !voice {
             self.send(Frame::Text(Up::Mute { on: muted }.json())).await;
         }
         // Paused when the line dropped (or tapped while it was down): the server hears it again, so

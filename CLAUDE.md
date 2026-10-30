@@ -50,7 +50,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   Everything below about adb, presence, dibs's app, channels, media and root steps describes the OLD app
   (now in the dibs repo's history): the lean app doesn't answer those.
 - Voice calls with Jarvis (call mode, forum thread #36, 2026-10-27): `crates/voice` is the client of
-  `~/Projects/jarvis/voice/PROTOCOL.md` (WebSocket, PCM16 mono 16 kHz, `hello`/`ready`/`state`/`flush`/`mute`/`pause`/`paused`/`hangup`,
+  `~/Projects/jarvis/voice/PROTOCOL.md` (WebSocket, PCM16 mono 16 kHz, `hello`/`ready`/`state`/`flush`/`mute`/`pause`/`paused`/`muted`/`hangup`,
   `resume` after a drop with backoff, never given up while the server has the call (it waits for a network when offline; a call the app left is rejoined, thread #132); jitter buffer and earcons in `player.rs`; a drop never flushes Jarvis's reply: the phone plays on what it holds, its resume hello says `have` (the last sentence held whole, from `sentence`/`said`) and `queued_ms`, and the server resends the rest, each sentence from its start: the player skips what it still has, or restarts the sentence it ran dry in; only a resume that became a new call flushes, thread #132, the jarvis repo's `notes/voice-fixes/pause-resume.md`). Its tests run
   on a fake socket on tokio's paused clock; `cargo run -p tether-voice --example real_server -- CLIP.wav [URL]` drives this crate against a real `jarvis-voice` (use a `serve --dry-run` on another port; `--drop-ms N [--down-ms M] [--after-said|--mid-sentence]` or `--stall OVER.wav` break the line mid-reply through a proxy, and it maps what the speaker played onto the sentences: missed, doubled, restarted); `cargo run -p tether-voice --example fake_server` stands in for
   `jarvis-voice` on 127.0.0.1:8790. The ffi's `VoiceCall` wraps it; the forum tunnel's second port 8791 opens its pipe
@@ -71,7 +71,10 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   the phone at once and drops the audio still on its way until the server answers `paused` (`Call::set_paused`);
   the server keeps the reply and continues from the sentence he stopped in; `paused` from the server (a tap,
   the spoken "stop", or Aviv talking over him) drives `Voice.Ui.paused`, and a pause the server never heard is
-  sent again on resume. Aviv's spoken words are "stop" and "continue", so the button says Pause/Continue. A turn makes no sound (only connect, drop and end
+  sent again on resume. A mute by voice ("mute my mic", the server's `muted`, thread #159) keeps the mic streaming (the
+  server listens for "unmute"): `Voice.Ui.voiceMuted` shows `Muted by voice · say "unmute"` on the screen and in the notification, the
+  button turns to Unmute, and its tap sends `mute` off, which lifts it on the server; a resume never sends that unmute by itself.
+  `fake_server --voice-mute` mutes by voice at its second answer. Aviv's spoken words are "stop" and "continue", so the button says Pause/Continue. A turn makes no sound (only connect, drop and end
   have earcons) and the call notification is quiet (low channel, alerts once), so the screen stays off. Debug
   builds (`com.kivan.tether.debug`) call `ws://10.0.2.2:8790/call` directly, for the emulator, and carry the
   emulator's forum key (`~/.config/jarvis/forum-emu-iroh-secret`), never the Pixel's: an endpoint with the phone's

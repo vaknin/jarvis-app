@@ -93,7 +93,8 @@ class CallService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             HANGUP -> call?.hangup() ?: stopSelf()
-            MUTE -> call?.let { heldMute = false; setMuted(!Voice.ui.value.muted) }
+            // Muted by voice, a tap unmutes: the server lifts its mute on it.
+            MUTE -> call?.let { heldMute = false; setMuted(!Voice.ui.value.micOff) }
             ROUTE -> if (call != null) routes.next()
             PAUSE -> call?.let { setPaused(!Voice.ui.value.paused) }
             // A redial while the last call's ended earcon still plays starts once that one is gone.
@@ -170,7 +171,7 @@ class CallService : Service() {
 
     private fun setMuted(on: Boolean) {
         call?.setMuted(on)
-        Voice.update(this) { it.copy(muted = on) }
+        Voice.update(this) { it.copy(muted = on, voiceMuted = false) }
         notify(Voice.ui.value.state)
     }
 
@@ -230,6 +231,12 @@ class CallService : Service() {
         override fun onPaused(on: Boolean) {
             Log.i(TAG, "call: paused $on")
             Voice.update(this@CallService) { it.copy(paused = on) }
+            notify(Voice.ui.value.state)
+        }
+
+        override fun onVoiceMuted(on: Boolean) {
+            Log.i(TAG, "call: muted by voice $on")
+            Voice.update(this@CallService) { it.copy(voiceMuted = on) }
             notify(Voice.ui.value.state)
         }
 
@@ -634,7 +641,7 @@ class CallService : Service() {
         while (System.currentTimeMillis() - since < MIC_WAIT_MS) {
             val got = runCatching {
                 startForeground(
-                    ID, notification(Voice.ui.value.state ?: CallState.Connecting, Voice.ui.value.muted),
+                    ID, notification(Voice.ui.value.state ?: CallState.Connecting, Voice.ui.value.micOff),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
                 )
             }.isSuccess
@@ -749,16 +756,15 @@ class CallService : Service() {
 
     private fun notify(state: CallState?) {
         if (call == null || state == null || state is CallState.Ended) return
-        val muted = Voice.ui.value.muted
-        if (key(state, muted) == shown) return
+        val muted = Voice.ui.value.micOff
+        if (key(state) == shown) return
         getSystemService(android.app.NotificationManager::class.java).notify(ID, notification(state, muted))
     }
 
-    private fun label(state: CallState, muted: Boolean) =
-        Voice.label(Voice.ui.value.copy(state = state)) + if (muted) " · muted" else ""
+    private fun label(state: CallState) = Voice.line(Voice.ui.value.copy(state = state))
 
     /** What the notification shows: its text, and whether it has the pause action. */
-    private fun key(state: CallState, muted: Boolean) = label(state, muted) to Voice.ui.value.copy(state = state).pausable
+    private fun key(state: CallState) = label(state) to Voice.ui.value.copy(state = state).pausable
 
     private fun notification(state: CallState, muted: Boolean): Notification {
         fun pending(action: String, code: Int) = PendingIntent.getService(
@@ -782,7 +788,7 @@ class CallService : Service() {
         ).build() else null
         return Notification.Builder(this, Notifier.CALLS)
             .setSmallIcon(R.drawable.lucide_phone)
-            .setContentText(label(state, muted).also { shown = key(state, muted) })
+            .setContentText(label(state).also { shown = key(state) })
             // Updated at every turn: only the first post may alert, or each one can wake the screen.
             .setOnlyAlertOnce(true)
             // The call's length from when it connected; without this each update started it again.

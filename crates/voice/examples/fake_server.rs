@@ -6,6 +6,8 @@
 //! answer (`flush`, `paused`, listening) and play goes on with it, as the real one does. `hangup` closes. Its
 //! `text` frames are whole lines that grow, as the real server's do: Aviv's line twice (live words,
 //! then the turn's end), Jarvis's a sentence at a time; each replaces the speaker's line on the screen.
+//! With `--voice-mute`, its second answer is a mute by voice instead ("Mute my mic.", `muted` on):
+//! the mic keeps coming, nothing is answered, and a tap of mute or unmute lifts it (`muted` off).
 //! Everything it sees is printed, one line per event, so a test can grep it.
 
 use std::time::Duration;
@@ -18,7 +20,9 @@ const RATE: usize = 16_000;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let addr = std::env::args().nth(1).unwrap_or_else(|| "127.0.0.1:8790".into());
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let voice_mute = args.iter().any(|a| a == "--voice-mute");
+    let addr = args.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_else(|| "127.0.0.1:8790".into());
     let listener = TcpListener::bind(&addr).await?;
     println!("listening {addr}");
     let mut n = 0;
@@ -27,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
         n += 1;
         println!("[{n}] tcp from {peer}");
         tokio::spawn(async move {
-            if let Err(e) = serve(tcp, n).await {
+            if let Err(e) = serve(tcp, n, voice_mute).await {
                 println!("[{n}] error: {e:#}");
             }
         });
@@ -51,7 +55,7 @@ impl Out {
     }
 }
 
-async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
+async fn serve(tcp: tokio::net::TcpStream, n: usize, voice_mute: bool) -> anyhow::Result<()> {
     let (_req, ws) = ServerBuilder::new().accept(tcp).await?;
     let (mut sink, mut ws) = ws.split();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
@@ -69,6 +73,7 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
     let started = Instant::now();
     let (mut mic_bytes, mut loud_frames, mut since_answer, mut answers) = (0usize, 0usize, 0usize, 0usize);
     let mut last_report = Instant::now();
+    let mut muted = false;
     while let Some(m) = ws.next().await {
         let m = m?;
         if let Some(t) = m.as_text() {
@@ -93,6 +98,11 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
                     out.send(Message::text(format!(r#"{{"type":"paused","on":{on}}}"#))).await?;
                     println!("[{n}] paused {on}");
                 }
+                Some("mute") if muted => {
+                    muted = false;
+                    out.send(Message::text(r#"{"type":"muted","on":false}"#.to_string())).await?;
+                    println!("[{n}] tapped: the mute by voice is over");
+                }
                 Some("hangup") => {
                     println!("[{n}] hangup after {:.1}s, mic {mic_bytes} bytes", started.elapsed().as_secs_f32());
                     out.send(Message::close(None, "")).await?;
@@ -112,8 +122,17 @@ async fn serve(tcp: tokio::net::TcpStream, n: usize) -> anyhow::Result<()> {
                 println!("[{n}] mic {mic_bytes} bytes ({} frames of {} bytes, {loud_frames} not silent)", mic_bytes / 640, p.len());
                 last_report = Instant::now();
             }
-            if since_answer >= RATE * 2 * 2 {
+            if since_answer >= RATE * 2 * 2 && !muted {
                 since_answer = 0;
+                if voice_mute && answers == 1 {
+                    answers += 1;
+                    muted = true;
+                    out.send(Message::text(r#"{"type":"text","who":"aviv","text":"Mute my mic."}"#.to_string())).await?;
+                    out.send(Message::text(r#"{"type":"text","who":"jarvis","text":"Muted."}"#.to_string())).await?;
+                    out.send(Message::text(r#"{"type":"muted","on":true}"#.to_string())).await?;
+                    println!("[{n}] muted by voice");
+                    continue;
+                }
                 answers += 1;
                 let (out, paused) = (out.clone(), paused.subscribe());
                 tokio::spawn(async move { answer(out, paused, n, answers).await });

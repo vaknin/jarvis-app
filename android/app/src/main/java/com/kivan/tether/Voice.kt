@@ -21,7 +21,10 @@ object Voice {
     data class Ui(
         /** Null when there's no call. */
         val state: CallState? = null,
+        /** Muted by a tap: the mic is cut. */
         val muted: Boolean = false,
+        /** Muted by voice ("mute my mic"): the mic keeps streaming, the server hears only "unmute". A tap lifts it. */
+        val voiceMuted: Boolean = false,
         /** Jarvis's reply is paused (the button, or "stop" said on the call); "continue" goes on. */
         val paused: Boolean = false,
         val error: String? = null,
@@ -34,6 +37,8 @@ object Voice {
         val ringing: Boolean = false,
     ) {
         val live get() = state != null && state !is CallState.Ended
+        /** The mute button shows Unmute: muted by a tap or by voice. */
+        val micOff get() = muted || voiceMuted
         /** The pause button shows while there's something to pause, or while paused. */
         val pausable get() = live && (paused || state is CallState.Speaking || state is CallState.Thinking)
     }
@@ -119,6 +124,13 @@ object Voice {
 
     /** The call's status line: "Paused" over the state it paused in. */
     fun label(ui: Ui): String = if (ui.live && ui.paused) "Paused" else label(ui.state)
+
+    /** The live call's line on the screen and in the notification, with how the mic is muted. */
+    fun line(ui: Ui): String = when {
+        ui.muted -> label(ui) + " · muted"
+        ui.voiceMuted && ui.state !is CallState.Reconnecting -> "Muted by voice · say \"unmute\""
+        else -> label(ui)
+    }
 
     fun label(s: CallState?): String = when (s) {
         null -> "Call Jarvis"
