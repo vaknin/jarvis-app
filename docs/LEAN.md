@@ -40,8 +40,8 @@ Jarvis publishes a finished build on the server (`scripts/publish-app.sh` after
 `assembleRelease`; it runs the jarvis repo's `forum-gate publish`), and the app takes it through the
 forum tunnel, from anywhere, mobile data too (`Updater.kt`; `update_check`/`update_fetch` in
 `crates/ffi/src/forum.rs`: the gate's `build` handshake). versionCode is the repo's commit count, so
-every commit is newer. The app checks on opening (at most every 10 min), from the ⋮ menu, and every
-6 hours in the background; a newer build is downloaded (in the background only on Wi-Fi), checked
+every commit is newer. The app checks on opening (at most every 10 min), from the ⋮ menu, and in the
+background every 6 hours, every 10 minutes through a call and 3 minutes after one ends; a newer build is downloaded (in the background only on Wi-Fi), checked
 against its sha256 and installed by Android without a question: Tether holds
 `UPDATE_PACKAGES_WITHOUT_USER_ACTION` and asks to own its updates (`setRequestUpdateOwnership`), so once
 it is the installer of record no update asks. The first one after an adb install still asks for one

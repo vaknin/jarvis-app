@@ -124,8 +124,6 @@ object Callback {
         ringFor = reach
         Voice.update(context) { it.copy(ringing = true) }
         Log.i(TAG, "ringing (${if (loud) "loud" else "silent"}) for ${call ?: "a new call"}")
-        // The AirPods' press answers: the keys come to Tether's receiver while nothing else plays.
-        MediaKeys.claim(context, "ringing")
         main.removeCallbacksAndMessages(this)
         main.postAtTime({ missed(context, call, title, reach) }, this, android.os.SystemClock.uptimeMillis() + ms)
         return true

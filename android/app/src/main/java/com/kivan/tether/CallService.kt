@@ -54,9 +54,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Audio: the mic (VOICE_COMMUNICATION, so the phone cancels Jarvis's voice out of it) goes out in
  * 20 ms frames. It is reopened on the new route whenever the call's audio device changes: an
  * AudioRecord opened before the AirPods' call link came up stays on the phone's own mic, which goes
- * silent while Bluetooth carries the call (2026-10-28, Aviv heard by nothing once the AirPods joined). A headset's mic
- * can come over Bluetooth far too quiet: the call brings it up (`MicBoost` in the voice crate). The speaker thread
- * pulls 20 ms at a time from the Rust jitter buffer, and its blocking writes pace it. The earcons come mixed into the
+ * silent while Bluetooth carries the call (2026-10-28, Aviv heard by nothing once the AirPods joined). With a Bluetooth
+ * headset connected the first open waits for the route, and the phone's echo and noise processing stays off it: the
+ * headset does its own (`notes/airpods-mic-125.md`). The speaker thread pulls 20 ms at a time from the Rust jitter buffer, and its blocking writes pace it. The earcons come mixed into the
  * same stream.
  */
 class CallService : Service() {
@@ -80,8 +80,8 @@ class CallService : Service() {
     private var shown: Pair<String, Boolean>? = null
     /** The call's audio device changed: the mic reopens on it. */
     @Volatile private var reroute = false
-    /** The way the headset's mic opens; a new one for each stretch on a headset. */
-    private var trial = MicTrial()
+    /** When the headset's mic reopens; a new one for each stretch on a headset. */
+    private var watch = MicWatch()
     /** Frames sent from a headset's mic on this call: their lines go to the server. */
     private var headsetFrames = 0L
     private var routeWatch: AudioManager.OnCommunicationDeviceChangedListener? = null
@@ -146,8 +146,9 @@ class CallService : Service() {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         over = CompletableDeferred()
         heldMute = false
-        trial = MicTrial()
         headsetFrames = 0
+        firstOpen = true
+        watch = MicWatch()
         started = System.currentTimeMillis()
         shown = null
         stt?.stop()
@@ -314,11 +315,6 @@ class CallService : Service() {
                 Mic.OVER -> break@loop
                 Mic.REROUTE -> failures = 0
                 Mic.FAILED -> {
-                    // A way the trial asked for is never what ends a call.
-                    if (trial.way != MicTrial.Way.USUAL) {
-                        trial.refused(::micNote)
-                        continue@loop
-                    }
                     if (++failures >= 3) break@loop
                     Log.w(TAG, "mic failed, try $failures")
                     Thread.sleep(500)
@@ -335,45 +331,57 @@ class CallService : Service() {
     private enum class Mic { OVER, REROUTE, FAILED }
 
     private var lastWatchReopen = Long.MIN_VALUE / 2
+    /** The next open is the call's first. */
+    @Volatile private var firstOpen = true
+    /** The call's device when the mic last opened. */
+    @Volatile private var openedOn: Int? = null
 
     private fun micOnce(c: VoiceCall): Mic {
-        reroute = false
         val am = getSystemService(AudioManager::class.java)
+        if (firstOpen) {
+            firstOpen = false
+            awaitHeadset(am)
+        }
+        reroute = false
         // On the call's own device: the AirPods' mic while they carry the call, else the phone's.
         // The headset's input can show up a moment after the call moved to it.
-        var want = headsetMic(am)
+        var device = am.communicationDevice
+        var want = headsetMic(am, device)
         for (i in 1..5) {
-            if (want != null || !headset(am.communicationDevice)) break
+            if (want != null || !headset(device)) break
             Thread.sleep(200)
-            want = headsetMic(am)
+            device = am.communicationDevice
+            want = headsetMic(am, device)
         }
-        val onHeadset = headset(want)
-        if (!onHeadset) trial = MicTrial()
-        val way = trial.way
-        c.setMicBoost(onHeadset)
+        openedOn = device?.id
+        val onHeadset = headset(device)
+        if (!onHeadset) watch = MicWatch()
+        val bluetooth = device?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || device?.type == AudioDeviceInfo.TYPE_BLE_HEADSET
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = try {
             @Suppress("MissingPermission")
-            AudioRecord(way.source, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
+            AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
         } catch (e: Exception) {
             Log.w(TAG, "mic", e)
             return Mic.FAILED
         }
         if (!rec.setPreferredDevice(want)) Log.w(TAG, "mic: ${name(want)} refused as the preferred input")
-        // VOICE_COMMUNICATION already cancels echo on most phones; asking again costs nothing.
-        val aec = if (way.effects && AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId) else null
-        val ns = if (way.effects && NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId) else null
+        // The phone's own echo canceller and noise suppressor, asked for by hand, except on Bluetooth: the headset does
+        // its own and says so (HFP's NREC, the log's bt_headset_nrec=off), and the one call that measured it was deaf with
+        // these handles and clear without (notes/airpods-mic-125.md). The system still attaches and manages its own there.
+        val aec = if (!bluetooth && AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId) else null
+        val ns = if (!bluetooth && NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId) else null
         aec?.enabled = true
         ns?.enabled = true
         try {
             rec.startRecording()
-            Log.i(TAG, "mic open: $way, wanted ${name(want)}, on ${name(rec.routedDevice)}, call on ${name(am.communicationDevice)}")
+            micNote("open: wanted ${name(want)}, on ${name(rec.routedDevice)}, call on ${name(am.communicationDevice)}")
             val buf = ByteArray(FRAME_BYTES)
             var frames = 0L
             var peak = 0
             var zeros = 0
-            // Whether the last look found the mic on the device it was asked for.
-            var onWant = false
+            // The loudest frame in the last 2 s, for the call's log.
+            var loudest = 0
             val t0 = System.nanoTime()
             while (running && !reroute) {
                 var got = 0
@@ -392,18 +400,18 @@ class CallService : Service() {
                 // Reopened at most every 10 s (a mute by the system zeroes it too).
                 zeros = if (p == 0) zeros + 1 else 0
                 val look = ++frames % 50 == 0L
-                if (look) onWant = want != null && rec.routedDevice?.id == want.id
-                val astray = look && want != null && !onWant
+                val astray = look && want != null && rec.routedDevice?.id != want.id
                 if (onHeadset) {
-                    if (frames == 50L) describeMic(rec, am, way)
+                    if (frames == 50L) describeMic(rec, am, aec, ns)
                     if (++headsetFrames == LOG_AFTER_FRAMES) sendCallLog("a minute on a headset")
-                    val talking = !Voice.ui.value.muted && Voice.ui.value.state is CallState.Listening
-                    val reopen = onWant && talking && trial.frame(p, ::micNote)
-                    if (trial.report()) sendCallLog("mic trial done")
-                    if (reopen) return Mic.REROUTE
-                    // A way the system took off the headset is no use: this is never the phone's mic.
-                    if (astray && way != MicTrial.Way.USUAL) {
-                        trial.refused(::micNote)
+                    loudest = maxOf(loudest, p)
+                    if (frames % 100 == 0L) {
+                        micNote("peak $loudest")
+                        loudest = 0
+                    }
+                    val ui = Voice.ui.value
+                    if (want != null && watch.frame(p, !ui.muted && ui.state is CallState.Listening, ::micNote)) {
+                        micNote("reopening after $frames frames")
                         return Mic.REROUTE
                     }
                 }
@@ -432,22 +440,35 @@ class CallService : Service() {
     }
 
     /** The mic as the system has it, into the call's log: what can make a headset's mic quiet, seen from here. */
-    private fun describeMic(rec: AudioRecord, am: AudioManager, way: MicTrial.Way) {
+    private fun describeMic(rec: AudioRecord, am: AudioManager, aec: AcousticEchoCanceler?, ns: NoiseSuppressor?) {
         runCatching {
             val c = rec.activeRecordingConfiguration
             val mics = rec.activeMicrophones.joinToString { it.description }
             micNote(
-                "$way on ${name(rec.routedDevice)}, mode ${am.mode}, muted ${am.isMicrophoneMute}, " +
+                "on ${name(rec.routedDevice)}, mode ${am.mode}, muted ${am.isMicrophoneMute}, " +
+                    "echo ${aec?.enabled} (ours ${aec?.hasControl()}), noise ${ns?.enabled} (ours ${ns?.hasControl()}), " +
                     "silenced ${c?.isClientSilenced}, source ${c?.audioSource}, ${c?.format?.sampleRate} Hz, " +
                     "effects ${c?.effects?.joinToString { it.type.toString() }} [$mics]",
             )
         }.onFailure { Log.w(TAG, "mic: can't describe it", it) }
     }
 
+    /**
+     * A call moves to a connected Bluetooth headset a second or so after it starts. The mic waits for that instead of
+     * opening on the phone's own and reopening, so the call's first open is on the headset. Bounded: the call may be
+     * staying on the phone.
+     */
+    private fun awaitHeadset(am: AudioManager) {
+        if (am.availableCommunicationDevices.none(::headset) || headset(am.communicationDevice)) return
+        val t0 = System.nanoTime()
+        while (running && !headset(am.communicationDevice) && System.nanoTime() - t0 < HEADSET_WAIT_MS * 1_000_000) Thread.sleep(50)
+        micNote("waited ${(System.nanoTime() - t0) / 1_000_000} ms for the headset, call on ${name(am.communicationDevice)}")
+    }
+
     /** The input that goes with the call's output device: a headset's own mic, or null (the system's choice, the
      *  phone's mics) for the earpiece and the speaker. */
-    private fun headsetMic(am: AudioManager): AudioDeviceInfo? {
-        val out = am.communicationDevice?.takeIf(::headset) ?: return null
+    private fun headsetMic(am: AudioManager, device: AudioDeviceInfo?): AudioDeviceInfo? {
+        val out = device?.takeIf(::headset) ?: return null
         val ins = am.getDevices(AudioManager.GET_DEVICES_INPUTS).filter { it.type == out.type }
         return ins.firstOrNull { it.address == out.address } ?: ins.firstOrNull()
     }
@@ -463,7 +484,8 @@ class CallService : Service() {
         val am = getSystemService(AudioManager::class.java)
         val l = AudioManager.OnCommunicationDeviceChangedListener {
             Log.i(TAG, "call device: ${name(it)}")
-            reroute = true
+            // The news can come after the mic already opened on that device: a reopen there gains nothing.
+            if (it?.id != openedOn) reroute = true
         }
         am.addOnCommunicationDeviceChangedListener(mainExecutor, l)
         routeWatch = l
@@ -616,6 +638,7 @@ class CallService : Service() {
         routes.release()
         keys?.release()
         keys = null
+        Updater.callEnded(this)
         val scope = scope
         scope.launch {
             // Telecom's disconnect is launched by `over`; give it a moment before the scope goes.
@@ -709,6 +732,8 @@ class CallService : Service() {
         private const val FRAME_BYTES = FRAME_SAMPLES * 2
         /** A minute of mic on a headset, in frames: the log goes to the server then as well as at the end. */
         private const val LOG_AFTER_FRAMES = 3000L
+        /** How long the call's first mic open waits for a connected headset to take the call. */
+        private const val HEADSET_WAIT_MS = 3000L
 
         private fun name(d: AudioDeviceInfo?) = d?.let { "${it.productName} (type ${it.type})" } ?: "default"
 

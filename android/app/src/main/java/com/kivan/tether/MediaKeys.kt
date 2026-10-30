@@ -28,8 +28,9 @@ import android.view.KeyEvent
  * media-button receiver it left, which it also remembers across a reboot (AOSP MediaSessionService,
  * MediaSessionStack, MediaButtonReceiverHolder). So a call holds a session while its audio plays, which makes Tether
  * that app, and drops it when the call ends: from then on the keys come to [Receiver], until another media app plays.
- * When headphones connect and nothing plays, [claim] makes Tether that app again, so a paused YouTube from yesterday
- * doesn't keep the AirPods. The receiver, not a live session, because the system sends it with leave to open an
+ * When headphones go away and nothing plays, [claim] makes Tether that app again, so a paused YouTube from yesterday
+ * doesn't keep the AirPods next time. Never while headphones are connected: nothing of ours may touch the AirPods' media
+ * link before a call (thread #125: the AirPods calls that started after a claim on connect came through filtered). The receiver, not a live session, because the system sends it with leave to open an
  * activity; a session's callback has none. Bluetooth (AVRCP) keys go straight to the media sessions, so an
  * accessibility key filter never sees them.
  *
@@ -72,12 +73,13 @@ object MediaKeys {
     /**
      * Makes Tether the app that last played, as a call does: a session PLAYING over 300 ms of silence, then released,
      * so the keys come to [Receiver]. Never while anything plays or a call (any app's) is on, so it takes no keys from
-     * a player in use.
+     * a player in use, and never with headphones connected.
      */
     fun claim(context: Context, why: String) {
         val am = context.getSystemService(AudioManager::class.java)
-        if (!enabled(context) || Voice.ui.value.live || am.isMusicActive || am.mode != AudioManager.MODE_NORMAL) {
-            Log.i(TAG, "claim on $why: skipped (${if (am.isMusicActive) "something plays" else "off, or a call"})")
+        val headphones = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in HEADPHONES }
+        if (!enabled(context) || Voice.ui.value.live || am.isMusicActive || am.mode != AudioManager.MODE_NORMAL || headphones) {
+            Log.i(TAG, "claim on $why: skipped (${if (am.isMusicActive) "something plays" else if (headphones) "headphones on" else "off, or a call"})")
             return
         }
         // Made here, on the main thread: a session's callback needs a looper.
@@ -106,17 +108,13 @@ object MediaKeys {
         }, "tether-keys-claim").start()
     }
 
-    /** Claims the keys whenever headphones connect (AirPods, any Bluetooth or wired headset). Held by [LinkService]. */
+    /** Claims the keys whenever headphones leave (AirPods, any Bluetooth or wired headset). Held by [LinkService]. */
     fun watchHeadphones(context: Context): AudioDeviceCallback {
         val am = context.getSystemService(AudioManager::class.java)
         val cb = object : AudioDeviceCallback() {
-            // Android reports the devices already there at once; only a new connection claims.
-            private var first = true
-
-            override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) {
-                if (first) { first = false; return }
-                val d = added.firstOrNull { it.isSink && it.type in HEADPHONES } ?: return
-                Handler(Looper.getMainLooper()).postDelayed({ claim(context, "${d.productName} connected") }, 2000)
+            override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
+                val d = removed.firstOrNull { it.isSink && it.type in HEADPHONES } ?: return
+                Handler(Looper.getMainLooper()).postDelayed({ claim(context, "${d.productName} gone") }, 2000)
             }
         }
         am.registerAudioDeviceCallback(cb, Handler(Looper.getMainLooper()))
@@ -124,7 +122,7 @@ object MediaKeys {
     }
 
     private val HEADPHONES = setOf(
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADSET,
         AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_USB_HEADSET,
     )
 

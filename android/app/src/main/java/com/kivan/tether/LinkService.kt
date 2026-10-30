@@ -50,7 +50,7 @@ class LinkService : Service() {
         if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.ALERT") {
             Alerts.test(this, intent.getStringExtra("title") ?: "Jarvis calling back", intent.getStringExtra("text") ?: "Our call dropped.", intent.getStringExtra("url") ?: "/call")
         }
-        // Tests: on the emulator (root) `am startservice -a com.kivan.tether.CLAIM_KEYS` stands in for AirPods connecting.
+        // Tests: on the emulator (root) `am startservice -a com.kivan.tether.CLAIM_KEYS` stands in for AirPods leaving.
         if (BuildConfig.DEBUG && intent?.action == "com.kivan.tether.CLAIM_KEYS") MediaKeys.claim(this, "test")
         if (headphones == null) headphones = runCatching { MediaKeys.watchHeadphones(this) }.getOrNull()
         return START_STICKY

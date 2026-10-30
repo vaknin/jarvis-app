@@ -101,17 +101,26 @@ impl Drops {
     }
 }
 
-/// Sends the recent log lines to the server, `after` from now. Best effort.
+/// Sends the recent log lines to the server, `after` from now, trying again while the network comes
+/// back: the lines of a call that ended badly are the ones worth having. Best effort.
 fn upload(why: String, after: Duration) {
     RT.spawn(async move {
         tokio::time::sleep(after).await;
         let lines = crate::phonelog::recent(crate::phonelog::SEND_WINDOW, crate::phonelog::SEND_MAX);
-        match crate::forum::send_log(&why, &lines).await {
-            Ok(answer) => tracing::info!("voice: log sent ({} B, {why}): {answer}", lines.len()),
-            Err(e) => tracing::warn!("voice: log not sent ({why}): {e:#}"),
+        for wait in UPLOAD_WAITS {
+            tokio::time::sleep(wait).await;
+            match crate::forum::send_log(&why, &lines).await {
+                Ok(answer) => return tracing::info!("voice: log sent ({} B, {why}): {answer}", lines.len()),
+                Err(e) => tracing::warn!("voice: log not sent ({why}): {e:#}"),
+            }
         }
     });
 }
+
+/// Before each try at sending a log. The upload holds the tunnel open itself, so its idle close never
+/// cuts it short; it's the network that can be gone.
+const UPLOAD_WAITS: [Duration; 4] =
+    [Duration::ZERO, Duration::from_secs(5), Duration::from_secs(30), Duration::from_secs(120)];
 
 /// A line from the app's mic code, for the call's log.
 #[uniffi::export]
@@ -238,11 +247,6 @@ impl VoiceCall {
     /// How well Jarvis hears the mic right now, 0 to 1: a lock-free read for the screen's frame clock.
     pub fn mic_level(&self) -> f32 {
         self.0.mic_level()
-    }
-
-    /// Whether the mic is a headset's, whose level the call looks after (`tether_voice::MicBoost`).
-    pub fn set_mic_boost(&self, on: bool) {
-        self.0.set_mic_boost(on);
     }
 
     /// The next `samples` samples for the speaker; empty once the call is over and its last

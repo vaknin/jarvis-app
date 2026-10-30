@@ -178,14 +178,9 @@ async fn connects_plays_the_earcon_and_streams_the_mic() {
 #[tokio::test(start_paused = true)]
 async fn the_meter_reads_the_mic_as_it_went_out() {
     let (call, _s, _a, _r, _log) = up().await;
-    let frame: Vec<u8> = (0..320).flat_map(|i| (if i % 2 == 0 { 110i16 } else { -110i16 }).to_le_bytes()).collect();
+    let frame: Vec<u8> = (0..320).flat_map(|i| (if i % 2 == 0 { 400i16 } else { -400i16 }).to_le_bytes()).collect();
     call.send_audio(frame.clone());
-    let plain = call.mic_level();
-
-    // The same frame on a headset is sent boosted, and that's what Jarvis gets.
-    call.set_mic_boost(true);
-    call.send_audio(frame.clone());
-    assert!(call.mic_level() > plain + 0.3, "{} after {plain}", call.mic_level());
+    assert!(call.mic_level() > 0.0, "{}", call.mic_level());
 
     call.set_muted(true);
     call.send_audio(frame);

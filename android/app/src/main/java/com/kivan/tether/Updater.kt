@@ -37,7 +37,7 @@ private const val TAG = "Tether"
  * restart (MY_PACKAGE_REPLACED, [BootReceiver]), so the gap falls in silence.
  *
  * When: on opening the app (at most every 10 min), from the ⋮ menu, and in the background every 6
- * hours. The background check downloads only on Wi-Fi (an update is ~40 MB) and installs what it has;
+ * hours, every 10 minutes through a call and 3 minutes after one ends. The background check downloads only on Wi-Fi (an update is ~40 MB) and installs what it has;
  * on mobile data it posts "Update ready", whose tap opens the app, which downloads and installs.
  */
 object Updater {
@@ -46,6 +46,10 @@ object Updater {
     private const val NOTIFY_ID = 20
     private const val STATUS = "com.kivan.tether.UPDATE_STATUS"
     private const val EVERY_MS = 6 * 60 * 60 * 1000L
+    /** How often a live call looks for a new build, so one published mid-call lands in that call's next pause. */
+    private const val IN_CALL_MS = 10 * 60 * 1000L
+    /** After a call ends, before looking: its log's tries come first, and an install ends the process. */
+    private const val AFTER_CALL_MS = 3 * 60 * 1000L
     private const val OPEN_EVERY_MS = 10 * 60 * 1000L
     /** After "Cancel" on Android's question, the app doesn't ask again on its own for this long. */
     private const val DECLINED_MS = 12 * 60 * 60 * 1000L
@@ -70,17 +74,31 @@ object Updater {
         )
     }
 
-    /** The background check, every 6 hours while the process lives (started by [LinkService]). */
+    /** The background check, every 6 hours while the process lives, every 10 minutes through a call (started by [LinkService]). */
     fun loop(context: Context) {
         if (looping) return
         looping = true
         val app = context.applicationContext
         Core.scope.launch {
             delay(2 * 60 * 1000L)
+            quietCheck(app)
             while (true) {
-                runCatching { check(app, ask = false) }.onFailure { Log.w(TAG, "update check failed", it) }
-                delay(EVERY_MS)
+                delay(IN_CALL_MS)
+                if (Voice.ui.value.live || System.currentTimeMillis() - lastCheck >= EVERY_MS) quietCheck(app)
             }
+        }
+    }
+
+    private suspend fun quietCheck(app: Context) {
+        runCatching { check(app, ask = false) }.onFailure { Log.w(TAG, "update check failed", it) }
+    }
+
+    /** A call ended: what waited for it installs now, not at the next 6-hour look. */
+    fun callEnded(context: Context) {
+        val app = context.applicationContext
+        Core.scope.launch {
+            delay(AFTER_CALL_MS)
+            quietCheck(app)
         }
     }
 

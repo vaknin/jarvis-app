@@ -28,7 +28,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   Updates come from Jarvis's server through the forum tunnel, from anywhere (`Updater.kt`, docs/LEAN.md
   "Updates from the server"): after `assembleRelease` on committed master, `scripts/publish-app.sh` offers it,
   and the phone installs it without a question once Tether is its installer of record (the first install after an
-  adb install still asks for one tap), mid-call too: only in a pause, and the call comes back on the restart (thread #132). versionCode is the commit count (`git rev-list --count HEAD`).
+  adb install still asks for one tap), mid-call too: only in a pause, and the call comes back on the restart (thread #132). It looks every 6 hours, every 10 minutes through a call, and 3 minutes after a call ends. versionCode is the commit count (`git rev-list --count HEAD`).
   Jarvis's notifications (`jarvis notify` on the server, 2026-10-28): the forum gate dials the tunnel's endpoint
   (ALPN `jarvis-alert/0`, the gate's id only; `crates/ffi/src/alerts.rs`), `Alerts.kt` shows each on the "Jarvis"
   channel and answers its id, or nothing, and the server falls back to Chrome push. Once started, the endpoint stays
@@ -41,8 +41,8 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   only for what is aimed at Aviv: Discourse's unread notifications of types 1/6/7/15, and chat DMs and @mentions. It
   never marks anything read. Assistant: `Assist.kt` (VoiceInteractionService; the session opens `CallActivity` START),
   and `CallActivity` takes ACTION_ASSIST. Media keys: `MediaKeys.kt`. A call holds a MediaSession, so afterwards
-  the keys reach `MediaKeys.Receiver`, until another media app plays; headphones connecting with nothing playing
-  re-claim them (`MediaKeys.claim`, 300 ms of silence under a PLAYING session, from `LinkService`). With nothing
+  the keys reach `MediaKeys.Receiver`, until another media app plays; headphones leaving with nothing playing
+  re-claim them (`MediaKeys.claim`, 300 ms of silence under a PLAYING session, from `LinkService`; never with headphones connected, so nothing of ours touches the AirPods before a call, thread #125). With nothing
   playing the AirPods send PLAY for a press and a double-press alike (never NEXT; the Pixel's `dumpsys
   bluetooth_manager` "Media Key Events", 2026-10-29), so NEXT, PLAY and PLAY_PAUSE all call. If the call screen
   hasn't opened 3 s after a press, a full-screen "Call Jarvis" notification stands in. Logs: tag `TetherKeys`;
@@ -56,10 +56,8 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   `jarvis-voice` on 127.0.0.1:8790. The ffi's `VoiceCall` wraps it; the forum tunnel's second port 8791 opens its pipe
   with `voice`, which the gate sends to jarvis-voice. In the app: `CallService` (foreground, phoneCall + microphone; a
   self-managed Telecom call through androidx core-telecom, so the AirPods use their call profile and a press hangs
-  up; communication mode by hand only if Telecom refuses; the mic reopens on each route change and follows it, never onto another device. A headset's mic can come over
-  Bluetooth 15 to 30 dB down, cause unproven (`notes/airpods-mic-125.md`): `MicBoost` in the voice crate brings it up
-  to speech level, and `MicTrial` tries a quiet one other ways once, temporarily. A call on a headset sends its log,
-  mic lines included, to `~/.jarvis/phone-logs/` after a minute and at its end; `crates/voice/src/meter.rs` meters what leaves the phone, after the boost and reading nothing under the boost's own speech line, kept in an atomic the ring around Mute reads on the frame clock through `VoiceCall.mic_level` and `MicLevel`, never through `Voice.Ui`; `MicFeed` is a debug receiver that feeds it fake levels, since the fake server's mic is silent, thread #123), `CallActivity` (big Call button, Mute, Hang up, and the audio route
+  up; communication mode by hand only if Telecom refuses; the mic reopens on each route change and follows it, never onto another device. With a Bluetooth headset connected the first open waits for the route (up to 3 s), the app asks for no echo or noise processing on it (the headset does its own and says so), and `MicWatch.kt` reopens a headset's mic once in its first pause and again if voice comes through quiet, because a reopen is what brought the AirPods' mic back when it opened 20 to 40 dB down under the server's speech gate: `notes/airpods-mic-125.md`. A call on a headset sends its log,
+  mic lines included, to `~/.jarvis/phone-logs/` after a minute and at its end; `crates/voice/src/meter.rs` meters what leaves the phone, kept in an atomic the ring around Mute reads on the frame clock through `VoiceCall.mic_level` and `MicLevel`, never through `Voice.Ui`; `MicFeed` is a debug receiver that feeds it fake levels, since the fake server's mic is silent, thread #123), `CallActivity` (big Call button, Mute, Hang up, and the audio route
   (`AudioRoutes.kt`: a tap cycles earpiece, speaker, Bluetooth, wired; through Telecom's endpoints, AudioManager's
   communication device when routed by hand), the call's length from connect (also the notification's chronometer),
   the transcript as a chat that scrolls back through past calls (`CallLog`, `filesDir/call-log.jsonl`, newest 2000
