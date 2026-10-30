@@ -1,6 +1,7 @@
 package com.kivan.tether.ui
 
 import android.text.format.DateFormat
+import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,30 +27,47 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kivan.tether.AudioRoute
 import com.kivan.tether.Avail
 import com.kivan.tether.CallLog
+import com.kivan.tether.CallText
+import com.kivan.tether.MicLevel
 import com.kivan.tether.R
 import com.kivan.tether.Voice
+import com.kivan.tether.core.CallState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -57,6 +76,8 @@ private val Accent = Color(0xFF95C9FF)
 private val Muted = Color(0xFF8B93A1)
 private val Raised = Color(0xFF1C1F24)
 private val Mine = Color(0xFF243447)
+/** Jarvis's words: softer than white, so a bold first sentence stands out. */
+private val Page = Color(0xFFCFD4DC)
 private val Go = Color(0xFF3FB97A)
 private val Stop = Color(0xFFE5534B)
 
@@ -91,6 +112,7 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                 }
                 Spacer(Modifier.height(16.dp))
                 if (ui.live) {
+                    val mic = micLevel(ui.state !is CallState.Connecting && ui.state !is CallState.Reconnecting && !ui.muted)
                     // Stop Jarvis mid-reply and read; continue from the sentence he stopped in.
                     // The same height whether shown or not, so the buttons below never move.
                     Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
@@ -105,6 +127,8 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                             if (ui.micOff) Bg else Color.White,
                             96.dp,
                             onMute,
+                            // Grey under a voice mute: only "unmute" gets through, so it shows that can be heard, not that Jarvis hears.
+                            Modifier.micHalo(mic, if (ui.voiceMuted) Muted else Accent),
                         )
                         Round(R.drawable.lucide_phone_off, "Hang up", Stop, Color.White, 112.dp, onHangup)
                         // Where the call sounds; a tap moves it on, as a phone's own call screen does.
@@ -219,33 +243,89 @@ private fun Transcript(pieces: List<CallLog.Piece>, modifier: Modifier) {
     val end = turns.size + turns.map { it.call }.distinct().size
     LaunchedEffect(Unit) { list.scrollToItem(end) }
     LaunchedEffect(pieces.lastOrNull()) { if (atEnd) list.animateScrollToItem(end) }
-    LazyColumn(modifier, state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Something taking room above or below (the availability pill, once it loads) mustn't cut off the last line.
+    LaunchedEffect(list) {
+        var was = 0 to false
+        snapshotFlow { list.layoutInfo.viewportSize.height to atEnd }.collect { now ->
+            if (now.first in 1 until was.first && was.second) list.scrollToItem(list.layoutInfo.totalItemsCount - 1)
+            was = now
+        }
+    }
+    LazyColumn(modifier, state = list, verticalArrangement = Arrangement.spacedBy(18.dp)) {
         turns.forEachIndexed { i, t ->
             if (i == 0 || turns[i - 1].call != t.call) {
-                item(key = "call ${t.call}") {
-                    Text(
-                        "Call · " + DateFormat.getMediumDateFormat(ctx).format(t.call) + " " + DateFormat.getTimeFormat(ctx).format(t.call),
-                        Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
-                        color = Muted, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center,
-                    )
-                }
+                item(key = "call ${t.call}") { CallStart(t.call) }
             }
-            item(key = "turn ${t.call} ${t.at} $i") { Bubble(t) }
+            item(key = "turn ${t.call} ${t.at} $i") { Line(t) }
         }
         item(key = "end") { Spacer(Modifier.height(1.dp)) }
     }
 }
 
+/** Where a call starts: a hairline with the day and the time on it. */
 @Composable
-private fun Bubble(t: CallLog.Piece) {
-    val aviv = t.who != "jarvis"
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (aviv) Arrangement.End else Arrangement.Start) {
+private fun CallStart(at: Long) {
+    val ctx = LocalContext.current
+    val day = when {
+        DateUtils.isToday(at) -> "Today"
+        DateUtils.isToday(at + DateUtils.DAY_IN_MILLIS) -> "Yesterday"
+        else -> DateFormat.getMediumDateFormat(ctx).format(at)
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(1.dp).background(Raised))
         Text(
-            t.text,
-            Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(16.dp)).background(if (aviv) Mine else Raised)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.bodyLarge,
+            day + " · " + DateFormat.getTimeFormat(ctx).format(at),
+            Modifier.padding(horizontal = 12.dp),
+            color = Muted, style = MaterialTheme.typography.labelSmall,
         )
+        Box(Modifier.weight(1f).height(1.dp).background(Raised))
+    }
+}
+
+/** Jarvis's lines read like a page, across the screen; Aviv's stay bubbles on the right. */
+@Composable
+private fun Line(t: CallLog.Piece) {
+    val aviv = t.who != "jarvis"
+    val blocks = remember(t.text) { CallText.blocks(t.text, mine = aviv) }
+    if (aviv) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Blocks(
+                blocks, Color.White,
+                Modifier.widthIn(max = 288.dp).clip(RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)).background(Mine)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            )
+        }
+    } else {
+        Blocks(blocks, Page, Modifier.fillMaxWidth().padding(horizontal = 4.dp))
+    }
+}
+
+@Composable
+private fun Blocks(blocks: List<CallText.Block>, color: Color, modifier: Modifier) {
+    val style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 25.sp, letterSpacing = 0.1.sp, color = color)
+    Column(modifier) {
+        blocks.forEachIndexed { i, b ->
+            if (i > 0) Spacer(Modifier.height(if (b is CallText.Item) 6.dp else 12.dp))
+            when (b) {
+                is CallText.Para -> Text(words(b.spans), style = style)
+                is CallText.Item -> Row {
+                    Text(b.mark, Modifier.width(24.dp), color = Accent, style = style.copy(fontFeatureSettings = "tnum"))
+                    Text(words(b.spans), style = style)
+                }
+            }
+        }
+    }
+}
+
+private fun words(spans: List<CallText.Span>) = buildAnnotatedString {
+    for (s in spans) {
+        withStyle(
+            SpanStyle(
+                color = if (s.bold) Color.White else Color.Unspecified,
+                fontWeight = if (s.bold) FontWeight.SemiBold else null,
+                fontStyle = if (s.italic) FontStyle.Italic else null,
+            ),
+        ) { append(s.text) }
     }
 }
 
@@ -265,11 +345,54 @@ private fun PauseButton(paused: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * How well Jarvis hears the mic, 0..1, eased on the frame clock (which stops with the screen). It's read only
+ * while drawing ([micHalo]), so the call screen doesn't recompose for it. 0 at once when not [on].
+ */
 @Composable
-internal fun Round(icon: Int, label: String, bg: Color, fg: Color, size: Dp, onClick: () -> Unit) {
+private fun micLevel(on: Boolean): FloatState {
+    val shown = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(on) {
+        shown.floatValue = 0f
+        var last = 0L
+        while (on) {
+            val now = withFrameNanos { it }
+            val heard = MicLevel.now()
+            if (last != 0L) shown.floatValue = MicLevel.ease(shown.floatValue, heard, (now - last) / 1e6f)
+            last = now
+            // Nothing to draw: no need for every frame until there is.
+            if (shown.floatValue == 0f && heard == 0f) {
+                delay(50)
+                last = 0L
+            }
+        }
+    }
+    return shown
+}
+
+/**
+ * A soft ring around a round button that grows with [level]. At 0 there is nothing, so a dead mic looks dead.
+ * On its own layer: a new level redraws the ring, not the screen.
+ */
+private fun Modifier.micHalo(level: FloatState, color: Color) = graphicsLayer {}.drawBehind {
+    val l = level.floatValue
+    if (l == 0f) return@drawBehind
+    val inner = size.minDimension / 2
+    val outer = inner + HaloGrow.toPx() * l
+    drawCircle(
+        Brush.radialGradient(inner / outer to color.copy(alpha = 0.5f * l), 1f to Color.Transparent, center = center, radius = outer),
+        outer,
+    )
+    drawCircle(color.copy(alpha = 0.9f * l), outer, style = Stroke(1.5.dp.toPx()))
+}
+
+private val HaloGrow = 12.dp
+
+@Composable
+internal fun Round(icon: Int, label: String, bg: Color, fg: Color, size: Dp, onClick: () -> Unit, halo: Modifier = Modifier) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.size(size).clip(CircleShape).background(bg).clickable(onClickLabel = label, onClick = onClick),
+            Modifier.size(size).then(halo).clip(CircleShape).background(bg).clickable(onClickLabel = label, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             Icon(painterResource(icon), label, Modifier.size(size * 0.36f), tint = fg)

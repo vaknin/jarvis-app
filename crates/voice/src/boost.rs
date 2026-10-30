@@ -15,7 +15,7 @@ const MAX_GAIN: f32 = 20.0;
 /// Before any speech: enough for a quiet line, and the limit below looks after a normal one.
 const START_GAIN: f32 = 8.0;
 /// A frame this loud (rms) counts as him; their hiss sits at 8 to 24.
-const SPEECH_RMS: f32 = 30.0;
+pub(crate) const SPEECH_RMS: f32 = 30.0;
 /// Under this rms a frame is hiss or Jarvis's own bleed, so the gain fades to nothing there.
 const HISS_RMS: f32 = 20.0;
 /// How much of the way each frame of speech moves the level: up within half a second of speech, down

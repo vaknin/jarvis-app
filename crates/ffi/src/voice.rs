@@ -235,6 +235,11 @@ impl VoiceCall {
         self.0.send_audio(pcm);
     }
 
+    /// How well Jarvis hears the mic right now, 0 to 1: a lock-free read for the screen's frame clock.
+    pub fn mic_level(&self) -> f32 {
+        self.0.mic_level()
+    }
+
     /// Whether the mic is a headset's, whose level the call looks after (`tether_voice::MicBoost`).
     pub fn set_mic_boost(&self, on: bool) {
         self.0.set_mic_boost(on);

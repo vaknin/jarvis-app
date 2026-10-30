@@ -162,6 +162,7 @@ class CallService : Service() {
         }
         stt?.call = c
         call = c
+        MicLevel.source = c::micLevel
         running = true
         locks()
         watchNetwork(c)
@@ -596,6 +597,7 @@ class CallService : Service() {
     private fun finish() {
         if (call == null) return
         call = null
+        MicLevel.source = null
         net?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         wake?.let { if (it.isHeld) it.release() }
         wifi?.let { if (it.isHeld) it.release() }

@@ -4,6 +4,7 @@
 //! reaches it through `crates/ffi` (`VoiceCall`), and another app (motoparty) can use it the same way.
 
 pub mod boost;
+pub mod meter;
 pub mod call;
 pub mod player;
 pub mod proto;

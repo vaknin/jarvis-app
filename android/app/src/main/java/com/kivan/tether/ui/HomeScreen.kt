@@ -156,9 +156,9 @@ fun HomeScreen() {
                     items(lines) { l -> Card(l) }
                 }
                 Box(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 40.dp), contentAlignment = Alignment.Center) {
-                    Round(R.drawable.lucide_phone, if (ui.live) Voice.label(ui) else "Call Jarvis", Go, Color.White, 144.dp) {
+                    Round(R.drawable.lucide_phone, if (ui.live) Voice.label(ui) else "Call Jarvis", Go, Color.White, 144.dp, {
                         ctx.startActivity(CallActivity.intent(ctx, start = true))
-                    }
+                    })
                 }
             }
         }

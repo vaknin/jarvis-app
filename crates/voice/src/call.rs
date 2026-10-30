@@ -50,6 +50,7 @@ use tokio::{
 
 use crate::{
     boost::MicBoost,
+    meter::{MicMeter, level, rms},
     player::{Earcon, Player},
     proto::{About, Down, Up},
     stt::{Do, Stt, Word},
@@ -265,6 +266,7 @@ pub struct Call {
     cmd: mpsc::UnboundedSender<Cmd>,
     mic: mpsc::Sender<Vec<u8>>,
     boost: Mutex<MicBoost>,
+    meter: MicMeter,
 }
 
 impl Call {
@@ -306,16 +308,24 @@ impl Call {
         // 10 frames (200 ms): a send that lags more than that drops the newest speech, not the call.
         let (mic, mic_rx) = mpsc::channel(10);
         tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, phone_stt, rejoin));
-        Call { shared, cmd, mic, boost: Mutex::default() }
+        Call { shared, cmd, mic, boost: Mutex::default(), meter: MicMeter::default() }
     }
 
     /// One mic frame (PCM16 LE mono 16 kHz, 20 ms). Never blocks: dropped while muted, while the
     /// line is down, or if the socket is behind.
     pub fn send_audio(&self, mut pcm: Vec<u8>) {
-        if self.shared.live.load(Ordering::SeqCst) && !self.shared.muted.load(Ordering::SeqCst) {
-            self.boost.lock().unwrap().apply(&mut pcm);
-            let _ = self.mic.try_send(pcm);
+        if !self.shared.live.load(Ordering::SeqCst) || self.shared.muted.load(Ordering::SeqCst) {
+            return self.meter.set(0.0);
         }
+        let raw = rms(&pcm);
+        self.boost.lock().unwrap().apply(&mut pcm);
+        let sent = rms(&pcm);
+        self.meter.set(if self.mic.try_send(pcm).is_ok() { level(raw, sent) } else { 0.0 });
+    }
+
+    /// How well Jarvis hears the mic right now, 0 to 1 ([`crate::meter`]). Never waits.
+    pub fn mic_level(&self) -> f32 {
+        self.meter.get()
     }
 
     /// Whether the mic is a headset's, whose level [`MicBoost`] looks after.

@@ -59,12 +59,12 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   up; communication mode by hand only if Telecom refuses; the mic reopens on each route change and follows it, never onto another device. A headset's mic can come over
   Bluetooth 15 to 30 dB down, cause unproven (`notes/airpods-mic-125.md`): `MicBoost` in the voice crate brings it up
   to speech level, and `MicTrial` tries a quiet one other ways once, temporarily. A call on a headset sends its log,
-  mic lines included, to `~/.jarvis/phone-logs/` after a minute and at its end), `CallActivity` (big Call button, Mute, Hang up, and the audio route
+  mic lines included, to `~/.jarvis/phone-logs/` after a minute and at its end; `crates/voice/src/meter.rs` meters what leaves the phone, after the boost and reading nothing under the boost's own speech line, kept in an atomic the ring around Mute reads on the frame clock through `VoiceCall.mic_level` and `MicLevel`, never through `Voice.Ui`; `MicFeed` is a debug receiver that feeds it fake levels, since the fake server's mic is silent, thread #123), `CallActivity` (big Call button, Mute, Hang up, and the audio route
   (`AudioRoutes.kt`: a tap cycles earpiece, speaker, Bluetooth, wired; through Telecom's endpoints, AudioManager's
   communication device when routed by hand), the call's length from connect (also the notification's chronometer),
   the transcript as a chat that scrolls back through past calls (`CallLog`, `filesDir/call-log.jsonl`, newest 2000
   pieces; a `text` frame is the speaker's whole line so far, so one from the same speaker replaces the last piece
-  (`CallLog.fold`, unit-tested), never appended; it follows new lines only at the bottom), shown over the lock screen, proximity off in a pocket),
+  (`CallLog.fold`, unit-tested), never appended; it follows new lines only at the bottom; `CallText` shapes a line at render time into paragraphs, lists and bold, never changing a word and stored verbatim: `CALL_LINES=FILE` runs its tests over a file of real lines, one a line, which stay out of this public repo, thread #123), shown over the lock screen, proximity off in a pocket),
   the Quick Settings tile "Jarvis" and the "Call Jarvis" shortcut. Pause (2026-10-28, the jarvis repo's
   `notes/voice-fixes/tap-pause.md`): a wide Pause/Continue pill over the buttons and the same action in the call
   notification (the lock screen, mid-workout), shown while Jarvis speaks or thinks, or is paused. A tap silences

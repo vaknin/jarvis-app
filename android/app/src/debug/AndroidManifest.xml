@@ -5,5 +5,9 @@
         <receiver
             android:name=".UpdaterTest"
             android:exported="true" />
+        <!-- Tests: a voice for the call screen's mic halo, the emulator's mic being silent (MicFeed). Debug builds only. -->
+        <receiver
+            android:name=".MicFeed"
+            android:exported="true" />
     </application>
 </manifest>
