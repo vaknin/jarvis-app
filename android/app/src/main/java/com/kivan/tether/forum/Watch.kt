@@ -104,6 +104,8 @@ object Watch {
         val client = UUID.randomUUID().toString().replace("-", "")
         var backoff = 2_000L
         while (true) {
+            // The new app has the link ([Move]): its port answers here too, and it notifies.
+            while (com.kivan.tether.Move.off()) Thread.sleep(2_000)
             try {
                 if (uid == 0L) {
                     if (!Session.has(app)) {

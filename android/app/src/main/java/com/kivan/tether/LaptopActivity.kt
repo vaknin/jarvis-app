@@ -11,6 +11,7 @@ class LaptopActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (Move.forward(this)) return
         setContent { ChatScreen() }
     }
 

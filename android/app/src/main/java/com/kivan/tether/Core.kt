@@ -93,6 +93,7 @@ object Core {
 
     /** The running node, started on first use; [watch] stops it again once it's idle. */
     suspend fun start(): TetherNode = lock.withLock {
+        check(!Move.off()) { "the new app holds the link" }
         busyUntil = maxOf(busyUntil, SystemClock.elapsedRealtime() + GRACE_MS)
         node ?: com.kivan.tether.core.start(
             File(app.filesDir, "state").path,
@@ -108,6 +109,16 @@ object Core {
             Log.i(TAG, "node started")
             watch(n)
         }
+    }
+
+    /** Stops the node now, for the move ([Move]): its files stay still from here on. */
+    suspend fun stop() = lock.withLock {
+        node?.let {
+            it.shutdown()
+            it.close()
+        }
+        node = null
+        _connected.value = false
     }
 
     /** Stops [n] once nothing needs it: checked every few seconds while it runs. */
@@ -138,6 +149,7 @@ object Core {
 
     fun setVisible(visible: Boolean) {
         chatVisible = visible
+        if (Move.off()) return
         scope.launch {
             val n = start()
             n.setStay(visible)

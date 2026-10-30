@@ -38,6 +38,16 @@ class LinkService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        // The new app has the link, for now or for good ([Move]): nothing here may touch it.
+        when (Move.link()) {
+            Move.Link.OFF -> {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            Move.Link.HELD -> return START_STICKY
+            Move.Link.ON -> {}
+        }
         up = true
         // After a boot or an update, deliver anything left queued; the node stops again once idle.
         Core.scope.launch { runCatching { Core.start() }.onFailure { Log.w("Tether", "node start failed", it) } }
@@ -65,6 +75,7 @@ class LinkService : Service() {
          * a plain start (the app in the background), the foreground start.
          */
         fun start(context: Context) {
+            if (Move.gone.value) return
             val i = Intent(context, LinkService::class.java)
             runCatching { context.startService(i) }
                 .recoverCatching { context.startForegroundService(i) }

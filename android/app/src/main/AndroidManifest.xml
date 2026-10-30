@@ -25,9 +25,13 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Its own updates install without a question once Tether is their installer of record (Updater). -->
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
-    <!-- The phone's own speech to text on calls (PhoneStt): the recognizer service must be visible. -->
+    <!-- The move to the renamed app (Move): only an app signed with this key gets in. -->
+    <permission android:name="${newApp}.MOVE" android:protectionLevel="signature" />
+    <uses-permission android:name="${newApp}.MOVE" />
+    <!-- The phone's own speech to text on calls (PhoneStt): the recognizer service must be visible. The new app, for the move. -->
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <package android:name="${newApp}" />
     </queries>
 
     <application
@@ -172,6 +176,12 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name=".MoveProvider"
+            android:authorities="${applicationId}.move"
+            android:exported="true"
+            android:permission="${newApp}.MOVE" />
 
         <!-- Keeps the process up, so the forum tunnel's localhost port answers and the forum's notifications come. -->
         <service

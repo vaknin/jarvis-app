@@ -61,6 +61,10 @@ object Voice {
             if (task != null) android.widget.Toast.makeText(context, "You're on a call: just say the task's name", android.widget.Toast.LENGTH_LONG).show()
             return
         }
+        if (Move.held) {
+            android.widget.Toast.makeText(context, "One moment: moving to the new Jarvis", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         update(context) { Ui(state = CallState.Connecting) }
         context.startForegroundService(Intent(context, CallService::class.java).putExtra(CallService.REJOIN, rejoin).putExtra(CallService.TASK, task))
     }
@@ -71,7 +75,7 @@ object Voice {
      * instead ([Callback]).
      */
     fun resume(context: Context) {
-        if (_ui.value.live) return
+        if (_ui.value.live || Move.off()) return
         val id = CallStore.active(context) ?: return
         if (!CallService.micGranted(context)) return
         android.util.Log.i("TetherCall", "resuming call $id after a restart")

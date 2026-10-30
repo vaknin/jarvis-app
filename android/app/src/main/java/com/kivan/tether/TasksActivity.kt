@@ -16,6 +16,7 @@ class TasksActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (Move.forward(this)) return
         open.value = intent.getStringExtra(SLUG)
         setContent { TasksScreen(open, onClose = ::finish) }
     }

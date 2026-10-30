@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 class ShareActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Move.forward(this)) return
         val uris = sharedUris(intent)
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
         if (uris.isEmpty() && text == null) return finish()

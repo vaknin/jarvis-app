@@ -8,6 +8,7 @@ import java.io.File
 class TetherApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        Move.init(this)
         Native.load(this)
         Notifier.channels(this)
         Push.init(this)
@@ -16,6 +17,7 @@ class TetherApp : Application() {
         background()
         LinkService.start(this)
         PhoneStt.check(this)
+        Move.booted()
     }
 
     /**
@@ -24,11 +26,13 @@ class TetherApp : Application() {
      * the tunnel, so it's never up without someone to show Jarvis's notifications (thread #179).
      */
     private fun background() {
+        Move.link()
         // Tests: `run-as … touch files/no-alerts` keeps the listener away, to see what the gate hears.
         if (!BuildConfig.DEBUG || !File(filesDir, "no-alerts").exists()) Alerts.start(this)
         runCatching { Forum.start() }.onFailure { Log.w("Tether", "forum tunnel failed", it) }
         Watch.start(this)
         Updater.loop(this)
         Tasks.report(Core.scope)
+        Move.loop()
     }
 }

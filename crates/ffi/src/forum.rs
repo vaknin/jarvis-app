@@ -63,6 +63,8 @@ const LINGER: Duration = Duration::from_secs(5);
 static STATUS: Mutex<String> = Mutex::new(String::new());
 static STARTED: Mutex<bool> = Mutex::new(false);
 static ENDPOINT: Mutex<Option<Arc<Lazy>>> = Mutex::new(None);
+/// The tunnel's task, for [`forum_stop`].
+static SERVING: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
 fn set_status(s: impl Into<String>) {
     *STATUS.lock().unwrap() = s.into();
@@ -79,7 +81,7 @@ pub fn forum_start(ticket: String, port: u16, voice_port: u16, secret: String) {
     }
     *started = true;
     set_status("starting");
-    RT.spawn(async move {
+    let task = RT.spawn(async move {
         loop {
             if let Err(e) = serve(&ticket, port, voice_port, &secret).await {
                 set_status(format!("{e:#}"));
@@ -87,6 +89,33 @@ pub fn forum_start(ticket: String, port: u16, voice_port: u16, secret: String) {
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
     });
+    *SERVING.lock().unwrap() = Some(task);
+}
+
+/// Lets go of everything [`forum_start`] holds, for the app that takes over the phone's key (thread
+/// #190): both ports are free and the key is off the relay when this returns, and nothing here dials
+/// again until the next [`forum_start`]. Blocks; never call it on the library's runtime.
+#[uniffi::export]
+pub fn forum_stop() {
+    let mut started = STARTED.lock().unwrap();
+    *started = false;
+    let task = SERVING.lock().unwrap().take();
+    RT.block_on(async move {
+        if let Some(task) = task {
+            task.abort();
+            let _ = task.await;
+        }
+        // After the task: it's what sets this.
+        let lazy = ENDPOINT.lock().unwrap().take();
+        if let Some(lazy) = lazy {
+            lazy.stopped.store(true, Ordering::SeqCst);
+            let ep = lazy.ep.lock().await.take();
+            if let Some((_, ep)) = ep {
+                let _ = tokio::time::timeout(Duration::from_secs(5), ep.close()).await;
+            }
+        }
+    });
+    set_status("stopped");
 }
 
 /// "idle", "on", "on (last error: …)", or why it's down.
@@ -124,6 +153,10 @@ struct Lazy {
     rebuilt: Mutex<Option<Instant>>,
     /// The open pipes: their endpoint, and when each last read from the gate.
     pipes: Mutex<HashMap<u64, (u64, Heard)>>,
+    /// [`keep_up`] holds the endpoint open.
+    held: AtomicBool,
+    /// [`forum_stop`] ran: no endpoint is made again, so a late ask can't put the key back on the relay.
+    stopped: AtomicBool,
 }
 
 impl Lazy {
@@ -132,6 +165,7 @@ impl Lazy {
         if let Some(e) = ep.as_ref() {
             return Ok(e.clone());
         }
+        anyhow::ensure!(!self.stopped.load(Ordering::SeqCst), "the forum tunnel is stopped");
         let e = Endpoint::builder(presets::N0)
             .secret_key(self.key.clone())
             .alpns(vec![crate::alerts::ALERT_ALPN.to_vec()])
@@ -174,6 +208,9 @@ impl Lazy {
     async fn reap(self: Arc<Self>) {
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
+            if self.stopped.load(Ordering::SeqCst) {
+                return;
+            }
             let idle = self.open.load(Ordering::SeqCst) == 0 && self.last.lock().unwrap().elapsed() > IDLE;
             if idle && let Some((_, e)) = self.ep.lock().await.take() {
                 e.close().await;
@@ -198,6 +235,8 @@ async fn serve(ticket: &str, port: u16, voice_port: u16, secret: &str) -> Result
         last: Mutex::new(Instant::now()),
         rebuilt: Mutex::new(None),
         pipes: Default::default(),
+        held: AtomicBool::new(false),
+        stopped: AtomicBool::new(false),
     });
     *ENDPOINT.lock().unwrap() = Some(lazy.clone());
     let reaper = tokio::spawn(lazy.clone().reap());
@@ -246,9 +285,8 @@ static PIPES: AtomicU64 = AtomicU64::new(1);
 /// made again if it was closed (a rebuild after a broken pipe). False before [`forum_start`] has
 /// got that far.
 pub(crate) async fn keep_up() -> bool {
-    static HELD: AtomicBool = AtomicBool::new(false);
     let Some(lazy) = ENDPOINT.lock().unwrap().clone() else { return false };
-    if !HELD.swap(true, Ordering::SeqCst) {
+    if !lazy.held.swap(true, Ordering::SeqCst) {
         lazy.open.fetch_add(1, Ordering::SeqCst);
     }
     if lazy.ep.lock().await.is_none() {
@@ -649,6 +687,46 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use iroh::{EndpointAddr, SecretKey};
+    use iroh_tickets::endpoint::EndpointTicket;
+
+    fn up(port: u16) -> bool {
+        std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
+    }
+
+    fn wait(port: u16, want: bool) {
+        let t = std::time::Instant::now();
+        while up(port) != want {
+            assert!(t.elapsed().as_secs() < 10, "port {port} never went {want}: {}", super::forum_status());
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// Both ports go and come back, and an ask left over from before the stop can't bind the key again.
+    #[test]
+    fn stop_frees_the_ports_and_the_key() {
+        let gate = SecretKey::generate().public();
+        let ticket = EndpointTicket::new(EndpointAddr::new(gate)).to_string();
+        let key = SecretKey::generate().to_bytes().iter().map(|b| format!("{b:02x}")).collect::<String>();
+        super::forum_start(ticket.clone(), 18183, 18184, key.clone());
+        wait(18183, true);
+        wait(18184, true);
+        while super::ENDPOINT.lock().unwrap().is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let old = super::ENDPOINT.lock().unwrap().clone().unwrap();
+        super::forum_stop();
+        assert!(!up(18183) && !up(18184), "still listening after the stop");
+        assert_eq!(super::forum_status(), "stopped");
+        assert!(super::RT.block_on(old.get()).is_err(), "a late ask bound the key again");
+        super::forum_start(ticket, 18183, 18184, key);
+        wait(18183, true);
+        super::forum_stop();
     }
 }
 

@@ -10,14 +10,21 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.kivan.tether.ui.HomeScreen
+import com.kivan.tether.ui.MovedScreen
 
 /** Home: the big Call button and What's new; the forum and the laptop chat are one tap away. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContent { HomeScreen() }
+        setContent {
+            val gone by Move.gone.collectAsState()
+            if (gone) MovedScreen() else HomeScreen()
+        }
+        if (Move.gone.value) return
         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         askBatteryExemption()
     }
@@ -34,6 +41,8 @@ class MainActivity : ComponentActivity() {
         // From "Update ready": download if needed and ask Android's one question now.
         Updater.onOpen(this, tapped = intent.getBooleanExtra(Updater.EXTRA_INSTALL, false))
         intent.removeExtra(Updater.EXTRA_INSTALL)
+        Move.onOpen(this, tapped = intent.getBooleanExtra(Move.EXTRA_TAPPED, false))
+        intent.removeExtra(Move.EXTRA_TAPPED)
     }
 
     override fun onPause() {

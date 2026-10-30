@@ -29,6 +29,7 @@ class CallActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (Move.forward(this)) return
         setShowWhenLocked(true)
         setContent { CallScreen(onCall = { call() }, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }, onDecline = { Callback.decline(this); finish() }) }
         if (calls(intent) && savedInstanceState == null) call(intent)

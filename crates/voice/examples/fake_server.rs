@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::{net::TcpListener, time::Instant};
+use tokio::{io::AsyncWriteExt, net::TcpListener, time::Instant};
 use tokio_websockets::{Message, ServerBuilder};
 
 const RATE: usize = 16_000;
@@ -55,7 +55,16 @@ impl Out {
     }
 }
 
-async fn serve(tcp: tokio::net::TcpStream, n: usize, voice_mute: bool) -> anyhow::Result<()> {
+async fn serve(mut tcp: tokio::net::TcpStream, n: usize, voice_mute: bool) -> anyhow::Result<()> {
+    // The one plain GET the app's checks need, as the real server answers it.
+    let mut head = [0u8; 10];
+    let got = tcp.peek(&mut head).await?;
+    if head[..got].starts_with(b"GET /avail") {
+        let body = r#"{"mode":"available"}"#;
+        tcp.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+        println!("[{n}] avail");
+        return Ok(());
+    }
     let (_req, ws) = ServerBuilder::new().accept(tcp).await?;
     let (mut sink, mut ws) = ws.split();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();

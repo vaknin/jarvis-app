@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Jarvis</string>
+    <string name="app_name">Jarvis (old)</string>
     <string name="share_label">Laptop</string>
     <string name="call_short">Call Jarvis</string>
 </resources>

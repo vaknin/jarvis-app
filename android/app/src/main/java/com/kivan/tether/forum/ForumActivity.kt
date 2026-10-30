@@ -37,6 +37,7 @@ class ForumActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (com.kivan.tether.Move.forward(this)) return
         web = WebView(this).apply {
             setBackgroundColor(BACKGROUND)
             settings.javaScriptEnabled = true

@@ -42,7 +42,7 @@ private const val TAG = "Tether"
  */
 object Updater {
     const val EXTRA_INSTALL = "com.kivan.tether.INSTALL_UPDATE"
-    private const val CHANNEL = "updates"
+    const val CHANNEL = "updates"
     private const val NOTIFY_ID = 20
     private const val STATUS = "com.kivan.tether.UPDATE_STATUS"
     private const val EVERY_MS = 6 * 60 * 60 * 1000L
@@ -120,6 +120,7 @@ object Updater {
      * Otherwise it only prepares: downloads on Wi-Fi, then (either way) posts "Update ready".
      */
     private suspend fun check(context: Context, ask: Boolean, force: Boolean = false) = lock.withLock {
+        if (Move.off()) return@withLock
         lastCheck = System.currentTimeMillis()
         if (ask) _state.value = "Checking…"
         val u = updateCheck(context.packageName)
@@ -167,7 +168,7 @@ object Updater {
 
     private fun mb(u: AppUpdate) = (u.size.toLong() + 500_000) / 1_000_000
 
-    private fun unmetered(context: Context): Boolean {
+    fun unmetered(context: Context): Boolean {
         val cm = context.getSystemService(ConnectivityManager::class.java)
         return cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true
     }
@@ -176,14 +177,15 @@ object Updater {
      * Hands the APK to Android's installer, without a question where Android allows it (Tether is the
      * installer of record), else the one tap ([StatusReceiver]). Committed in the first pause of a call.
      */
-    private suspend fun install(context: Context, apk: File, u: AppUpdate) {
+    private suspend fun install(context: Context, apk: File, u: AppUpdate, move: Boolean = false) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(context.packageName)
+            setAppPackageName(if (move) Move.NEW_APP else context.packageName)
             setSize(apk.length())
             setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-            // Tether owns its updates from here on: the next ones need no tap either.
-            setRequestUpdateOwnership(true)
+            // Tether owns its updates from here on: the next ones need no tap either. Not the new app's:
+            // that one must be free to own its own.
+            if (!move) setRequestUpdateOwnership(true)
         }
         // A question left unanswered (the app went away before it opened) is replaced by this one.
         installer.mySessions.forEach { runCatching { installer.abandonSession(it.sessionId) } }
@@ -191,7 +193,7 @@ object Updater {
         installer.openSession(id).use { s ->
             s.openWrite("tether.apk", 0, apk.length()).use { out -> apk.inputStream().use { it.copyTo(out) }; s.fsync(out) }
             val status = Intent(context, StatusReceiver::class.java).setAction(STATUS)
-                .putExtra("code", u.versionCode).putExtra("name", u.versionName)
+                .putExtra("code", u.versionCode).putExtra("name", u.versionName).putExtra("move", move)
             val pi = PendingIntent.getBroadcast(context, id, status, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             // The process dies with the install: never while Jarvis speaks or Aviv talks.
             if (!Voice.quiet()) {
@@ -202,6 +204,14 @@ object Updater {
             s.commit(pi.intentSender)
         }
     }
+
+    /** The new app, through Android's question ([Move]): a first install always asks. */
+    suspend fun installNew(context: Context, apk: File, u: AppUpdate) = lock.withLock {
+        install(context, apk, u, move = true)
+    }
+
+    /** The new app's on the server and not downloaded (mobile data): the tap opens the app, which fetches and asks. */
+    fun moveNotice(context: Context, u: AppUpdate) = notice(context, u, downloaded = false, move = true)
 
     /**
      * Tests (debug builds, [UpdaterTest]): installs [apk] through the same path as an update, the
@@ -216,19 +226,20 @@ object Updater {
      * "Jarvis 1.0.N is ready", once per version (a dismissed one isn't posted again every 6 hours).
      * Its tap opens the app, which asks; or, given [confirm], Android's question itself.
      */
-    private fun notice(context: Context, u: AppUpdate, downloaded: Boolean, confirm: Intent? = null) {
+    private fun notice(context: Context, u: AppUpdate, downloaded: Boolean, confirm: Intent? = null, move: Boolean = false) {
         val nm = NotificationManagerCompat.from(context)
         if (!nm.areNotificationsEnabled()) return
         val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
         if (confirm == null && prefs.getLong("notified", 0L) == u.versionCode) return
         prefs.edit().putLong("notified", u.versionCode).apply()
-        val open = confirm ?: Intent(context, MainActivity::class.java).putExtra(EXTRA_INSTALL, true)
+        val open = confirm ?: Intent(context, MainActivity::class.java).putExtra(if (move) Move.EXTRA_TAPPED else EXTRA_INSTALL, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val size = if (downloaded) "" else " (${mb(u)} MB)"
-        val text = u.notes.lines().map { it.removePrefix("For you:").trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+        val text = if (move) "Tap, then Install. Everything comes with you, and this app keeps working until the new one is ready."
+        else u.notes.lines().map { it.removePrefix("For you:").trim() }.filter { it.isNotEmpty() }.joinToString("\n")
         val n = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Jarvis ${u.versionName} is ready$size")
+            .setContentTitle(if (move) "Move to the new Jarvis" else "Jarvis ${u.versionName} is ready$size")
             .setContentText(text.ifEmpty { "Tap to install" })
             .setStyle(NotificationCompat.BigTextStyle().bigText(text.ifEmpty { "Tap to install" }))
             .setContentIntent(PendingIntent.getActivity(context, NOTIFY_ID, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
@@ -244,6 +255,7 @@ object Updater {
     class StatusReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val name = intent.getStringExtra("name") ?: ""
+            val move = intent.getBooleanExtra("move", false)
             when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
                 PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                     val confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) ?: return
@@ -256,10 +268,10 @@ object Updater {
                     // Aviv left the app while it downloaded: the question waits in a notification.
                     if (!shown) {
                         val u = AppUpdate(intent.getLongExtra("code", 0L), name, 0uL, "", "")
-                        notice(context, u, downloaded = true, confirm = confirm)
+                        notice(context, u, downloaded = true, confirm = confirm, move = move)
                     }
                 }
-                PackageInstaller.STATUS_SUCCESS -> _state.value = "Updated to $name"
+                PackageInstaller.STATUS_SUCCESS -> if (move) Move.landed(context) else _state.value = "Updated to $name"
                 PackageInstaller.STATUS_FAILURE_ABORTED -> {
                     _state.value = "$name is ready: Check for update installs it"
                     context.getSharedPreferences("app", Context.MODE_PRIVATE).edit()

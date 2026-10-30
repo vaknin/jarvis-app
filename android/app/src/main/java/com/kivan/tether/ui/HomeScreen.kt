@@ -140,6 +140,7 @@ fun HomeScreen() {
                         }
                     }
                 }
+                MoveBanner()
                 Text(
                     "WHAT'S NEW · " + if (b != null) "FROM JARVIS" else "UNREAD ON THE FORUM",
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

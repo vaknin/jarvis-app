@@ -90,6 +90,9 @@ android {
         buildConfigField("String", "VOICE_URL", "\"ws://127.0.0.1:8791/call\"")
         buildConfigField("String", "FORUM_SECRET", "\"$forumSecret\"")
         buildConfigField("String", "TEST_TICKET", "\"$forumTicket\"")
+        // The renamed app (Move): debug builds move to its debug build, signed alike.
+        buildConfigField("String", "NEW_APP", "\"com.kivan.jarvis\"")
+        manifestPlaceholders["newApp"] = "com.kivan.jarvis"
         buildConfigField("String", "FCM_API_KEY", "\"${fcm("apiKey")}\"")
         buildConfigField("String", "FCM_APP_ID", "\"${fcm("appId")}\"")
         buildConfigField("String", "FCM_PROJECT_ID", "\"${fcm("projectId")}\"")
@@ -112,6 +115,8 @@ android {
         // the live one, or `-PvoiceUrl=ws://10.0.2.2:8811/call` for a `serve --dry-run` on another port.
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "NEW_APP", "\"com.kivan.jarvis.debug\"")
+            manifestPlaceholders["newApp"] = "com.kivan.jarvis.debug"
             val voiceUrl = (project.findProperty("voiceUrl") as String?) ?: "ws://10.0.2.2:8790/call"
             buildConfigField("String", "VOICE_URL", "\"$voiceUrl\"")
             buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
