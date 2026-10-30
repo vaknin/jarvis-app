@@ -44,6 +44,7 @@ class LinkService : Service() {
         Alerts.start(this)
         Watch.start(this)
         Updater.loop(this)
+        if (reported.compareAndSet(false, true)) Tasks.report(Core.scope)
         CallStore.settle(this)
         Voice.resume(this)
         // Tests: `am startservice -a com.kivan.tether.ALERT --es url /callback/ID` stands in for a Jarvis alert (the server calling back).
@@ -57,6 +58,7 @@ class LinkService : Service() {
     }
 
     companion object {
+        private val reported = java.util.concurrent.atomic.AtomicBoolean()
         @Volatile private var text = "Connecting"
 
         /**

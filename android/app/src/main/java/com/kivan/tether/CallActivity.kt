@@ -56,16 +56,20 @@ class CallActivity : ComponentActivity() {
     /** The dropped call a press continues: the one ringing, or the one the intent answers. */
     private var rejoin: String? = null
 
+    /** The tracked task this call is about: its button placed it. */
+    private var task: String? = null
+
     private fun call(i: Intent? = null) {
         rejoin = Callback.answered(this, i)
-        if (CallService.micGranted(this)) Voice.start(this, rejoin) else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC)
+        task = i?.getStringExtra(TASK)
+        if (CallService.micGranted(this)) Voice.start(this, rejoin, task) else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC)
     }
 
     // The plain API, as MainActivity: the activity-result one needs a newer Fragment than core-telecom brings.
     @Deprecated("plain permission callback")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == MIC && CallService.micGranted(this)) Voice.start(this, rejoin)
+        if (requestCode == MIC && CallService.micGranted(this)) Voice.start(this, rejoin, task)
     }
 
     private fun pocket(on: Boolean) {
@@ -86,9 +90,11 @@ class CallActivity : ComponentActivity() {
     companion object {
         const val START = "com.kivan.tether.CALL"
         private const val MIC = 7
+        private const val TASK = "task"
 
-        fun intent(context: Context, start: Boolean) = Intent(context, CallActivity::class.java)
+        fun intent(context: Context, start: Boolean, task: String? = null) = Intent(context, CallActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .apply { if (start) action = START }
+            .putExtra(TASK, task)
     }
 }

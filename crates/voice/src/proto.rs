@@ -47,6 +47,9 @@ pub struct About {
     pub title: String,
     /// The newest posts the notification showed, as plain text.
     pub text: String,
+    /// A tracked task's Call Jarvis button: its slug, and the server loads its file for the call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
 }
 
 impl Up {
@@ -96,7 +99,7 @@ mod tests {
             Up::Hello { version: 1, resume: Some("c1".into()), about: None, stt: None, rejoin: false, end: false, have: None, queued_ms: None }.json(),
             r#"{"type":"hello","version":1,"resume":"c1"}"#
         );
-        let about = About { topic: 112, title: "One app".into(), text: "Keep it?".into() };
+        let about = About { topic: 112, title: "One app".into(), text: "Keep it?".into(), task: None };
         assert_eq!(
             Up::Hello { version: 1, resume: None, about: Some(about), stt: None, rejoin: false, end: false, have: None, queued_ms: None }.json(),
             r#"{"type":"hello","version":1,"resume":null,"about":{"topic":112,"title":"One app","text":"Keep it?"}}"#

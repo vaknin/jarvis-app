@@ -56,10 +56,10 @@ object Voice {
 
     /** Starts a call (the mic permission must be granted already), or continues the dropped call
      *  `rejoin`. Does nothing while one is up. */
-    fun start(context: Context, rejoin: String? = null) {
+    fun start(context: Context, rejoin: String? = null, task: String? = null) {
         if (_ui.value.live) return
         update(context) { Ui(state = CallState.Connecting) }
-        context.startForegroundService(Intent(context, CallService::class.java).putExtra(CallService.REJOIN, rejoin))
+        context.startForegroundService(Intent(context, CallService::class.java).putExtra(CallService.REJOIN, rejoin).putExtra(CallService.TASK, task))
     }
 
     /**

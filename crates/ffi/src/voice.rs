@@ -225,7 +225,16 @@ impl VoiceCall {
     pub fn about(url: String, listener: Box<dyn VoiceListener>, topic: u64, title: String, text: String, phone_stt: bool) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
-        let about = tether_voice::proto::About { topic, title, text };
+        let about = tether_voice::proto::About { topic, title, text, task: None };
+        Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
+    }
+
+    /// A call placed from a tracked task's Call Jarvis button: the server opens it with the task's file.
+    #[uniffi::constructor]
+    pub fn about_task(url: String, listener: Box<dyn VoiceListener>, slug: String, phone_stt: bool) -> Arc<Self> {
+        crate::init_logging();
+        let _rt = RT.enter();
+        let about = tether_voice::proto::About { topic: 0, title: String::new(), text: String::new(), task: Some(slug) };
         Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
     }
 

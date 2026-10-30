@@ -21,6 +21,7 @@ object Notifier {
     private const val MESSAGES = "messages"
     private const val FILES = "files"
     private const val ALERTS = "alerts"
+    private const val TASKS = "tasks"
 
     private const val MESSAGE_ID = 10
     private const val FAILED_ID = 11
@@ -42,6 +43,11 @@ object Notifier {
                 NotificationChannel(MESSAGES, "Messages", NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel(JARVIS, "Jarvis", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "What Jarvis sends you: a job done, a question, a list you asked for"
+                },
+                // Low, as calls: no sound and no peek. A tracked task's end waits in the shade.
+                NotificationChannel(TASKS, "Tracked tasks", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "A task you named is on your phone, with Call Jarvis"
+                    setSound(null, null)
                 },
                 NotificationChannel(FILES, "Files", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel(ALERTS, "Problems", NotificationManager.IMPORTANCE_DEFAULT),
@@ -154,6 +160,34 @@ object Notifier {
             .apply { if (call) addAction(R.drawable.lucide_phone, "Call", callIntent).setCategory(NotificationCompat.CATEGORY_CALL) }
             .build()
         return runCatching { nm.notify("jarvis", tag, n) }.isSuccess
+    }
+
+    /**
+     * A tracked task's notice ([Alerts]): quiet. A tap reads the task; Call Jarvis is its own button, and
+     * nothing calls until he presses it. One per task, so a newer notice replaces the last. False
+     * when Android won't show it, so the sender takes its other route.
+     */
+    fun task(context: Context, id: Long, title: String, text: String, slug: String): Boolean {
+        val nm = NotificationManagerCompat.from(context)
+        if (!nm.areNotificationsEnabled()) return false
+        if (nm.getNotificationChannel(TASKS)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+        val tag = id.toInt()
+        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        val call = PendingIntent.getActivity(context, tag, CallActivity.intent(context, start = true, task = slug), flags)
+        val open = PendingIntent.getActivity(context, tag, TasksActivity.intent(context, slug), flags)
+        val n = NotificationCompat.Builder(context, TASKS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title.ifEmpty { "Jarvis" })
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .addAction(R.drawable.lucide_phone, "Call Jarvis", call)
+            .build()
+        return runCatching { nm.notify("task:$slug", 0, n) }.isSuccess
     }
 
     fun cancelMessages(context: Context) = NotificationManagerCompat.from(context).cancel(MESSAGE_ID)

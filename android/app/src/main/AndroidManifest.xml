@@ -61,6 +61,12 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Aviv's tracked tasks, one tap from home. -->
+        <activity
+            android:name=".TasksActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
         <!-- The forum (a WebView), one tap from home. Its own task: back at its start leaves the page alive. -->
         <activity
             android:name=".forum.ForumActivity"

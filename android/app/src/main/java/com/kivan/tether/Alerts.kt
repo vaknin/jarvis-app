@@ -27,6 +27,8 @@ class Alerts private constructor(private val context: Context) : AlertListener {
             url.startsWith(RING) -> Voice.ui.value.live || Callback.ring(context, null, "Jarvis", text.ifEmpty { "Incoming call" }, reach = url.removePrefix(RING))
             // Jarvis needs him (reach's "wants to talk"): it rings, if the phone may.
             url == "/call" -> Voice.ui.value.live || Callback.ring(context, null, title, text)
+            // A tracked task landed or needs him: quiet, and the call is his to place.
+            url.startsWith(TASK) -> Notifier.task(context, n, title, text, url.removePrefix(TASK))
             else -> Notifier.jarvis(context, n, title, text, url)
         }
         if (shown) prefs.edit().putString(RECENT, (recent + n.toString()).takeLast(KEEP).joinToString(",")).apply()
@@ -47,6 +49,7 @@ class Alerts private constructor(private val context: Context) : AlertListener {
     companion object {
         private const val CALLBACK = "/callback/"
         private const val RING = "/ring/"
+        private const val TASK = "/task/"
         private const val RECENT = "shown"
         private const val KEEP = 30
 

@@ -159,7 +159,9 @@ class CallService : Service() {
             CallStore.joined(this, rejoin)
             VoiceCall.rejoin(BuildConfig.VOICE_URL, listener, rejoin, stt != null, !auto)
         } else {
-            VoiceCall(BuildConfig.VOICE_URL, listener, stt != null)
+            val task = intent?.getStringExtra(TASK)
+            if (task != null) VoiceCall.aboutTask(BuildConfig.VOICE_URL, listener, task, stt != null)
+            else VoiceCall(BuildConfig.VOICE_URL, listener, stt != null)
         }
         stt?.call = c
         call = c
@@ -716,6 +718,7 @@ class CallService : Service() {
         const val PAUSE = "pause"
         /** The dropped call to continue (a String extra). */
         const val REJOIN = "rejoin"
+        const val TASK = "task"
         /** Started by the app itself after a restart, not by Aviv (a Boolean extra). */
         const val AUTO = "auto"
         /** A mic frame this loud is Aviv talking: an update waits for a pause ([Voice.quiet]). */

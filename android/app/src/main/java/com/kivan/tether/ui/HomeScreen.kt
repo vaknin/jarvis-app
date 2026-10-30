@@ -53,6 +53,7 @@ import com.kivan.tether.Forum
 import com.kivan.tether.LaptopActivity
 import com.kivan.tether.MediaKeys
 import com.kivan.tether.R
+import com.kivan.tether.TasksActivity
 import com.kivan.tether.Updater
 import com.kivan.tether.Voice
 import com.kivan.tether.forum.ForumActivity
@@ -69,8 +70,8 @@ private val Go = Color(0xFF3FB97A)
 private class Line(val title: String, val text: String, val tag: String?, val time: Long, val open: (android.content.Context) -> Unit)
 
 /**
- * Home, voice first: the big Call button, and What's new above it. The forum and the laptop chat are one
- * tap away in the top bar; the ⋮ has the tunnel's state, the update check
+ * Home, voice first: the big Call button, and What's new above it. The tasks, the forum and the laptop chat
+ * are one tap away in the top bar; the ⋮ has the tunnel's state, the update check
  * and the double-press switch.
  */
 @Composable
@@ -113,6 +114,9 @@ fun HomeScreen() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Jarvis", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                    IconButton(onClick = { ctx.startActivity(TasksActivity.intent(ctx)) }) {
+                        Icon(painterResource(R.drawable.lucide_list_checks), "Tasks", tint = Accent)
+                    }
                     IconButton(onClick = { Forum.open(ctx) }) {
                         Icon(painterResource(R.drawable.lucide_messages_square), "Forum", tint = Accent)
                     }

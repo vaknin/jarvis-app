@@ -933,7 +933,7 @@ async fn a_drop_back_within_the_grace_goes_unnoticed() {
 async fn a_call_about_a_thread_says_so_until_the_server_has_it_but_never_on_resume() {
     let (conn, mut accept, _refuse) = fake();
     let log = Arc::new(Log::default());
-    let about = tether_voice::proto::About { topic: 112, title: "One app".into(), text: "Keep it?".into() };
+    let about = tether_voice::proto::About { topic: 112, title: "One app".into(), text: "Keep it?".into(), task: None };
     let _call = Call::start_about(conn, log.clone(), Timing::default(), Some(about));
     let with = r#"{"type":"hello","version":1,"resume":null,"about":{"topic":112,"title":"One app","text":"Keep it?"}}"#;
     let mut s = accept.recv().await.unwrap();
