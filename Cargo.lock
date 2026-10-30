@@ -3736,6 +3736,7 @@ dependencies = [
  "tokio",
  "tokio-websockets",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

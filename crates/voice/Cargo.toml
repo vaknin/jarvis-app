@@ -16,5 +16,6 @@ futures-util = { version = "0.3", features = ["sink"] }
 tokio-websockets = { version = "0.13", default-features = false, features = ["client", "sha1_smol", "getrandom"] }
 
 [dev-dependencies]
+tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tokio-websockets = { version = "0.13", default-features = false, features = ["client", "server", "sha1_smol", "getrandom"] }

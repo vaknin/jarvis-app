@@ -6,6 +6,12 @@
 //! before it plays, and again after it runs dry. A reply shorter than that still plays once no new
 //! audio has come for the same time. `flush` (Aviv talked over Jarvis) empties it at once; earcons
 //! aren't voice and stay.
+//!
+//! It also knows where Jarvis's sentences lie in what it got (`sentence`/`said`), so a line that
+//! drops loses nothing: the phone plays on what it holds, its resume says the last sentence it holds
+//! whole ([`Player::have`]), and the server sends the rest again, each sentence from its start. A
+//! resent sentence it was still playing continues seamlessly (the samples it has are skipped); one it
+//! ran dry inside (the pause while the line was down) plays again from its start, never mid-word.
 
 use std::{collections::VecDeque, f32::consts::TAU, time::Duration};
 
@@ -51,8 +57,33 @@ impl Earcon {
     }
 }
 
+/// Where one of Jarvis's sentences lies in the voice samples pushed so far.
+#[derive(Debug, Clone, Copy)]
+struct Mark {
+    seq: u64,
+    /// Its first sample's place among every sample pushed.
+    start: u64,
+    /// Samples of it pushed so far.
+    got: u64,
+    /// `said` came: `got` is all of it.
+    whole: bool,
+}
+
+/// Recent sentences kept: only the last one or two are ever resent.
+const MARKS: usize = 16;
+
 pub struct Player {
     voice: VecDeque<i16>,
+    /// Voice samples pushed and played since the call began (a flush counts what it dropped as played).
+    pushed: u64,
+    pulled: u64,
+    marks: VecDeque<Mark>,
+    /// The sentence the audio coming in belongs to.
+    cur: Option<u64>,
+    /// Samples still to drop from what comes in: a resent sentence's start, already queued here.
+    skip: u64,
+    /// The last sentence held whole.
+    whole: Option<u64>,
     /// An odd byte left from the last chunk (chunks may be any length).
     carry: Option<u8>,
     playing: bool,
@@ -67,6 +98,12 @@ impl Player {
     pub fn new(target: Duration) -> Player {
         Player {
             voice: VecDeque::new(),
+            pushed: 0,
+            pulled: 0,
+            marks: VecDeque::new(),
+            cur: None,
+            skip: 0,
+            whole: None,
             carry: None,
             playing: false,
             last_push: None,
@@ -91,11 +128,71 @@ impl Player {
         }
         let rest: Vec<u8> = bytes.collect();
         let (pairs, odd) = rest.as_chunks::<2>();
+        let before = self.voice.len();
         self.voice.extend(pairs.iter().map(|&b| i16::from_le_bytes(b)));
         if let [b] = odd {
             self.carry = Some(*b);
         }
+        let mut n = (self.voice.len() - before) as u64;
+        let skip = self.skip.min(n);
+        if skip > 0 {
+            // Taken off the back: these samples sit at the end of the queue, after what plays first.
+            let keep = self.voice.len() - n as usize;
+            let tail: Vec<i16> = self.voice.drain(keep..).skip(skip as usize).collect();
+            self.voice.extend(tail);
+            self.skip -= skip;
+            n -= skip;
+        }
+        self.pushed += n;
+        if let Some(m) = self.cur.and_then(|seq| self.marks.iter_mut().rev().find(|m| m.seq == seq)) {
+            m.got += n;
+        }
         self.last_push = Some(now);
+    }
+
+    /// The audio that follows is Jarvis's sentence `seq`, from its start. A sentence sent again after
+    /// a drop: what it still has of it queued is skipped (seamless), and one it ran dry inside plays
+    /// again from its start.
+    pub fn sentence(&mut self, seq: u64) {
+        if self.ended {
+            return;
+        }
+        self.skip = 0;
+        self.cur = Some(seq);
+        let (pushed, pulled) = (self.pushed, self.pulled);
+        if let Some(m) = self.marks.iter_mut().rev().find(|m| m.seq == seq) {
+            if m.whole || pulled < m.start + m.got {
+                // All of it is here (queued, or played whole), or the part it has still plays: the
+                // resend goes on from where this copy ends.
+                self.skip = m.got;
+                tracing::info!("voice player: sentence {seq} again: skipping the {} ms already here", m.got / 16);
+            } else {
+                tracing::info!("voice player: sentence {seq} again: it ran dry {} ms in, playing it from its start", m.got / 16);
+                *m = Mark { seq, start: pushed, got: 0, whole: false };
+            }
+            return;
+        }
+        if self.marks.len() == MARKS {
+            self.marks.pop_front();
+        }
+        self.marks.push_back(Mark { seq, start: pushed, got: 0, whole: false });
+    }
+
+    /// Sentence `seq`'s last sample has come.
+    pub fn said(&mut self, seq: u64) {
+        if let Some(m) = self.marks.iter_mut().rev().find(|m| m.seq == seq) {
+            m.whole = true;
+            self.whole = Some(self.whole.map_or(seq, |w| w.max(seq)));
+        }
+        if self.cur == Some(seq) {
+            self.cur = None;
+            self.skip = 0;
+        }
+    }
+
+    /// The last sentence it holds whole (`said` came for it), for a resume's hello.
+    pub fn have(&self) -> Option<u64> {
+        self.whole
     }
 
     /// Drops every queued sample of Jarvis's voice now.
@@ -103,6 +200,11 @@ impl Player {
         self.voice.clear();
         self.carry = None;
         self.playing = false;
+        self.pulled = self.pushed;
+        // What's cut off isn't sent again; the sentence numbers go on, so `have` stays.
+        self.marks.clear();
+        self.cur = None;
+        self.skip = 0;
     }
 
     pub fn earcon(&mut self, e: Earcon) {
@@ -136,6 +238,7 @@ impl Player {
             for (o, s) in out.iter_mut().zip(self.voice.drain(..take)) {
                 *o = s;
             }
+            self.pulled += take as u64;
             if self.voice.is_empty() {
                 // Ran dry: the reply ended, or the network is late. Wait for the target again.
                 self.playing = false;

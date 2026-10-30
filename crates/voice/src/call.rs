@@ -24,8 +24,13 @@
 //!   iroh look for its paths again, as Android's network callback would, which can come half a
 //!   minute later when Wi-Fi fades), and again after [`Timing::rekick`] if the dial still hasn't
 //!   said `hello`, which then starts over.
-//! - Aviv hears about it (Reconnecting, the Dropped earcon, the mic off, the stale reply dropped)
-//!   only once the line has been down for [`Timing::grace`]: a quick switch goes unnoticed.
+//! - Aviv hears about it (Reconnecting, the Dropped earcon, the mic off) only once the line has
+//!   been down for [`Timing::grace`]: a quick switch goes unnoticed.
+//! - A drop never throws away Jarvis's reply: what the phone holds plays on, and the silence after
+//!   it is the pause. The resume's hello says the last sentence held whole (`have`) and what's still
+//!   queued (`queued_ms`); the server sends the rest again, each sentence from its start, and the
+//!   player skips what it still has or restarts the sentence it ran dry in (`player.rs`). Only a
+//!   resume that became a new call drops the old reply.
 
 use std::{
     pin::Pin,
@@ -374,7 +379,7 @@ impl Drop for Call {
 /// line didn't carry his hangup): an `"end":true` hello, and the server closes once it has it.
 pub async fn end(connector: Connector, id: String, t: Timing) -> Result<()> {
     let (mut tx, mut rx) = timeout(t.connect_timeout, connector()).await.context("connect timed out")??;
-    let hello = Up::Hello { version: 1, resume: Some(id), about: None, stt: None, rejoin: false, end: true };
+    let hello = Up::Hello { version: 1, resume: Some(id), about: None, stt: None, rejoin: false, end: true, have: None, queued_ms: None };
     timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await.context("send timed out")??;
     timeout(t.connect_timeout, async {
         loop {
@@ -426,7 +431,9 @@ struct Dial {
     stop: Option<oneshot::Sender<()>>,
 }
 
-fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, stt: bool, rejoin: bool) -> Dial {
+/// `holds`: the player holds this call's audio (it had a `ready`), so a resume says what it has.
+#[allow(clippy::too_many_arguments)]
+fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, stt: bool, rejoin: bool, holds: bool) -> Dial {
     let (hello, (stop, mut stopped)) = (Arc::new(AtomicBool::new(false)), oneshot::channel::<()>());
     let (connect, said, t) = (connector(), hello.clone(), t.clone());
     let fut = Box::pin(async move {
@@ -439,7 +446,15 @@ fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<Strin
             Ok(Err(e)) => return Dialed::Failed(format!("{e:#}")),
             Ok(Ok(s)) => s,
         };
-        match timeout(t.send_timeout, tx.send(Frame::Text(Up::Hello { version: 1, resume, about, stt: stt.then_some("phone"), rejoin, end: false }.json()))).await {
+        // Read as the hello goes, not at dial: the old line may still be playing and bringing more.
+        let (have, queued_ms) = if resume.is_some() && holds {
+            let p = sh.player.lock().unwrap();
+            (Some(p.have().unwrap_or(0)), Some(p.buffered_ms()))
+        } else {
+            (None, None)
+        };
+        let hello = Up::Hello { version: 1, resume, about, stt: stt.then_some("phone"), rejoin, end: false, have, queued_ms };
+        match timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await {
             Ok(Ok(())) => said.store(true, Ordering::SeqCst),
             Ok(Err(e)) => return Dialed::Failed(format!("send: {e:#}")),
             Err(_) => return Dialed::Failed("send timed out".into()),
@@ -500,6 +515,8 @@ struct Run {
     online: bool,
     /// Back to a call the app had left: hellos say `rejoin` until the server has it.
     rejoin: bool,
+    /// A `ready` came: the player holds this call's audio, and a resume says what of it.
+    holds: bool,
 }
 
 async fn run(
@@ -514,13 +531,14 @@ async fn run(
 ) {
     sh.set_status(Status::Connecting);
     let (rejoin, aviv_left) = rejoin.map_or((None, false), |(id, left)| (Some(id), left));
-    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), phone_stt, aviv_left));
+    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), phone_stt, aviv_left, false));
     let mut r = Run {
         connector,
         sh: sh.clone(),
         mic,
         t,
         rejoin: aviv_left,
+        holds: false,
         id: rejoin,
         online: true,
         about,
@@ -688,7 +706,7 @@ impl Run {
         }
         // Until the server has the call, a redial is still its first hello, and says what it's about.
         let about = if self.id.is_none() { self.about.clone() } else { None };
-        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, self.stt.is_some(), self.rejoin));
+        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, self.stt.is_some(), self.rejoin, self.holds));
     }
 
     async fn set_online(&mut self, on: bool) {
@@ -805,6 +823,10 @@ impl Run {
                     sh.events.flush();
                 }
                 Some(Down::Text { who, text }) => sh.events.text(&who, &text),
+                // While a tap's pause drops the audio, the phone holds none of it.
+                Some(Down::Sentence { .. } | Down::Said { .. }) if sh.pausing.load(Ordering::SeqCst) => {}
+                Some(Down::Sentence { seq }) => sh.player.lock().unwrap().sentence(seq),
+                Some(Down::Said { seq }) => sh.player.lock().unwrap().said(seq),
                 Some(Down::Paused { on }) => {
                     sh.pausing.store(false, Ordering::SeqCst);
                     sh.paused.store(on, Ordering::SeqCst);
@@ -861,9 +883,13 @@ impl Run {
             self.sh.events.resumed();
         }
         if self.id.as_ref().is_some_and(|old| *old != call) {
-            // The server no longer had the old call: this is a new one, without what was said before.
+            // The server no longer had the old call: this is a new one, without what was said before,
+            // and what's still queued of the old reply won't be continued.
             self.sh.events.error("new call: Jarvis lost the old one");
+            self.sh.player.lock().unwrap().flush();
+            self.sh.events.flush();
         }
+        self.holds = true;
         if !resumed {
             self.sh.events.joined(&call);
         }
@@ -927,9 +953,7 @@ impl Run {
         if !self.shown && down.elapsed() >= self.t.grace {
             self.shown = true;
             self.sh.live.store(false, Ordering::SeqCst);
-            // What was queued of Jarvis's reply is stale now; the server goes on after the resume.
-            self.sh.player.lock().unwrap().flush();
-            self.sh.events.flush();
+            // What's queued of Jarvis's reply plays on; the resume picks up after it.
             self.sh.earcon(Earcon::Dropped);
             self.sh.set_status(Status::Reconnecting);
         }
