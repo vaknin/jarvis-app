@@ -369,15 +369,18 @@ class CallService : Service() {
             return Mic.FAILED
         }
         if (!rec.setPreferredDevice(want)) Log.w(TAG, "mic: ${name(want)} refused as the preferred input")
-        // The phone's own echo canceller and noise suppressor, asked for by hand, except on Bluetooth: the headset does
-        // its own and says so (HFP's NREC, the log's bt_headset_nrec=off), and the one call that measured it was deaf with
-        // these handles and clear without (notes/airpods-mic-125.md). The system still attaches and manages its own there.
-        val aec = if (!bluetooth && AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId) else null
-        val ns = if (!bluetooth && NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId) else null
-        aec?.enabled = true
-        ns?.enabled = true
+        // The phone's own echo canceller and noise suppressor: on, except on Bluetooth, where the headset does its own and
+        // says so (HFP's NREC, the log's bt_headset_nrec=off). Not asking isn't enough: the system attaches both to this
+        // source and leaves them on (the AirPods calls' logs list them). Our handle outranks the system's, so it's what turns
+        // them off, and again once recording, in case the system's arrive with the start (notes/airpods-mic-125.md).
+        val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId) else null
+        val ns = if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId) else null
+        aec?.enabled = !bluetooth
+        ns?.enabled = !bluetooth
         try {
             rec.startRecording()
+            aec?.enabled = !bluetooth
+            ns?.enabled = !bluetooth
             micNote("open: wanted ${name(want)}, on ${name(rec.routedDevice)}, call on ${name(am.communicationDevice)}")
             val buf = ByteArray(FRAME_BYTES)
             var frames = 0L

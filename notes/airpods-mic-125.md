@@ -199,3 +199,22 @@ help` = reopening no longer fixes it, and that's the next lead.
 
 Not done, another repo: a speech gate in `jarvis-voice` that follows the call's own noise floor. A fixed -50 LUFS is what
 turns a quiet mic into a deaf one, on any route.
+
+## Round 5: the 20:08 call (2026-10-30, build 258)
+He was on the latest build. Bluetooth came on at 20:08:23, the buds connected at 20:08:30, the call started at 20:08:39.
+The link took 5.6 s to come up, dropped 0.8 s later (20:08:45.95, before the mic opened, so not the mic), and the call fell
+to the earpiece: "Hey" was heard there. He tapped back to the AirPods, the link was up at 20:08:58, and he stayed 14 s.
+The server and the phone's recognizer heard nothing in that stretch. He left at 20:09:12 and every word came through.
+
+Two things 252 got wrong or missed:
+1. Dropping our handles never turned the filters off. `AudioRecordingConfiguration.getEffects()` listed Fortemedia's echo
+   canceller and noise suppressor on the AirPods in both opens of the 13:39 call. They run in the HAL (hwAcceleratorMode
+   TUNNEL), the system's handle sits at priority -1 and ours at 0, so ours can disable them. Now it does, on Bluetooth.
+   Not proven as the cause: they were also on when the 13:39 mic was good.
+2. The 13:39 "reopen fixed it" reading is weaker than written. Peaks climbed 85, 703, 1753 before the reopen and 162, 3331,
+   4904, 6388 after it, so the climb ran straight through it. Whatever ramps may outlive an audio session: the link, the
+   HAL or the buds. Don't treat the reopen as the fix.
+
+Checked and out: permissions don't separate calls (BLUETOOTH_CONNECT is off on both apps, on good calls too). VOICE_RECOGNITION
+wasn't tried: Telecom owns the audio mode here, so another source risks being silenced by the system. No system or Bluetooth
+module update landed around 10-29 09:00.
