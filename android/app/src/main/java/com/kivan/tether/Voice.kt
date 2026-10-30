@@ -57,7 +57,10 @@ object Voice {
     /** Starts a call (the mic permission must be granted already), or continues the dropped call
      *  `rejoin`. Does nothing while one is up. */
     fun start(context: Context, rejoin: String? = null, task: String? = null) {
-        if (_ui.value.live) return
+        if (_ui.value.live) {
+            if (task != null) android.widget.Toast.makeText(context, "You're on a call: just say the task's name", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         update(context) { Ui(state = CallState.Connecting) }
         context.startForegroundService(Intent(context, CallService::class.java).putExtra(CallService.REJOIN, rejoin).putExtra(CallService.TASK, task))
     }

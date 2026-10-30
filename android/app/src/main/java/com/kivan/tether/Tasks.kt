@@ -21,13 +21,14 @@ object Tasks {
     private val base = BuildConfig.VOICE_URL.replace("ws://", "http://").removeSuffix("/call")
     private val build = "app=${BuildConfig.VERSION_CODE}" + if (BuildConfig.DEBUG) "&emu=1" else ""
 
-    private fun get(path: String): JSONObject? = runCatching {
+    /** What [parse] makes of the answer, or null for no answer or one it can't read. */
+    private fun <T> get(path: String, parse: (JSONObject) -> T): T? = runCatching {
         val c = URL(base + path).openConnection() as HttpURLConnection
         c.connectTimeout = 5000
         c.readTimeout = 8000
         try {
             if (c.responseCode != 200) return@runCatching null
-            JSONObject(c.inputStream.bufferedReader().readText())
+            parse(JSONObject(c.inputStream.bufferedReader().readText()))
         } finally {
             c.disconnect()
         }
@@ -35,13 +36,14 @@ object Tasks {
 
     /** The list, or null while jarvis-voice doesn't answer. */
     suspend fun list(): List<Task>? = withContext(Dispatchers.IO) {
-        get("/tasks?$build")?.getJSONArray("tasks")?.let { a ->
+        get("/tasks?$build") { o ->
+            val a = o.getJSONArray("tasks")
             (0 until a.length()).map { a.getJSONObject(it) }.map { Task(it.getString("name"), it.getString("slug"), it.optString("status") == "done") }
         }
     }
 
     suspend fun read(slug: String): Detail? = withContext(Dispatchers.IO) {
-        get("/task/$slug")?.let { Detail(it.getString("name"), it.getString("slug"), it.optString("status") == "done", it.optString("text")) }
+        get("/task/$slug") { Detail(it.getString("name"), it.getString("slug"), it.optString("status") == "done", it.optString("text")) }
     }
 
     /** Started with the process, so after an update too: tries until the server has heard, backing off. */

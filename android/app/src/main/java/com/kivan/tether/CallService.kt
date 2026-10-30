@@ -107,7 +107,8 @@ class CallService : Service() {
 
     private fun begin(intent: Intent?) {
         // A dropped call to continue: the one Aviv answered, or the one this process died in.
-        val rejoin = intent?.getStringExtra(REJOIN) ?: CallStore.active(this)
+        // A call placed from a task is that call, even with an old one left behind by a dead process.
+        val rejoin = intent?.getStringExtra(REJOIN) ?: CallStore.active(this).takeIf { intent?.getStringExtra(TASK) == null }
         val auto = intent?.getBooleanExtra(AUTO, false) == true
         if (!micGranted(this)) {
             // Started with startForegroundService, so it must go foreground even to give up.
