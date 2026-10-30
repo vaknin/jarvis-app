@@ -74,7 +74,7 @@ object Updater {
         )
     }
 
-    /** The background check, every 6 hours while the process lives, every 10 minutes through a call (started by [LinkService]). */
+    /** The background check, every 6 hours while the process lives, every 10 minutes through a call (started by [TetherApp]). */
     fun loop(context: Context) {
         if (looping) return
         looping = true

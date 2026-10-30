@@ -80,10 +80,10 @@ object Callback {
 
     /**
      * Rings for the dropped call `call`, or for a new one (null); `reach`: the item the server rings
-     * for. True once it's on the phone.
+     * for. Null once it's on the phone, else why not ([Alerts] passes that on to the sender).
      */
-    fun ring(context: Context, call: String?, title: String, text: String, reach: String? = null): Boolean {
-        if (Voice.ui.value.live) return true
+    fun ring(context: Context, call: String?, title: String, text: String, reach: String? = null): String? {
+        if (Voice.ui.value.live) return null
         val ms = if (reach != null) REACH_RING_MS else RING_MS
         val loud = loud(context)
         val jarvis = Person.Builder().setName("Jarvis").setImportant(true).build()
@@ -116,9 +116,8 @@ object Callback {
         val n = b.build()
         if (loud) n.flags = n.flags or Notification.FLAG_INSISTENT
         val nm = context.getSystemService(NotificationManager::class.java)
-        if (!nm.areNotificationsEnabled()) return false
-        val posted = runCatching { nm.notify(RING_ID, n) }.onFailure { Log.w(TAG, "ring not shown", it) }.isSuccess
-        if (!posted) return false
+        Notifier.off(nm.areNotificationsEnabled(), null, "")?.let { return it }
+        runCatching { nm.notify(RING_ID, n) }.onFailure { Log.w(TAG, "ring not shown", it) }.exceptionOrNull()?.let { return Alerts.threw(it) }
         nm.cancel(MISSED_ID)
         ringing = call ?: ""
         ringFor = reach
@@ -126,7 +125,7 @@ object Callback {
         Log.i(TAG, "ringing (${if (loud) "loud" else "silent"}) for ${call ?: "a new call"}")
         main.removeCallbacksAndMessages(this)
         main.postAtTime({ missed(context, call, title, reach) }, this, android.os.SystemClock.uptimeMillis() + ms)
-        return true
+        return null
     }
 
     /** What an answer continues: the call it rang for, or null for a new call. Stops the ringing. */

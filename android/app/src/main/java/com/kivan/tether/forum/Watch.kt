@@ -25,8 +25,8 @@ import java.util.TreeSet
 import java.util.UUID
 
 /**
- * The forum's notifications without Google or Firebase (thread #112), run by [LinkService], whose foreground
- * service keeps the process up for the tunnel. This long-polls Discourse's message bus through it, as the
+ * The forum's notifications without Google or Firebase (thread #112), started with the process ([TetherApp]);
+ * [LinkService]'s foreground service keeps it up for the tunnel. This long-polls Discourse's message bus through it, as the
  * forum's own page does. Only what's aimed at Aviv notifies, as Discourse itself reckons it (thread #112: "not
  * important: no notif / somewhat: notif / important: call"): a mention or a private message (Discourse's own
  * unread notifications), every message in a direct chat, and a chat message that mentions him. One notification

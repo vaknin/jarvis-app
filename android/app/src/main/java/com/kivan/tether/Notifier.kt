@@ -132,13 +132,12 @@ object Notifier {
 
     /**
      * A notification from Jarvis ([Alerts]): its own, one per [id], expandable to the whole text. A tap
-     * opens the forum at [url] (a path) in the app, or calls Jarvis when [url] is "/call". False when Android won't show it (notifications or
-     * the Jarvis channel turned off), so the sender takes its other route.
+     * opens the forum at [url] (a path) in the app, or calls Jarvis when [url] is "/call". Null once it's
+     * shown; else why Android won't show it, which the sender passes on as it takes its other route.
      */
-    fun jarvis(context: Context, id: Long, title: String, text: String, url: String): Boolean {
+    fun jarvis(context: Context, id: Long, title: String, text: String, url: String): String? {
         val nm = NotificationManagerCompat.from(context)
-        if (!nm.areNotificationsEnabled()) return false
-        if (nm.getNotificationChannel(JARVIS)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+        off(nm.areNotificationsEnabled(), nm.getNotificationChannel(JARVIS)?.importance, "Jarvis")?.let { return it }
         val tag = id.toInt()
         // "/call": Jarvis wants to talk; the tap opens the call screen and calls, and Jarvis speaks first.
         val call = url == "/call"
@@ -159,18 +158,17 @@ object Notifier {
             .setShowWhen(true)
             .apply { if (call) addAction(R.drawable.lucide_phone, "Call", callIntent).setCategory(NotificationCompat.CATEGORY_CALL) }
             .build()
-        return runCatching { nm.notify("jarvis", tag, n) }.isSuccess
+        return runCatching { nm.notify("jarvis", tag, n) }.exceptionOrNull()?.let { Alerts.threw(it) }
     }
 
     /**
      * A tracked task's notice ([Alerts]): quiet. A tap reads the task; Call Jarvis is its own button, and
-     * nothing calls until he presses it. One per task, so a newer notice replaces the last. False
-     * when Android won't show it, so the sender takes its other route.
+     * nothing calls until he presses it. One per task, so a newer notice replaces the last. Null once
+     * it's shown; else why Android won't show it, as [jarvis].
      */
-    fun task(context: Context, id: Long, title: String, text: String, slug: String): Boolean {
+    fun task(context: Context, id: Long, title: String, text: String, slug: String): String? {
         val nm = NotificationManagerCompat.from(context)
-        if (!nm.areNotificationsEnabled()) return false
-        if (nm.getNotificationChannel(TASKS)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+        off(nm.areNotificationsEnabled(), nm.getNotificationChannel(TASKS)?.importance, "Tracked tasks")?.let { return it }
         val tag = id.toInt()
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         val call = PendingIntent.getActivity(context, tag, CallActivity.intent(context, start = true, task = slug), flags)
@@ -187,7 +185,14 @@ object Notifier {
             .setShowWhen(true)
             .addAction(R.drawable.lucide_phone, "Call Jarvis", call)
             .build()
-        return runCatching { nm.notify("task:$slug", 0, n) }.isSuccess
+        return runCatching { nm.notify("task:$slug", 0, n) }.exceptionOrNull()?.let { Alerts.threw(it) }
+    }
+
+    /** The phone setting that keeps a notification off, or null. `jarvis notify` knows these words and tells Aviv what to turn on. */
+    fun off(appEnabled: Boolean, importance: Int?, channel: String): String? = when {
+        !appEnabled -> "app notifications off"
+        importance == NotificationManager.IMPORTANCE_NONE -> "$channel channel off"
+        else -> null
     }
 
     fun cancelMessages(context: Context) = NotificationManagerCompat.from(context).cancel(MESSAGE_ID)

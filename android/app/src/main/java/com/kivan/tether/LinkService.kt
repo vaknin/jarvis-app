@@ -8,14 +8,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.util.Log
-import com.kivan.tether.forum.Watch
 import kotlinx.coroutines.launch
 
 /**
- * Keeps the process up so the forum tunnel's localhost port always answers, Jarvis's notifications
- * arrive ([Alerts], which keeps the tunnel's iroh endpoint up: its relay ping every 15 s) and the forum's
- * own notifications come ([Watch], its long poll; its status is this notification's line), and headphones that
- * connect give the media keys to Tether ([MediaKeys.claim]). No wakelock.
+ * Keeps the process up so what [TetherApp] started goes on running: the forum tunnel's localhost port always
+ * answers, Jarvis's notifications arrive ([Alerts], which keeps the tunnel's iroh endpoint up: its relay ping
+ * every 15 s) and the forum's own notifications come ([Watch], its long poll; its status is this notification's
+ * line). Headphones that connect give the media keys to Tether ([MediaKeys.claim]). No wakelock.
  * The link node isn't kept up: the laptop wakes it through FCM ([Push]). Started with the app and at boot.
  */
 class LinkService : Service() {
@@ -24,6 +23,7 @@ class LinkService : Service() {
     override fun onBind(intent: Intent?) = null
 
     override fun onDestroy() {
+        up = false
         headphones?.let { getSystemService(android.media.AudioManager::class.java).unregisterAudioDeviceCallback(it) }
         super.onDestroy()
     }
@@ -38,13 +38,9 @@ class LinkService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        up = true
         // After a boot or an update, deliver anything left queued; the node stops again once idle.
         Core.scope.launch { runCatching { Core.start() }.onFailure { Log.w("Tether", "node start failed", it) } }
-        runCatching { Forum.start() }.onFailure { Log.w("Tether", "forum tunnel failed", it) }
-        Alerts.start(this)
-        Watch.start(this)
-        Updater.loop(this)
-        if (reported.compareAndSet(false, true)) Tasks.report(Core.scope)
         CallStore.settle(this)
         Voice.resume(this)
         // Tests: `am startservice -a com.kivan.tether.ALERT --es url /callback/ID` stands in for a Jarvis alert (the server calling back).
@@ -58,7 +54,8 @@ class LinkService : Service() {
     }
 
     companion object {
-        private val reported = java.util.concurrent.atomic.AtomicBoolean()
+        /** Whether the service holds notification 1: [status] mustn't post it for a process without one. */
+        @Volatile private var up = false
         @Volatile private var text = "Connecting"
 
         /**
@@ -78,7 +75,7 @@ class LinkService : Service() {
         fun status(context: Context, line: String) {
             if (line == text) return
             text = line
-            runCatching { context.getSystemService(NotificationManager::class.java).notify(1, notification(context, line)) }
+            if (up) runCatching { context.getSystemService(NotificationManager::class.java).notify(1, notification(context, line)) }
         }
 
         private fun notification(context: Context, line: String): Notification {

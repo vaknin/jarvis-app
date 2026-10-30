@@ -243,10 +243,11 @@ async fn serve(ticket: &str, port: u16, voice_port: u16, secret: &str) -> Result
 static PIPES: AtomicU64 = AtomicU64::new(1);
 
 /// For [`crate::alerts`]: the endpoint stays up from now on (a hold the reaper respects), and is
-/// made again if it was closed (a rebuild after a broken pipe). Does nothing before [`forum_start`].
-pub(crate) async fn keep_up() {
+/// made again if it was closed (a rebuild after a broken pipe). False before [`forum_start`] has
+/// got that far.
+pub(crate) async fn keep_up() -> bool {
     static HELD: AtomicBool = AtomicBool::new(false);
-    let Some(lazy) = ENDPOINT.lock().unwrap().clone() else { return };
+    let Some(lazy) = ENDPOINT.lock().unwrap().clone() else { return false };
     if !HELD.swap(true, Ordering::SeqCst) {
         lazy.open.fetch_add(1, Ordering::SeqCst);
     }
@@ -256,6 +257,7 @@ pub(crate) async fn keep_up() {
             Err(e) => set_status(format!("{e:#}")),
         }
     }
+    true
 }
 
 /// How a pipe ended: `broken` says why its endpoint should go, if it should.

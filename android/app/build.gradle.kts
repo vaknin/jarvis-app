@@ -82,6 +82,7 @@ android {
         // A call goes to jarvis-voice through the forum tunnel's voice port (Voice.PORT).
         buildConfigField("String", "VOICE_URL", "\"ws://127.0.0.1:8791/call\"")
         buildConfigField("String", "FORUM_SECRET", "\"$forumSecret\"")
+        buildConfigField("String", "TEST_TICKET", "\"\"")
         buildConfigField("String", "FCM_API_KEY", "\"${fcm("apiKey")}\"")
         buildConfigField("String", "FCM_APP_ID", "\"${fcm("appId")}\"")
         buildConfigField("String", "FCM_PROJECT_ID", "\"${fcm("projectId")}\"")
@@ -107,6 +108,8 @@ android {
             val voiceUrl = (project.findProperty("voiceUrl") as String?) ?: "ws://10.0.2.2:8790/call"
             buildConfigField("String", "VOICE_URL", "\"$voiceUrl\"")
             buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
+            // `-PforumTicket=…`: a test gate instead of the live one, so a test alert can't reach the Pixel.
+            buildConfigField("String", "TEST_TICKET", "\"${project.findProperty("forumTicket") ?: ""}\"")
         }
         release {
             // The phone only: half the APK, which updates download over mobile data (Updater). Debug
