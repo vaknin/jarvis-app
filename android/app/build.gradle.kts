@@ -24,6 +24,7 @@ val cargoNdk = tasks.register<CargoNdkTask>("cargoNdk") {
     ndkHome.set(providers.environmentVariable("ANDROID_HOME").get() + "/ndk/" + ndkVersionPinned)
     workspace.set(workspaceDir)
     outDir.set(layout.buildDirectory.dir("rust/jniLibs"))
+    targets.set(if (project.hasProperty("emuRelease")) listOf("x86_64") else listOf("arm64-v8a", "x86_64"))
 }
 
 val uniffiBindgen = tasks.register<UniffiBindgenTask>("uniffiBindgen") {
@@ -33,6 +34,12 @@ val uniffiBindgen = tasks.register<UniffiBindgenTask>("uniffiBindgen") {
 }
 
 val home = System.getProperty("user.home")
+
+// Tests on the emulator: `-PemuRelease` makes the release build for x86_64 with the emulator's key
+// (never the phone's), and `-PforumTicket=...` points it at a private gate, so a test can publish and
+// fail without the phone's store or the live voice service seeing it.
+val emuRelease = project.hasProperty("emuRelease")
+val forumTicket = (project.findProperty("forumTicket") as String?).orEmpty()
 
 // Every commit is a higher versionCode, so the phone can tell a newer build from Jarvis's server
 // (Updater.kt) from its own. The first lean builds were 200; the count passed that at commit 225.
@@ -82,7 +89,7 @@ android {
         // A call goes to jarvis-voice through the forum tunnel's voice port (Voice.PORT).
         buildConfigField("String", "VOICE_URL", "\"ws://127.0.0.1:8791/call\"")
         buildConfigField("String", "FORUM_SECRET", "\"$forumSecret\"")
-        buildConfigField("String", "TEST_TICKET", "\"\"")
+        buildConfigField("String", "TEST_TICKET", "\"$forumTicket\"")
         buildConfigField("String", "FCM_API_KEY", "\"${fcm("apiKey")}\"")
         buildConfigField("String", "FCM_APP_ID", "\"${fcm("appId")}\"")
         buildConfigField("String", "FCM_PROJECT_ID", "\"${fcm("projectId")}\"")
@@ -108,13 +115,12 @@ android {
             val voiceUrl = (project.findProperty("voiceUrl") as String?) ?: "ws://10.0.2.2:8790/call"
             buildConfigField("String", "VOICE_URL", "\"$voiceUrl\"")
             buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
-            // `-PforumTicket=…`: a test gate instead of the live one, so a test alert can't reach the Pixel.
-            buildConfigField("String", "TEST_TICKET", "\"${project.findProperty("forumTicket") ?: ""}\"")
         }
         release {
             // The phone only: half the APK, which updates download over mobile data (Updater). Debug
             // builds keep x86_64 for the emulator.
-            ndk { abiFilters += "arm64-v8a" }
+            ndk { abiFilters += if (emuRelease) "x86_64" else "arm64-v8a" }
+            if (emuRelease) buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

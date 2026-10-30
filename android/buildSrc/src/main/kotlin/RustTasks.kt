@@ -2,6 +2,7 @@ import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -17,6 +18,7 @@ abstract class CargoNdkTask @Inject constructor(private val exec: ExecOperations
     @get:Input abstract val ndkHome: Property<String>
     @get:Internal abstract val workspace: DirectoryProperty
     @get:OutputDirectory abstract val outDir: DirectoryProperty
+    @get:Input abstract val targets: ListProperty<String>
 
     @TaskAction
     fun run() {
@@ -24,9 +26,11 @@ abstract class CargoNdkTask @Inject constructor(private val exec: ExecOperations
             workingDir = workspace.get().asFile
             environment("ANDROID_NDK_HOME", ndkHome.get())
             commandLine(
-                "cargo", "ndk", "-t", "arm64-v8a", "-t", "x86_64", "-P", "29",
-                "-o", outDir.get().asFile.absolutePath,
-                "build", "--release", "-p", "tether-ffi",
+                listOf("cargo", "ndk") + targets.get().flatMap { listOf("-t", it) } + listOf(
+                    "-P", "29",
+                    "-o", outDir.get().asFile.absolutePath,
+                    "build", "--release", "-p", "tether-ffi",
+                ),
             )
         }
         // cargo-ndk copies every .so in the target dir, including cdylibs some dependencies build.
