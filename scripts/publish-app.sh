@@ -1,5 +1,5 @@
 #!/bin/sh
-# Offers the finished release build to the phone: Tether updates itself from Jarvis's server through
+# Offers the finished release build to the phone: Jarvis updates itself from Jarvis's server through
 # the forum tunnel (android/.../Updater.kt), from anywhere, without a tap (the first time after an adb
 # install, one). Publishing during a call is fine: the phone installs in a pause and the call goes on. Run on the server after
 # `./gradlew :app:assembleRelease` on a committed master. The notes are the "For you:" lines of the
@@ -24,14 +24,14 @@ fi
 sdk=${ANDROID_HOME:-$HOME/Android/Sdk}
 signer=$(ls -d "$sdk"/build-tools/*/apksigner | tail -n1)
 if ! "$signer" verify --print-certs "$apk" | grep -qE "^(V[0-9.]+ )?Signer( #1)?:? certificate DN: "; then
-    echo "the APK isn't signed: is ~/.config/jarvis/tether-keystore.properties there?" >&2
+    echo "the APK isn't signed: is ~/.config/jarvis/jarvis-keystore.properties there?" >&2
     exit 1
 fi
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     echo "uncommitted changes: commit them, rebuild, then publish (the APK must be HEAD)" >&2
     exit 1
 fi
-latest=${BUILDS_DIR:-$HOME/.local/share/jarvis/builds}/com.kivan.tether/latest.json
+latest=${BUILDS_DIR:-$HOME/.local/share/jarvis/builds}/com.kivan.jarvis/latest.json
 old=$(jq -r '.version_code // 0' "$latest" 2>/dev/null || echo 0)
 new=$((code - old))
 [ "$old" -eq 0 ] || [ "$new" -gt 20 ] && new=20

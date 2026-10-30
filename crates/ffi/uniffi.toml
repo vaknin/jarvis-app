@@ -1,3 +1,3 @@
 [bindings.kotlin]
-package_name = "com.kivan.tether.core"
-cdylib_name = "tether_ffi"
+package_name = "com.kivan.jarvis.core"
+cdylib_name = "jarvis_ffi"

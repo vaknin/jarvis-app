@@ -1,6 +1,6 @@
-//! Where `tether send --pick` and `--clipboard` get their files: the desktop's file chooser (the
+//! Where `jarvis-link send --pick` and `--clipboard` get their files: the desktop's file chooser (the
 //! XDG FileChooser portal, GTK here) and an image on the Wayland clipboard. Both run in the CLI, so
-//! the chat panel can call them like any other `tether send`.
+//! the chat panel can call them like any other `jarvis-link send`.
 
 use std::{
     collections::HashMap,
@@ -26,7 +26,7 @@ const KEEP_PASTED: Duration = Duration::from_secs(14 * 24 * 3600);
 /// Files chosen in the portal's file chooser; empty if the user cancelled.
 pub async fn choose_files() -> Result<Vec<PathBuf>> {
     let conn = Connection::session().await.context("connect to the session bus")?;
-    let token = format!("tether{}", std::process::id());
+    let token = format!("jarvis{}", std::process::id());
     let sender = conn.unique_name().context("no bus name")?.trim_start_matches(':').replace('.', "_");
     // Subscribe to the request's Response before the call, so a fast answer can't be missed.
     let path = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");

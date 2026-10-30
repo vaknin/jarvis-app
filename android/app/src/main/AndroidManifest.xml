@@ -23,19 +23,21 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Updates from Jarvis's server (Updater): Android asks once to allow it. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- Its own updates install without a question once Tether is their installer of record (Updater). -->
+    <!-- Its own updates install without a question once Jarvis is their installer of record (Updater). -->
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
-    <!-- The move to the renamed app (Move): only an app signed with this key gets in. -->
-    <permission android:name="${newApp}.MOVE" android:protectionLevel="signature" />
-    <uses-permission android:name="${newApp}.MOVE" />
-    <!-- The phone's own speech to text on calls (PhoneStt): the recognizer service must be visible. The new app, for the move. -->
+    <!-- The move from the old app (Move): only an app signed with this key gets in. -->
+    <permission android:name="${applicationId}.MOVE" android:protectionLevel="signature" />
+    <uses-permission android:name="${applicationId}.MOVE" />
+    <!-- The guide's "Remove the old app": Android still asks. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- The phone's own speech to text on calls (PhoneStt): the recognizer service must be visible. The old app, for the move. -->
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
-        <package android:name="${newApp}" />
+        <package android:name="${oldApp}" />
     </queries>
 
     <application
-        android:name=".TetherApp"
+        android:name=".JarvisApp"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
@@ -77,7 +79,7 @@
             android:exported="true"
             android:label="Forum"
             android:launchMode="singleTask"
-            android:taskAffinity="com.kivan.tether.forum"
+            android:taskAffinity="com.kivan.jarvis.forum"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode|density"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -94,7 +96,7 @@
             android:exported="true"
             android:label="Jarvis"
             android:launchMode="singleTask"
-            android:taskAffinity="com.kivan.tether.call"
+            android:taskAffinity="com.kivan.jarvis.call"
             android:showWhenLocked="true"
             android:excludeFromRecents="true">
             <intent-filter>
@@ -181,7 +183,17 @@
             android:name=".MoveProvider"
             android:authorities="${applicationId}.move"
             android:exported="true"
-            android:permission="${newApp}.MOVE" />
+            android:permission="${applicationId}.MOVE" />
+
+        <!-- Keeps the process and the CPU up for the minutes the move takes. -->
+        <service
+            android:name=".MoveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Moves the owner's data over from the app this one replaced, once, while he waits" />
+        </service>
 
         <!-- Keeps the process up, so the forum tunnel's localhost port answers and the forum's notifications come. -->
         <service

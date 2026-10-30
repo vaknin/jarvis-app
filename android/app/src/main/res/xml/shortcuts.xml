@@ -7,12 +7,12 @@
         android:icon="@drawable/shortcut_call"
         android:shortcutShortLabel="@string/call_short">
         <intent
-            android:action="com.kivan.tether.CALL"
-            android:targetPackage="com.kivan.tether"
-            android:targetClass="com.kivan.tether.CallActivity" />
+            android:action="com.kivan.jarvis.CALL"
+            android:targetPackage="com.kivan.jarvis"
+            android:targetClass="com.kivan.jarvis.CallActivity" />
     </shortcut>
-    <share-target android:targetClass="com.kivan.tether.ShareActivity">
+    <share-target android:targetClass="com.kivan.jarvis.ShareActivity">
         <data android:mimeType="*/*" />
-        <category android:name="com.kivan.tether.SHARE" />
+        <category android:name="com.kivan.jarvis.SHARE" />
     </share-target>
 </shortcuts>

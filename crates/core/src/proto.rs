@@ -8,9 +8,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
 
 /// ALPN for the paired data connection.
-pub const ALPN: &[u8] = b"tether/1";
+pub const ALPN: &[u8] = crate::compat::ALPN;
 /// ALPN used once, while pairing.
-pub const PAIR_ALPN: &[u8] = b"tether/pair/1";
+pub const PAIR_ALPN: &[u8] = crate::compat::PAIR_ALPN;
 
 /// Largest control frame we accept. Notification snapshots are the big ones.
 const MAX_FRAME: u32 = 4 << 20;
@@ -35,8 +35,8 @@ pub enum Body {
     Ping(String),
     /// Make the phone ring until stopped.
     Ring,
-    /// For an app built on top of Tether (the teen channel, say), not the chat. `data` is the
-    /// app's own JSON; Tether only carries it. With `replace` it is the channel's view (its whole
+    /// For an app built on top of Jarvis (the teen channel, say), not the chat. `data` is the
+    /// app's own JSON; Jarvis only carries it. With `replace` it is the channel's view (its whole
     /// state): storing it, on either side, drops that sender's older views of the channel.
     App { channel: String, data: String, replace: bool },
     /// Delete a channel's thread: both sides drop every item and view of it. Silent (no wake).

@@ -56,7 +56,7 @@ impl State {
     }
 }
 
-/// One chat entry as the UIs see it (also the JSON shape of `tether json`).
+/// One chat entry as the UIs see it (also the JSON shape of `jarvis-link json`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Message {
     pub id: Uuid,
@@ -217,6 +217,26 @@ impl Store {
     pub fn del_kv(&self, key: &str) -> Result<()> {
         self.db.execute("DELETE FROM kv WHERE key = ?1", [key])?;
         Ok(())
+    }
+
+    /// How many messages there are, of any kind.
+    pub fn count(&self) -> Result<u64> {
+        let n: i64 = self.db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
+        Ok(n as u64)
+    }
+
+    /// SQLite's own check of the whole file: "ok", or what's wrong.
+    pub fn integrity(&self) -> Result<String> {
+        Ok(self.db.query_row("PRAGMA integrity_check", [], |r| r.get(0))?)
+    }
+
+    /// The app's directory moved: every file path under `from` now lives under `to`. How many changed.
+    pub fn move_paths(&self, from: &str, to: &str) -> Result<u64> {
+        let n = self.db.execute(
+            "UPDATE messages SET path = ?2 || substr(path, length(?1) + 1) WHERE substr(path, 1, length(?1)) = ?1",
+            params![from, to],
+        )?;
+        Ok(n as u64)
     }
 
     pub fn get_str(&self, key: &str) -> Result<Option<String>> {

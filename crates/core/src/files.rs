@@ -27,7 +27,7 @@ pub async fn sha256_file(path: &Path) -> Result<([u8; 32], u64)> {
 
 /// Partial download for an incoming file; its length is the resume offset.
 pub fn part_path(dir: &Path, id: Uuid) -> PathBuf {
-    dir.join(format!(".tether-{id}.part"))
+    dir.join(format!(".jarvis-{id}.part"))
 }
 
 /// Strips anything that could escape `dir` from a peer-supplied file name.

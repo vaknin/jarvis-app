@@ -1,4 +1,4 @@
-//! `tether daemon`: runs the node and serves the CLI/UI socket.
+//! `jarvis-link daemon`: runs the node and serves the CLI/UI socket.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use tether_core::{
+use jarvis_core::{
     node::{Event, Node},
     proto::Frame,
 };
@@ -199,7 +199,7 @@ impl Ctx {
         Ok(())
     }
 
-    /// Asks the phone where its adb listens (`tether adb`; dibs reconnects adb with it): wakes it
+    /// Asks the phone where its adb listens (`jarvis-link adb`; dibs reconnects adb with it): wakes it
     /// if needed and returns its answer (see `Adb.kt`). With `enable` the phone turns Wireless
     /// debugging on first, if it may.
     async fn adb(&self, enable: bool) -> Result<Value> {
@@ -238,7 +238,7 @@ impl Ctx {
         };
         match tokio::time::timeout(ADB_WAIT, run).await {
             Ok(r) => r,
-            Err(_) if linked => anyhow::bail!("the phone is connected but didn't answer (Tether app older than 0.3.7?)"),
+            Err(_) if linked => anyhow::bail!("the phone is connected but didn't answer (Jarvis app older than 0.3.7?)"),
             Err(_) => anyhow::bail!("the phone didn't wake up (no link within {} s)", ADB_WAIT.as_secs()),
         }
     }
@@ -257,7 +257,7 @@ async fn connected(rx: &mut tokio::sync::broadcast::Receiver<Event>) -> bool {
 
 pub async fn serve(ctx: Ctx, sock: &Path) -> Result<()> {
     if UnixStream::connect(sock).await.is_ok() {
-        anyhow::bail!("another tether daemon is already serving {}", sock.display());
+        anyhow::bail!("another jarvis daemon is already serving {}", sock.display());
     }
     let _ = std::fs::remove_file(sock);
     let listener = UnixListener::bind(sock).with_context(|| format!("bind {}", sock.display()))?;
@@ -489,7 +489,7 @@ async fn handle(ctx: &Ctx, req: Request) -> Result<Value> {
 
 /// A channel file in `thread`: `{"id","from_me","ts_ms","file":{"name","size","state","path"?}}`;
 /// `path` only once it has arrived (or, for mine, while it's there to send).
-fn file_json(m: &tether_core::store::Message) -> Value {
+fn file_json(m: &jarvis_core::store::Message) -> Value {
     let mut f = json!({ "name": m.file_name, "size": m.file_size, "state": m.state });
     if let Some(p) = &m.path {
         f["path"] = p.to_string_lossy().into();
@@ -522,7 +522,7 @@ fn action(data: &str) -> Result<String> {
     let o = v.as_object_mut().context("an action is a JSON object")?;
     o.insert("from".into(), json!("laptop"));
     o.entry("uid").or_insert_with(|| json!(uuid::Uuid::new_v4().to_string()));
-    o.insert("ts".into(), json!(tether_core::store::now_ms()));
+    o.insert("ts".into(), json!(jarvis_core::store::now_ms()));
     Ok(v.to_string())
 }
 

@@ -67,8 +67,8 @@ pub(crate) fn recent(window: Duration, max: usize) -> String {
 /// What the ring keeps: the call and its transport, not the laptop link's chatter.
 pub(crate) fn targets() -> Targets {
     Targets::new()
-        .with_target("tether_voice", Level::INFO)
-        .with_target("tether_ffi", Level::INFO)
+        .with_target("jarvis_voice", Level::INFO)
+        .with_target("jarvis_ffi", Level::INFO)
         .with_target("iroh", Level::WARN)
         .with_target("netwatch", Level::ERROR)
 }

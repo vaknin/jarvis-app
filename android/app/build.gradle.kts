@@ -47,9 +47,9 @@ val commits = providers.exec { commandLine("git", "rev-list", "--count", "HEAD")
     .standardOutput.asText.get().trim().toInt()
 
 // Release signing: Jarvis's key, kept on the server outside git. An update installs only over a
-// build signed with the same key, so keep ~/.config/jarvis/tether-keystore* safe.
+// build signed with the same key, so keep ~/.config/jarvis/jarvis-keystore* safe.
 val keys = Properties().apply {
-    val f = File(home, ".config/jarvis/tether-keystore.properties")
+    val f = File(home, ".config/jarvis/jarvis-keystore.properties")
     if (f.isFile) f.inputStream().use(::load)
 }
 
@@ -64,16 +64,16 @@ val forumEmuSecret = File(home, ".config/jarvis/forum-emu-iroh-secret").takeIf {
     ?: error("no ~/.config/jarvis/forum-emu-iroh-secret (debug builds must never carry the phone's key)")
 
 // FCM, only to wake the phone (Push.kt): the client values of the Firebase project, kept outside git
-// in ~/.config/jarvis/tether-fcm.properties as apiKey, appId, projectId and senderId. Without them
+// in ~/.config/jarvis/jarvis-fcm.properties as apiKey, appId, projectId and senderId. Without them
 // the app builds and works, just without wakes.
 val fcmKeys = Properties().apply {
-    val f = File(home, ".config/jarvis/tether-fcm.properties")
+    val f = File(home, ".config/jarvis/jarvis-fcm.properties")
     if (f.isFile) f.inputStream().use(::load)
 }
 fun fcm(name: String) = fcmKeys.getProperty(name, "").trim()
 
 android {
-    namespace = "com.kivan.tether"
+    namespace = "com.kivan.jarvis"
     // Platform 37.2 (37 + minor 2), as in the dibs app: current Compose needs 37.
     compileSdk = 37
     compileSdkMinor = 2
@@ -81,7 +81,7 @@ android {
     ndkVersion = ndkVersionPinned
 
     defaultConfig {
-        applicationId = "com.kivan.tether"
+        applicationId = "com.kivan.jarvis"
         minSdk = 34
         targetSdk = 36
         versionCode = commits
@@ -90,9 +90,11 @@ android {
         buildConfigField("String", "VOICE_URL", "\"ws://127.0.0.1:8791/call\"")
         buildConfigField("String", "FORUM_SECRET", "\"$forumSecret\"")
         buildConfigField("String", "TEST_TICKET", "\"$forumTicket\"")
-        // The renamed app (Move): debug builds move to its debug build, signed alike.
-        buildConfigField("String", "NEW_APP", "\"com.kivan.jarvis\"")
-        manifestPlaceholders["newApp"] = "com.kivan.jarvis"
+        // The app this one replaced (Move): debug builds move from its debug build, signed alike.
+        buildConfigField("String", "OLD_APP", "\"com.kivan.tether\"")
+        manifestPlaceholders["oldApp"] = "com.kivan.tether"
+        // Test hooks in Move, only in builds for the emulator's private gate.
+        buildConfigField("boolean", "EMU_TEST", emuRelease.toString())
         buildConfigField("String", "FCM_API_KEY", "\"${fcm("apiKey")}\"")
         buildConfigField("String", "FCM_APP_ID", "\"${fcm("appId")}\"")
         buildConfigField("String", "FCM_PROJECT_ID", "\"${fcm("projectId")}\"")
@@ -115,8 +117,8 @@ android {
         // the live one, or `-PvoiceUrl=ws://10.0.2.2:8811/call` for a `serve --dry-run` on another port.
         debug {
             applicationIdSuffix = ".debug"
-            buildConfigField("String", "NEW_APP", "\"com.kivan.jarvis.debug\"")
-            manifestPlaceholders["newApp"] = "com.kivan.jarvis.debug"
+            buildConfigField("String", "OLD_APP", "\"com.kivan.tether.debug\"")
+            manifestPlaceholders["oldApp"] = "com.kivan.tether.debug"
             val voiceUrl = (project.findProperty("voiceUrl") as String?) ?: "ws://10.0.2.2:8790/call"
             buildConfigField("String", "VOICE_URL", "\"$voiceUrl\"")
             buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")

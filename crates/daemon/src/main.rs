@@ -1,4 +1,4 @@
-//! `tether`: the laptop daemon and the CLI that talks to it.
+//! `jarvis-link`: the laptop daemon and the CLI that talks to it.
 
 mod apps;
 mod channel_cmd;
@@ -18,7 +18,7 @@ use std::{path::PathBuf, process::ExitCode, time::Duration};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
-use tether_core::node::{Config, Net, Node, PORT};
+use jarvis_core::node::{Config, Net, Node, PORT};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -30,7 +30,7 @@ use crate::{
 #[derive(Parser)]
 #[command(version, about = "Laptop ↔ phone: chat, files, pings, media and notifications")]
 struct Cli {
-    /// Daemon socket (default $TETHER_SOCKET or $XDG_RUNTIME_DIR/tether.sock).
+    /// Daemon socket (default $JARVIS_SOCKET or $XDG_RUNTIME_DIR/jarvis.sock).
     #[arg(long, global = true)]
     socket: Option<PathBuf>,
     #[command(subcommand)]
@@ -41,7 +41,7 @@ struct Cli {
 enum Cmd {
     /// Run the daemon (normally from the systemd user unit).
     Daemon {
-        /// Database and keys (default $XDG_STATE_HOME/tether).
+        /// Database and keys (default $XDG_STATE_HOME/jarvis).
         #[arg(long)]
         state_dir: Option<PathBuf>,
         /// Where received files go (default ~/Downloads).
@@ -57,8 +57,8 @@ enum Cmd {
         #[arg(long)]
         no_desktop: bool,
         /// Firebase service-account JSON for waking the phone (default
-        /// $XDG_CONFIG_HOME/tether/fcm-service-account.json). Without it the daemon only redials.
-        #[arg(long, env = "TETHER_FCM_KEY")]
+        /// $XDG_CONFIG_HOME/jarvis/fcm-service-account.json). Without it the daemon only redials.
+        #[arg(long, env = "JARVIS_FCM_KEY")]
         fcm_key: Option<PathBuf>,
     },
     /// Show a pairing QR code and wait for the phone; or, given a code, pair with that device.
@@ -85,7 +85,7 @@ enum Cmd {
         #[arg(long, conflicts_with_all = ["pick", "clipboard"])]
         channel: Option<String>,
     },
-    /// Stop sending a file (its id is in `tether json`); the phone drops what it got.
+    /// Stop sending a file (its id is in `jarvis-link json`); the phone drops what it got.
     Cancel { id: String },
     /// Put an image on the clipboard as image data (PNG), as received images are.
     Copy { file: PathBuf },
@@ -153,7 +153,7 @@ enum Cmd {
         #[arg(long)]
         loud: bool,
     },
-    /// The app channels: manifests in ~/.config/tether/apps and channels that only have posts.
+    /// The app channels: manifests in ~/.config/jarvis/apps and channels that only have posts.
     Channels {
         #[arg(long)]
         json: bool,
@@ -163,7 +163,7 @@ enum Cmd {
     },
     /// Publish a channel's view (its JSON state) from a file, or from stdin without one or with `-`.
     /// With --check, only check a view against what the phone and the panel draw (docs/PLAN.md
-    /// "Blocks"): `tether view --check [<file>|-]`; exit 1 with the problems listed.
+    /// "Blocks"): `jarvis-link view --check [<file>|-]`; exit 1 with the problems listed.
     View {
         #[arg(long)]
         check: bool,
@@ -172,7 +172,7 @@ enum Cmd {
     },
     /// Send the channel's app an action, as the panel would (e.g. '{"action":"refresh"}').
     Action { channel: String, json: String },
-    /// Create, change or remove a channel's manifest (~/.config/tether/apps/<name>.toml).
+    /// Create, change or remove a channel's manifest (~/.config/jarvis/apps/<name>.toml).
     Channel {
         #[command(subcommand)]
         cmd: ChannelCmd,
@@ -195,7 +195,7 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum ChannelCmd {
-    /// Create a channel: `tether channel add groceries --kind list --icon shopping-cart --hue 145`.
+    /// Create a channel: `jarvis-link channel add groceries --kind list --icon shopping-cart --hue 145`.
     Add {
         /// `[a-z0-9_-]+`
         name: String,
@@ -216,7 +216,7 @@ enum ChannelCmd {
         /// auto (each text by its own language, the default), ltr or rtl.
         #[arg(long)]
         dir: Option<String>,
-        /// app (an app publishes the view), thread (posts only) or list (kept by Tether).
+        /// app (an app publishes the view), thread (posts only) or list (kept by Jarvis).
         #[arg(long)]
         kind: Option<String>,
         /// The shell command that starts the channel's app on demand.
@@ -237,7 +237,7 @@ enum ChannelCmd {
         #[arg(long)]
         force: bool,
     },
-    /// Change keys of a manifest, keeping its comments: `tether channel set teen show=phone`.
+    /// Change keys of a manifest, keeping its comments: `jarvis-link channel set teen show=phone`.
     /// An empty value removes the key.
     Set {
         name: String,
@@ -251,7 +251,7 @@ enum ChannelCmd {
         #[arg(long)]
         purge: bool,
     },
-    /// Same as `tether channels`.
+    /// Same as `jarvis-link channels`.
     Ls {
         #[arg(long)]
         json: bool,
@@ -304,7 +304,7 @@ async fn main() -> ExitCode {
     match run(cli.cmd, sock).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("tether: {e:#}");
+            eprintln!("jarvis-link: {e:#}");
             ExitCode::FAILURE
         }
     }
@@ -469,7 +469,7 @@ async fn run(cmd: Cmd, sock: PathBuf) -> Result<()> {
             std::process::exit(1);
         }
         Cmd::View { check: false, channel, file } => {
-            let channel = channel.context("which channel? `tether view <channel> [<file>|-]`")?;
+            let channel = channel.context("which channel? `jarvis-link view <channel> [<file>|-]`")?;
             let data = match file {
                 Some(f) if f.as_os_str() != "-" => {
                     std::fs::read_to_string(&f).with_context(|| format!("read {}", f.display()))?
@@ -480,7 +480,7 @@ async fn run(cmd: Cmd, sock: PathBuf) -> Result<()> {
             anyhow::ensure!(v.is_object(), "a view is a JSON object");
             // Published anyway (the renderers skip what they don't know), but said.
             for p in viewcheck::check(&v) {
-                eprintln!("tether view: {p}");
+                eprintln!("jarvis-link view: {p}");
             }
             let data = v.to_string();
             call(&sock, &Request::AppSend { channel, data, live: false, replace: true }).await?;
@@ -577,7 +577,7 @@ async fn pair_interactive(sock: &std::path::Path) -> Result<()> {
     if !qr.is_ok_and(|s| s.success()) {
         eprintln!("(install qrencode to see a QR code)");
     }
-    println!("Scan with Tether on the phone, or run `tether pair {code}` on the other device.");
+    println!("Scan with Jarvis on the phone, or run `jarvis-link pair {code}` on the other device.");
     println!("Valid for 5 minutes, once.");
     let wait = async {
         while let Some(line) = events.next_line().await? {
@@ -606,7 +606,7 @@ fn print_status(st: &Value) {
             };
             println!("Paired with  {} ({}), {link}", s(&p["name"]), s(&p["id"]));
         }
-        None => println!("Not paired (run `tether pair`)"),
+        None => println!("Not paired (run `jarvis-link pair`)"),
     }
     println!("Queued {}, unread {}", st["queued"], st["unread"]);
 }
@@ -630,7 +630,7 @@ async fn print_channels(sock: &std::path::Path, json: bool, reload: bool) -> Res
     Ok(())
 }
 
-/// `tether channel add|set|rm`: edit the manifest, then tell the daemon (when it runs).
+/// `jarvis-link channel add|set|rm`: edit the manifest, then tell the daemon (when it runs).
 async fn channel(sock: &std::path::Path, cmd: ChannelCmd) -> Result<()> {
     let dir = apps::default_dir()?;
     let name = match cmd {
@@ -673,7 +673,7 @@ async fn channel(sock: &std::path::Path, cmd: ChannelCmd) -> Result<()> {
 }
 
 /// The shortest prefix of each id (at least 6 characters) that no other id shares, so what
-/// `tether list ls` prints can be pasted into `done`, `undo` and `rm`.
+/// `jarvis-link list ls` prints can be pasted into `done`, `undo` and `rm`.
 fn short_ids<'a>(ids: &[&'a str]) -> Vec<&'a str> {
     ids.iter()
         .map(|id| {
@@ -702,13 +702,13 @@ fn config_dir() -> Result<PathBuf> {
 }
 
 fn default_fcm_key() -> Result<PathBuf> {
-    Ok(config_dir()?.join("tether/fcm-service-account.json"))
+    Ok(config_dir()?.join(jarvis_core::compat::DIR).join("fcm-service-account.json"))
 }
 
 fn default_state_dir() -> Result<PathBuf> {
     Ok(match std::env::var_os("XDG_STATE_HOME") {
-        Some(d) => PathBuf::from(d).join("tether"),
-        None => home()?.join(".local/state/tether"),
+        Some(d) => PathBuf::from(d).join(jarvis_core::compat::DIR),
+        None => home()?.join(".local/state").join(jarvis_core::compat::DIR),
     })
 }
 

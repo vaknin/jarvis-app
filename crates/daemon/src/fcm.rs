@@ -20,7 +20,7 @@ use ring::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tether_core::{
+use jarvis_core::{
     node::{Event, Node},
     store::State,
 };
@@ -319,7 +319,7 @@ pub async fn run(
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use tether_core::store::Message;
+    use jarvis_core::store::Message;
     use uuid::Uuid;
 
     use super::*;
@@ -607,11 +607,11 @@ mod tests {
     }
 
     /// Real OAuth exchange and send to a made-up token: FCM must reject the token, not our auth.
-    /// `cargo test -p tether -- --ignored fcm_live`
+    /// `cargo test -p jarvis-link -- --ignored fcm_live`
     #[tokio::test]
     #[ignore = "talks to Google"]
     async fn fcm_live_auth() {
-        let path = std::env::var_os("TETHER_FCM_KEY")
+        let path = std::env::var_os("JARVIS_FCM_KEY")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| crate::default_fcm_key().unwrap());
         let fcm = Fcm::load(&path).unwrap();

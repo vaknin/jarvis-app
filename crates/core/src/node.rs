@@ -16,7 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use data_encoding::BASE32_NOPAD;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, PublicKey, RelayMode, SecretKey,
@@ -66,7 +66,7 @@ pub enum Net {
 }
 
 pub struct Config {
-    /// Holds `tether.db` (chat log, outbox, keys).
+    /// Holds `jarvis.db` (chat log, outbox, keys).
     pub state_dir: PathBuf,
     /// Received files land here; partial ones as hidden `.part` files.
     pub download_dir: PathBuf,
@@ -78,7 +78,7 @@ pub struct Config {
     /// Redial with this backoff (min, max) while the outbox has items. The laptop does this as the
     /// fallback when FCM can't wake the phone; the phone leaves it off and dials on demand.
     pub redial: Option<(Duration, Duration)>,
-    /// This app's version, told to the peer on every link (the phone's; `tether status` shows it
+    /// This app's version, told to the peer on every link (the phone's; `jarvis-link status` shows it
     /// as `phone_app`, so apps send blocks only a new enough phone draws).
     pub app_version: Option<String>,
 }
@@ -115,7 +115,7 @@ pub struct Status {
     pub unread: u64,
 }
 
-/// What UIs get from [`Node::events`]; also the JSON lines of `tether watch`.
+/// What UIs get from [`Node::events`]; also the JSON lines of `jarvis-link watch`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
@@ -208,7 +208,7 @@ impl Node {
     pub async fn start(cfg: Config) -> Result<Node> {
         std::fs::create_dir_all(&cfg.state_dir)?;
         std::fs::create_dir_all(&cfg.download_dir)?;
-        let store = Store::open(&cfg.state_dir.join("tether.db"))?;
+        let store = Store::open(&crate::compat::database(&cfg.state_dir)?)?;
         let sk = match store.get_kv("secret_key")? {
             Some(b) => SecretKey::from_bytes(
                 &b.try_into().map_err(|_| anyhow!("stored secret key is corrupt"))?,
@@ -273,6 +273,11 @@ impl Node {
 
     pub fn events(&self) -> broadcast::Receiver<Event> {
         self.inner.events.subscribe()
+    }
+
+    /// How many messages the store holds.
+    pub fn message_count(&self) -> Result<u64> {
+        self.inner.db(|s| s.count())
     }
 
     pub fn id(&self) -> EndpointId {
@@ -354,11 +359,11 @@ impl Node {
         self.inner.db(|s| s.del_kv("push_token"))
     }
 
-    /// A one-time pairing code, valid for 5 minutes: `tether:1:<endpoint id>:<base32 token>`.
+    /// A one-time pairing code, valid for 5 minutes: `<compat::PAIR_WORD>:1:<endpoint id>:<base32 token>`.
     pub fn pair_offer(&self) -> String {
         let token: [u8; 32] = rand::random();
         *self.inner.offer.lock().unwrap() = Some((token, Instant::now() + PAIR_TTL));
-        format!("tether:1:{}:{}", self.id(), BASE32_NOPAD.encode(&token))
+        format!("{}:1:{}:{}", crate::compat::PAIR_WORD, self.id(), BASE32_NOPAD.encode(&token))
     }
 
     /// Pairs with the device that showed `code`.
@@ -1092,7 +1097,7 @@ impl Inner {
         }
         let name = msg.file_name.as_deref().unwrap_or("file");
         let dest = match &msg.channel {
-            // A channel's file stays with Tether's state, out of Downloads.
+            // A channel's file stays with Jarvis's state, out of Downloads.
             Some(ch) => {
                 let dir = self.cfg.state_dir.join("channels").join(files::safe_name(ch));
                 tokio::fs::create_dir_all(&dir).await?;
@@ -1206,9 +1211,10 @@ fn ct_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
 
 pub fn parse_code(code: &str) -> Result<(EndpointId, [u8; 32])> {
     let parts: Vec<&str> = code.trim().split(':').collect();
-    let ["tether", "1", id, token] = parts[..] else {
-        bail!("not a tether pairing code");
+    let [word, "1", id, token] = parts[..] else {
+        bail!("not a jarvis pairing code");
     };
+    ensure!(word == crate::compat::PAIR_WORD, "not a jarvis pairing code");
     let id: EndpointId = id.parse().context("bad endpoint id in pairing code")?;
     let token = BASE32_NOPAD
         .decode(token.as_bytes())

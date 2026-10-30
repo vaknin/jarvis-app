@@ -1,4 +1,4 @@
-//! The phone's media session as an MPRIS player, `org.mpris.MediaPlayer2.tether.pixel`, so the bar
+//! The phone's media session as an MPRIS player, `org.mpris.MediaPlayer2.jarvis.pixel`, so the bar
 //! widget, playerctl and media keys control the phone. The bus name is held only while the phone
 //! reports a session; the phone sends state on every change and the position is extrapolated here.
 
@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::Result;
-use tether_core::{
+use jarvis_core::{
     node::{Event, Node},
     proto::{Frame, MediaCmd, MediaState},
 };
@@ -22,7 +22,7 @@ use zbus::{
     zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
 };
 
-pub const BUS_NAME: &str = "org.mpris.MediaPlayer2.tether.pixel";
+pub const BUS_NAME: &str = "org.mpris.MediaPlayer2.jarvis.pixel";
 const PATH: &str = "/org/mpris/MediaPlayer2";
 /// A reported position this far from the extrapolated one counts as a seek.
 const SEEK_SLACK_MS: i64 = 1500;
@@ -47,7 +47,7 @@ impl Snap {
     fn track_id(&self) -> OwnedObjectPath {
         let mut h = DefaultHasher::new();
         (&self.state.player, &self.state.title, &self.state.artist, &self.state.album).hash(&mut h);
-        let path = format!("/org/mpris/MediaPlayer2/tether/track/t{:016x}", h.finish());
+        let path = format!("/org/mpris/MediaPlayer2/jarvis/track/t{:016x}", h.finish());
         ObjectPath::try_from(path).expect("valid object path").into()
     }
 
@@ -244,7 +244,7 @@ fn metadata(s: &Snap) -> HashMap<String, OwnedValue> {
         put("xesam:album", Value::from(st.album.as_str()));
     }
     // The app playing on the phone (Spotify, YouTube); shown by players that read it.
-    put("tether:app", Value::from(st.player.as_str()));
+    put("jarvis:app", Value::from(st.player.as_str()));
     m
 }
 

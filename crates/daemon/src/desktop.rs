@@ -8,7 +8,7 @@ use image::{
     DynamicImage, ImageDecoder, ImageFormat, ImageReader,
     codecs::png::{CompressionType, FilterType, PngEncoder},
 };
-use tether_core::{
+use jarvis_core::{
     node::{Event, Node},
     store::{Message, State},
 };
@@ -27,7 +27,7 @@ pub async fn run(node: Node) {
             }
             Ok(Event::SendFailed { name, reason, .. }) => {
                 let body = format!("Couldn't send {name}: {reason}");
-                if let Err(e) = toast(&["-g", "󰀦", "Tether", &body], OPEN_CHAT).await {
+                if let Err(e) = toast(&["-g", "󰀦", "Jarvis", &body], OPEN_CHAT).await {
                     warn!("send-failed toast: {e:#}");
                 }
             }
@@ -37,8 +37,8 @@ pub async fn run(node: Node) {
     }
 }
 
-/// A click on a chat toast opens the chat panel (the `kivan.tether` shell plugin).
-const OPEN_CHAT: &[&str] = &["omarchy-shell", "tether", "open"];
+/// A click on a chat toast opens the chat panel (the `kivan.jarvis` shell plugin).
+const OPEN_CHAT: &[&str] = &["omarchy-shell", "jarvis", "open"];
 
 async fn handle(node: &Node, m: &Message) -> Result<()> {
     if m.state != State::Received {

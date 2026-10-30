@@ -1,5 +1,5 @@
 //! A stand-in for `jarvis-voice`, to try the phone's call end to end while the real one isn't up:
-//! `cargo run -p tether-voice --example fake_server [ADDR]` (default `127.0.0.1:8790`, which the
+//! `cargo run -p jarvis-voice --example fake_server [ADDR]` (default `127.0.0.1:8790`, which the
 //! emulator reaches as `10.0.2.2:8790`). It speaks the wire of PROTOCOL.md: `ready` after `hello`,
 //! then every time it has heard 2 s of mic audio it "answers" with an 8 s tone, and the first answer
 //! of each call is cut off with `flush` after 1.6 s, as if Aviv talked over it. `pause` holds the

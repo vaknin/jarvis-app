@@ -22,7 +22,7 @@ pub enum Request {
     Pair { code: String },
     Unpair,
     Send { paths: Vec<PathBuf> },
-    /// Files to the phone on an app channel (`tether send --channel`), queued like `Send`.
+    /// Files to the phone on an app channel (`jarvis-link send --channel`), queued like `Send`.
     SendChannelFile { channel: String, paths: Vec<PathBuf> },
     /// Stop a file I'm sending.
     Cancel { id: String },
@@ -60,7 +60,7 @@ pub enum Request {
     /// Become the channel's client: a stream of `{"id":…,"data":…}` (queued; reply
     /// `{"done":"<id>"}` once handled, or it comes again next time) and `{"data":…}` (live) lines.
     AppSubscribe { channel: String },
-    /// An action from a laptop UI (the panel, `tether action`), routed to the channel's app as if
+    /// An action from a laptop UI (the panel, `jarvis-link action`), routed to the channel's app as if
     /// the phone sent it. `data` is a JSON object; missing `from`, `uid` and `ts` are filled in.
     AppAction { channel: String, data: String },
     /// Every channel (manifests, then channels with items but no manifest), each with its newest
@@ -68,7 +68,7 @@ pub enum Request {
     Channels,
     /// Reads the manifests again (publishing `_channels` if they changed), then as `Channels`.
     ChannelsReload,
-    /// A command for a built-in `list` channel (`tether list`); the reply depends on the op.
+    /// A command for a built-in `list` channel (`jarvis-link list`); the reply depends on the op.
     List { channel: String, op: crate::lists::ListOp },
     /// Deletes a channel's thread (every item and view) here and, once delivered, on the phone.
     DropThread { channel: String },
@@ -91,19 +91,19 @@ pub struct AppDone {
 }
 
 pub fn default_socket() -> PathBuf {
-    if let Some(p) = std::env::var_os("TETHER_SOCKET") {
+    if let Some(p) = std::env::var_os("JARVIS_SOCKET") {
         return p.into();
     }
     let dir = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
-    dir.join("tether.sock")
+    dir.join(jarvis_core::compat::SOCKET)
 }
 
 async fn open(sock: &Path, req: &Request) -> Result<(Lines<BufReader<OwnedReadHalf>>, OwnedWriteHalf)> {
     let stream = UnixStream::connect(sock).await.with_context(|| {
         format!(
-            "the tether daemon isn't running ({} not found); start it with `systemctl --user start tether`",
+            "the jarvis daemon isn't running ({} not found); start it with `systemctl --user start jarvis-link`",
             sock.display()
         )
     })?;

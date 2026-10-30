@@ -7,7 +7,7 @@
 //!
 //! Battery: only the local TCP listener is always there. The iroh endpoint (and with it the relay
 //! link, which pings every 15 s) is made when the browser (or a call) first connects and closed
-//! after [`IDLE`] with no connection open; a call holds its connection open for as long as it lasts. Its own endpoint, apart from the Tether node's.
+//! after [`IDLE`] with no connection open; a call holds its connection open for as long as it lasts. Its own endpoint, apart from the Jarvis node's.
 //!
 //! A pipe that can't connect, or whose iroh side fails under it, closes the endpoint, so the next pipe
 //! binds a fresh one ([`Lazy::broken`]): after a network change iroh's UDP socket can stay dead
@@ -135,6 +135,30 @@ pub fn forum_network_changed() {
             ep.network_change().await;
         }
     });
+}
+
+/// Does the gate answer from here? Asked with a throwaway key before the phone's own may go on the
+/// air: the gate turns a stranger away by name, which proves it's up and reachable, and the app that
+/// holds the phone's key is left alone.
+#[uniffi::export]
+pub async fn forum_probe(ticket: String) -> Res<()> {
+    Ok(on_rt(async move {
+        let ticket: EndpointTicket = ticket.trim().parse().context("bad ticket")?;
+        let ep = Endpoint::builder(presets::N0).secret_key(SecretKey::generate()).bind().await.context("iroh")?;
+        let answer = tokio::time::timeout(Duration::from_secs(30), async {
+            let conn = ep.connect(ticket.endpoint_addr().clone(), ALPN).await.map_err(|e| e.to_string())?;
+            Err::<(), String>(conn.closed().await.to_string())
+        })
+        .await;
+        ep.close().await;
+        match answer {
+            Ok(Err(why)) if why.contains("not allowed") => Ok(()),
+            Ok(Err(why)) => anyhow::bail!("the server: {why}"),
+            Ok(Ok(())) => unreachable!(),
+            Err(_) => anyhow::bail!("the server didn't answer in 30 s"),
+        }
+    })
+    .await?)
 }
 
 /// When a pipe last read from the gate.
@@ -620,7 +644,7 @@ async fn download(recv: &mut (impl tokio::io::AsyncRead + Unpin), u: &AppUpdate,
 mod tests {
     use std::sync::Mutex;
 
-    use tether_voice::{Call, Events, Status, Timing, websocket};
+    use jarvis_voice::{Call, Events, Status, Timing, websocket};
 
     #[derive(Default)]
     struct Log(Mutex<Vec<String>>);
@@ -638,9 +662,9 @@ mod tests {
         fn flush(&self) {}
     }
 
-    /// A real call through the gate on dibs: `FORUM_TICKET=… FORUM_SECRET=… cargo test -p tether-ffi
+    /// A real call through the gate on dibs: `FORUM_TICKET=… FORUM_SECRET=… cargo test -p jarvis-link-ffi
     /// -- --ignored voice_through_the_gate` with a voice service on 127.0.0.1:8790 (jarvis-voice, or
-    /// `cargo run -p tether-voice --example fake_server`), and a key the gate lets in.
+    /// `cargo run -p jarvis-voice --example fake_server`), and a key the gate lets in.
     #[test]
     #[ignore]
     fn voice_through_the_gate() {
@@ -735,7 +759,7 @@ mod update_tests {
     #[test]
     fn parses_the_gates_answer() {
         assert_eq!(super::parse("{}\n").unwrap(), None);
-        let u = super::parse(r#"{"app":"com.kivan.tether","version_code":230,"version_name":"1.0.230","size":7,"sha256":"ab","file":"230.apk","notes":"For you: x","published_ms":1}"#)
+        let u = super::parse(r#"{"app":"com.kivan.jarvis","version_code":230,"version_name":"1.0.230","size":7,"sha256":"ab","file":"230.apk","notes":"For you: x","published_ms":1}"#)
             .unwrap()
             .unwrap();
         assert_eq!((u.version_code, u.size, u.notes.as_str()), (230, 7, "For you: x"));
@@ -759,7 +783,7 @@ mod update_tests {
     }
 
     /// A real update through a gate: `FORUM_TICKET=… FORUM_SECRET=… BUILD_APP=… BUILD_SHA=… cargo test
-    /// -p tether-ffi -- --ignored update_through_the_gate`, against a gate (the jarvis repo's
+    /// -p jarvis-ffi -- --ignored update_through_the_gate`, against a gate (the jarvis repo's
     /// `forum-gate listen`) with a build published for BUILD_APP and a key it lets in.
     #[test]
     #[ignore]

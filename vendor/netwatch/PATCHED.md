@@ -1,7 +1,7 @@
-# netwatch 0.19.3, patched for Tether
+# netwatch 0.19.3, patched for Jarvis
 
 Copied from crates.io and used through `[patch.crates-io]` in the workspace `Cargo.toml`.
-Every change is marked `PATCHED (tether)` in `src/udp.rs`:
+Every change is marked `PATCHED (jarvis)` in `src/udp.rs`:
 
 - `UdpSocket::rebind` (iroh calls it on a major network change) drops the old socket first. When the new
   bind fails, upstream stays `Closed` with `is_broken` false, so `maybe_rebind` never tries again and every

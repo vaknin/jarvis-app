@@ -29,12 +29,12 @@ abstract class CargoNdkTask @Inject constructor(private val exec: ExecOperations
                 listOf("cargo", "ndk") + targets.get().flatMap { listOf("-t", it) } + listOf(
                     "-P", "29",
                     "-o", outDir.get().asFile.absolutePath,
-                    "build", "--release", "-p", "tether-ffi",
+                    "build", "--release", "-p", "jarvis-ffi",
                 ),
             )
         }
         // cargo-ndk copies every .so in the target dir, including cdylibs some dependencies build.
-        outDir.get().asFile.walk().filter { it.isFile && it.name != "libtether_ffi.so" }.forEach { it.delete() }
+        outDir.get().asFile.walk().filter { it.isFile && it.name != "libjarvis_ffi.so" }.forEach { it.delete() }
     }
 }
 
@@ -50,14 +50,14 @@ abstract class UniffiBindgenTask @Inject constructor(private val exec: ExecOpera
         out.deleteRecursively()
         exec.exec {
             workingDir = root
-            commandLine("cargo", "build", "-q", "-p", "tether-ffi")
+            commandLine("cargo", "build", "-q", "-p", "jarvis-ffi")
         }
         exec.exec {
             workingDir = root
             commandLine(
-                "cargo", "run", "-q", "-p", "tether-ffi", "--features", "bindgen",
+                "cargo", "run", "-q", "-p", "jarvis-ffi", "--features", "bindgen",
                 "--bin", "uniffi-bindgen", "--", "generate",
-                "--library", "target/debug/libtether_ffi.so",
+                "--library", "target/debug/libjarvis_ffi.so",
                 "--language", "kotlin", "--no-format", "--out-dir", out.absolutePath,
             )
         }

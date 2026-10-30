@@ -1878,6 +1878,86 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jarvis-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "data-encoding",
+ "iroh",
+ "iroh-mdns-address-lookup",
+ "postcard",
+ "rand",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "jarvis-ffi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "iroh",
+ "iroh-tickets",
+ "jarvis-core",
+ "jarvis-voice",
+ "jni-sys 0.4.1",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uniffi",
+ "uuid",
+]
+
+[[package]]
+name = "jarvis-link"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "clap",
+ "image",
+ "jarvis-core",
+ "reqwest",
+ "ring",
+ "roxmltree",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "toml_edit",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "zbus",
+]
+
+[[package]]
+name = "jarvis-voice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-websockets",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3657,86 +3737,6 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "tether"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "clap",
- "image",
- "reqwest",
- "ring",
- "roxmltree",
- "rustls",
- "serde",
- "serde_json",
- "tempfile",
- "tether-core",
- "tokio",
- "toml",
- "toml_edit",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "zbus",
-]
-
-[[package]]
-name = "tether-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "data-encoding",
- "iroh",
- "iroh-mdns-address-lookup",
- "postcard",
- "rand",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "tether-ffi"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures-util",
- "iroh",
- "iroh-tickets",
- "jni-sys 0.4.1",
- "serde_json",
- "sha2",
- "tempfile",
- "tether-core",
- "tether-voice",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uniffi",
- "uuid",
-]
-
-[[package]]
-name = "tether-voice"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures-util",
- "serde",
- "serde_json",
- "tokio",
- "tokio-websockets",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

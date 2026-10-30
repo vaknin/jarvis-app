@@ -1,4 +1,4 @@
-# Tether's ship recipe (moved here from ~/.config/dibs/policy.toml, 2026-10-09; a table in the
+# Jarvis's ship recipe (moved here from ~/.config/dibs/policy.toml, 2026-10-09; a table in the
 # policy would win over this file). The user approves this exact version by card (`dibs repo trust`);
 # any edit needs a new approval.
 ship_only = true
@@ -6,10 +6,10 @@ test = "cargo test --release"
 # Built beside the test in dibs's own checkout; the install (daemon, restart) runs there after
 # master is free. The phone app is no longer installed from here: it moved to the dibs repo
 # (2026-10-09), whose recipe builds and installs it.
-build = ["cargo build --release --locked -p tether"]
+build = ["cargo build --release --locked -p jarvis"]
 # The daemon is installed and restarted only where its unit is (task #288, 2026-10-08): the server has
-# no Tether (the user, word 481), and a ~/.cargo/bin/tether there shadows dibs-phone.
-ship = ["if systemctl --user cat tether.service >/dev/null 2>&1; then cargo install --path crates/daemon --locked && systemctl --user restart tether; fi"]
+# no Jarvis (the user, word 481), and a ~/.cargo/bin/jarvis-link there shadows dibs-phone.
+ship = ["if systemctl --user cat jarvis-link.service >/dev/null 2>&1; then cargo install --path crates/daemon --locked && systemctl --user restart jarvis-link; fi"]
 
 [[when]]
 changed = "shell/"

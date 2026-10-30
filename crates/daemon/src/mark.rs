@@ -79,10 +79,10 @@ pub struct MarkPath {
     pub stroke: f64,
 }
 
-/// Where `icon = "<name>"` is looked up: the copy `tether channel` keeps next to the manifests,
-/// then the Lucide set vendored in `~/Projects/design` (`$TETHER_LUCIDE` overrides it).
+/// Where `icon = "<name>"` is looked up: the copy `jarvis-link channel` keeps next to the manifests,
+/// then the Lucide set vendored in `~/Projects/design` (`$JARVIS_LUCIDE` overrides it).
 pub fn lucide_dir() -> Option<PathBuf> {
-    std::env::var_os("TETHER_LUCIDE")
+    std::env::var_os("JARVIS_LUCIDE")
         .map(PathBuf::from)
         .or_else(|| crate::home().ok().map(|h| h.join("Projects/design/vendor/lucide/icons")))
 }
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn hue_250_matches_the_design_generator() {
-        // `design colors --hue 250`: tether's own palette.
+        // `design colors --hue 250`: jarvis's own palette.
         let c = colors(250.0);
         assert_eq!((c.accent.as_str(), c.on_accent.as_str(), c.tile.as_str()), ("#95C9FF", "#071727", "#0E3F6A"));
     }

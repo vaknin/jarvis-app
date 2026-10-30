@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "kivan.jarvis",
+  "name": "Jarvis chat",
+  "version": "1.0.0",
+  "author": "kivan",
+  "description": "Chat with the phone over Jarvis: a bar badge with the unread count that drops the chat down, and the same chat centered on SUPER+M (omarchy-shell jarvis toggle).",
+  "kinds": [
+    "bar-widget",
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "Badge.qml",
+    "panel": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Jarvis chat",
+    "description": "Unread messages from the phone; click to open the chat",
+    "category": "Communication",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

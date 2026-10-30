@@ -1,17 +1,17 @@
 > **Frozen 2026-10-09:** the phone app moved to the dibs repo (`~/Projects/dibs/android`, `docs/DIBS-APP.md` there). Edit and ship it there; this copy is no longer installed.
 
-# dibs on the phone: its own app inside the Tether APK (task #22, 2026-10-05)
+# dibs on the phone: its own app inside the Jarvis APK (task #22, 2026-10-05)
 
-The user chose (question #249, 2026-10-05): dibs gets a real app with sections, **inside the Tether
+The user chose (question #249, 2026-10-05): dibs gets a real app with sections, **inside the Jarvis
 APK**, not a second APK. Background and the options weighed: `~/Projects/dibs/docs/RESEARCH-phone-app.md`
-("(b+)"). Tether stays the link; dibs gets its own launcher icon, its own Recents card and its own
+("(b+)"). Jarvis stays the link; dibs gets its own launcher icon, its own Recents card and its own
 screens in their own Gradle module, fed by a structured payload on the `dibs` channel's view.
 
 ## What the user gets
 
-- A **dibs** icon on the home screen, next to Tether's. It opens straight into dibs, which has its own
-  card in Recents. Tether's icon stays the Laptop chat, files and the other channels; the Dibs entry in
-  Tether's channel list and every dibs notification open the dibs app too.
+- A **dibs** icon on the home screen, next to Jarvis's. It opens straight into dibs, which has its own
+  card in Recents. Jarvis's icon stays the Laptop chat, files and the other channels; the Dibs entry in
+  Jarvis's channel list and every dibs notification open the dibs app too.
 - Four tabs at the bottom, each with a badge:
   1. **Chat** (home): the conversation with dibs, newest at the bottom, the box pinned. Photos and files
      go with a message (📎: photo picker, camera, any file; or Share → dibs from another app). A question
@@ -51,7 +51,7 @@ screens in their own Gradle module, fed by a structured payload on the `dibs` ch
   as you said …") are small centred lines in muted text, like a chat app's system lines. Bubbles are the
   conversation itself.
 - **Finished cards fold.** A question asked in the chat shows its buttons until it's answered; then the
-  card shrinks to one muted line: "✓ Inside Tether · 17:58".
+  card shrinks to one muted line: "✓ Inside Jarvis · 17:58".
 - **Old days fold.** Today (and anything newer than the last six hours) is drawn in full; earlier days
   fold behind "Earlier · Mon 4 Oct · 23 lines", which opens on a tap. Grouped runs, a day header as an
   eyebrow, one time per run.
@@ -60,7 +60,7 @@ screens in their own Gradle module, fed by a structured payload on the `dibs` ch
 
 ## Talking into the box (task #377, 2026-10-09: the first step of "talk to dibs by voice")
 
-The user dictates with Gboard and wanted less typing; the research (`~/Tasks/2026-10-09-dibs-tether-research-a-new-way-of/REPORT.md`)
+The user dictates with Gboard and wanted less typing; the research (`~/Tasks/2026-10-09-dibs-jarvis-research-a-new-way-of/REPORT.md`)
 picked a talk button wherever dibs needs words. Every box (the chat, a task's chat, Ask about) has a 🎤 between the
 text and Send (`Dictation.kt`, `Talk` in `ui/ChatParts.kt`):
 - **Local only** (the user's rule): Android's on-device recognizer (`createOnDeviceSpeechRecognizer`, the engine
@@ -71,7 +71,7 @@ text and Send (`Dictation.kt`, `Talk` in `ui/ChatParts.kt`):
   sends by itself yet.
 - One segmented session across pauses until the user taps the square, sends, types (the keyboard wins), leaves the
   screen, or stays quiet 6 s. A recognizer that ignores segmentation gives one phrase; tap 🎤 again.
-- **Words to expect** (`EXTRA_BIASING_STRINGS`, `biasWords`): dibs's own ("dibs", "Tether", "worktree", …) and the
+- **Words to expect** (`EXTRA_BIASING_STRINGS`, `biasWords`): dibs's own ("dibs", "Jarvis", "worktree", …) and the
   projects in the task index, busiest first, at most 40. Whether the on-device engine honours them is the open test
   (motoparty found it ignored them for "motoparty").
 - A message with spoken words carries `"spoken": true` in its `say` / `task-say` value (not `thread-say`). dibs
@@ -83,7 +83,7 @@ text and Send (`Dictation.kt`, `Talk` in `ui/ChatParts.kt`):
   tabular number with an eyebrow per screen (Waiting: how many wait; Work: how many run), 16 dp gutter,
   radii 8/14/24. Generated, never hand-edited (`docs/DESIGN.md`).
 - **dibs's hue.** The channel uses 300 (violet) today. Checked with a protanopia simulation (the user is
-  protan): violet's tile and accent are almost the same colour as Tether's blue (ΔE 3 against 8 in
+  protan): violet's tile and accent are almost the same colour as Jarvis's blue (ΔE 3 against 8 in
   normal vision), so the two icons would look alike. Candidates that stay apart: 150 (green: ΔE 13 tile,
   17 accent under protan) and 170 (teal: 10 and 12). 60 to 120 sit on the warning amber, 0 to 50 near
   danger red. The mockup page shows them side by side, normal and protan.
@@ -100,19 +100,19 @@ text and Send (`Dictation.kt`, `Talk` in `ui/ChatParts.kt`):
 
 ## How it's built
 
-### Tether's phone app (`android/`)
-- **`:dibs` Gradle module** (`android/dibs`, Android library, package `com.kivan.tether.dibs`): the
+### Jarvis's phone app (`android/`)
+- **`:dibs` Gradle module** (`android/dibs`, Android library, package `com.kivan.jarvis.dibs`): the
   screens, `DibsActivity`, the model parsed from the payload, and its own generated theme (dibs's hue),
-  icons and launcher. It knows nothing of Tether's core; it talks through one narrow interface,
+  icons and launcher. It knows nothing of Jarvis's core; it talks through one narrow interface,
   `DibsHost` (the payload as a flow, the link state, `act`, `say` with files, a UI hold, thumbnails).
   `:app` implements it (`DibsBridge.kt`) over `Channels` and `Core`. Splitting into a second APK later
   is then a packaging change.
 - **`DibsActivity`**: its own `MAIN/LAUNCHER` entry (label "dibs", dibs's icon), `taskAffinity`
-  `com.kivan.tether.dibs` (its own Recents card), `singleTask`. On start it takes the `ui` hold like
+  `com.kivan.jarvis.dibs` (its own Recents card), `singleTask`. On start it takes the `ui` hold like
   `MainActivity`, so the link stays up while it's on screen and the notifications clear.
 - Generated resources in the module are renamed `ic_dibs_*` (launcher, monochrome, notification), since
   the app's same-named ones would win the resource merge.
-- Tether's side: the Dibs entry in the channel list, `tether://channel/dibs` intents, dibs's shortcut
+- Jarvis's side: the Dibs entry in the channel list, `jarvis://channel/dibs` intents, dibs's shortcut
   and its notifications open `DibsActivity` when the view carries the payload (else today's screen).
 - Version **0.4.0** (versionCode 14; task #19 takes 0.3.9); the Recap rework is 0.4.3 (17); Your tasks is
   0.5.0 (19); the lend toggles are 0.5.1 (20; 18 went unused); task #64's fixes are 0.5.4 (23; 0.5.2 and 0.5.3 went to parallel tasks); task #66's questions, plain decisions and talking only to dibs are 0.5.5 (24); phone presence (`_presence`, task #59) is 0.5.6 (25); the brain's state in the header (`doing`/`words`) is 0.5.10 (29); Ideas is 0.6.0 (31); Ask about (task #102) is 0.7.0 (32); root steps (task #145) are 0.8.0 (33); notifications that never cut a long title (task #131) are 0.8.1 (34); one slim bar and the dibs page (task #137) are 0.9.0 (35); the morning recap (unread list, merged story screen) is 0.10.0 (36); the board's Active and Backlog lists with a Start or Park button on each card are 0.10.5 (41); task and idea links (task #261) are 0.11.0 (42). Question cards with tappable addresses and a Copy button for sign-in codes (task #303) are 0.11.1 (43). instant feedback on taps (task #124) is 0.12.1 (45). The Recap's To look over section (task #336) is 0.13.0 (46). The drop box (Ideas v2, task #267) is 0.14.0 (47). dibs's pick on question buttons (task #360) is 0.14.1 (48). Talking into the box (🎤, task #377) is 0.15.0 (49). Never uninstall:
@@ -120,7 +120,7 @@ text and Send (`Dictation.kt`, `Talk` in `ui/ChatParts.kt`):
 
 ### The payload (dibs → phone, in the `dibs` channel's view)
 The view stays a v1 view (`badge`, `open_tags`, `pin`, `notify` keep working), plus a top-level `dibs`
-object. Tether's daemon and `view --check` ignore it; the module reads it. For an app ≥ 0.4.0 dibs sends
+object. Jarvis's daemon and `view --check` ignore it; the module reads it. For an app ≥ 0.4.0 dibs sends
 no blocks except the lend card (old screens aren't shown any more); older apps keep today's blocks.
 
 ```json
@@ -134,10 +134,10 @@ no blocks except the lend card (old screens aren't shown any more); older apps k
             "laptop": {"lent": true, "text": "Until you take it back · rami-0f is on it", "until": 1791240000, "action": "laptop-back"}}?,
   "talk": [{"id": "64", "who": "user|dibs", "text": "full text", "short": "…"?, "ts": 1791212701,
             "note": true?, "ask": {"q": 249, "actions": [{"id","label","style","pick": true?}], "reply": "r249"?,
-                                   "hint": "Add a comment…"?, "outcome": "Inside Tether"?,
+                                   "hint": "Add a comment…"?, "outcome": "Inside Jarvis"?,
                                    "read": {"label": "Read it in full", "task": 42, "url": "https://…" | null}?}?,
-            "files": [{"id": "<tether file id>", "name": "a.jpg", "size": 123, "image": true}]?}],
-  "questions": [{"id": 249, "title": "…", "why": "…", "details": "…"?, "from": "dibs", "repo": "tether"?,
+            "files": [{"id": "<jarvis file id>", "name": "a.jpg", "size": 123, "image": true}]?}],
+  "questions": [{"id": 249, "title": "…", "why": "…", "details": "…"?, "from": "dibs", "repo": "jarvis"?,
                  "ts": …, "blocking": false, "phone": {"secs": 1800, "unlock": true}?,
                  "actions": [{"id": "y249", "label": "Yes", "style": "primary", "pick": true}], "reply": "r249"?,
                  "hint": "Answer in your own words…"?,
@@ -157,7 +157,7 @@ no blocks except the lend card (old screens aren't shown any more); older apps k
                       "more": ["its other lines, whole"]?, "report": "the task's report, whole"?,
                       "reopen": "<claude session id>"?}],
             "decided": [{"id": 250, "text": "…", "why": "…", "from": "…", "ts": …, "undo": true,
-                         "project": "Tether", "plain": true, "raw": "the agent's whole text"}]?,
+                         "project": "Jarvis", "plain": true, "raw": "the agent's whole text"}]?,
             "items": [<Brief>]?, "unread": 3?, "needs": 1?,          // the morning recap, below (0.10.0)
             "small": {"n": 47, "groups": [{"project": "dibs", "n": 21, "lines": ["…"]}]}?,
             "stories": [{"task": 189, "title": "…", "ts": …, "project": "dibs"?}]?},   // every full story kept, newest first
@@ -225,14 +225,14 @@ seconds) and while the app says the user is typing; lines that reach it mid-repl
   10 min without a sign of the user the Wait lapses and the reply shows. A Wait after dibs already answered does
   nothing. Docs/PLAN.md in dibs ("Wait / Go").
 
-### Files to dibs (Tether's core and daemon)
+### Files to dibs (Jarvis's core and daemon)
 - New body `Body::ChannelFile { channel, name, size, sha256 }`, appended to the enum (an older peer
   skips the frame and the sender keeps it queued; the ship installs the daemon before the phone). It's
   a file in every other way: stored as kind `file` with its `channel` set, so resume, sha256, Ack,
   cancel, progress and `TransferService` all work unchanged.
 - The receiver puts a channel file in `<state>/channels/<channel>/` (not Downloads), with no toast,
-  no clipboard, out of the Laptop chat and its unread count. `tether thread <ch> --json` lists it as
-  `{"id","from_me","ts_ms","file":{"name","size","state","path"?}}`, and `tether watch` sends the
+  no clipboard, out of the Laptop chat and its unread count. `jarvis-link thread <ch> --json` lists it as
+  `{"id","from_me","ts_ms","file":{"name","size","state","path"?}}`, and `jarvis-link watch` sends the
   channel's notice when one completes.
 - The phone sends each file with `send_channel_file`, then one `say` action naming their ids with the
   caption. dibs applies it once every named file has arrived (it waits otherwise, and a later notice
@@ -240,7 +240,7 @@ seconds) and while the app says the user is typing; lines that reach it mid-repl
   read the images. The phone draws its own thumbnails (`Thumbs`, by file id).
 
 ### dibs (`~/Projects/dibs`, own branch)
-- `tether.rs`: the payload (`dibs_json`), gated on `phone_app` ≥ 0.4.0; the new actions; files on `say`.
+- `jarvis.rs`: the payload (`dibs_json`), gated on `phone_app` ≥ 0.4.0; the new actions; files on `say`.
 - `talk.rs`: `files`, `short` and `note` columns; `dibs act`'s lines keep the full quote (`short`
   without it) and are notes. Coordinate with the brain sessions working in `talk.rs`/`words.rs`.
 
@@ -251,7 +251,7 @@ seconds) and while the app says the user is typing; lines that reach it mid-repl
 4. Android: the `:dibs` module skeleton, `DibsHost`, `DibsActivity`, wiring; the screens once the
    user has picked the look; unit tests for the payload parser and chat folding.
 5. Independent review; on the Pixel with screenshots when the user is home (`dibs phone request`);
-   `dibs ship` in Tether (daemon first, then the app) and in dibs.
+   `dibs ship` in Jarvis (daemon first, then the app) and in dibs.
 
 ## Later (not in this task)
 - dibs's replies as a MessagingStyle conversation notification (Person "dibs").
@@ -268,7 +268,7 @@ seconds) and while the app says the user is typing; lines that reach it mid-repl
   `ui/TranscriptScreen.kt`, `ui/ReportScreen.kt`. The chat's parts moved to `ui/ChatParts.kt`; each chat has its own
   `Composer` (draft, picked files, `say`); the task page's own box went with word 221.
 - Back stack: `Dibs.pages` (`Page.Task|Transcript|Report`), popped by system back; `DibsActivity.EXTRA_TASK`
-  (`com.kivan.tether.dibs.TASK`, a Long) opens a task. The other tabs keep their scroll under a page
+  (`com.kivan.jarvis.dibs.TASK`, a Long) opens a task. The other tabs keep their scroll under a page
   (`SaveableStateHolder`); the Chat tab still opens at its newest line.
 - `:app`: `DibsHost.channelFile(prefix)` reads the core's new `app_files` (ffi) listing, again on each received
   channel file (`Core.channelFiles`); with no node running it reads `state/channels/dibs/`. `send` takes the action
@@ -291,7 +291,7 @@ can talk to that task's own agent from the phone. No per-project dibs chats and 
 the plan is in `~/Projects/dibs/docs/PLAN.md`, "Your tasks on the phone".
 
 ### What the user gets
-- **A Tasks tab in place of Work.** It holds every task the user asked for, grouped by project (tether, dibs,
+- **A Tasks tab in place of Work.** It holds every task the user asked for, grouped by project (jarvis, dibs,
   the research folders under "Other"), from its start until they tick it off. Running ones are listed too, so a
   task's whole life is in one place.
   - **A row:** a plain title, its state ("Needs you", "Working · 40 min", "Done 21:36", "Stopped") and one line
@@ -372,7 +372,7 @@ the plan is in `~/Projects/dibs/docs/PLAN.md`, "Your tasks on the phone".
    - Its open questions as the same cards as in Waiting. Answering in either place closes the question in both.
    - **What it did:** the task's report, in full.
    - **Result:** a "Report" chip when the task wrote a REPORT.md (it opens in a reader on the phone), and "Shipped to
-     tether · 3 changes" with their "For you" lines.
+     jarvis · 3 changes" with their "For you" lines.
    - **You asked:** in full (until 0.5.9 folded to three lines ending in "…").
    - **Transcript.**
    - The earlier messages with its agent, read-only (below), and **Ask dibs about it**.
@@ -398,10 +398,10 @@ the plan is in `~/Projects/dibs/docs/PLAN.md`, "Your tasks on the phone".
 These are new keys in the `dibs` payload, sent only to app 0.5.0 and newer. Older apps keep `tasks` and the Work tab.
 ```json
 "yours": [{"id": 31, "title": "Recap: one entry per finished job", "name": "the-dibs-app-s-recap-tab",
-           "project": "tether", "state": "needs|working|paused|done|stopped|failed", "ts": 1791230000,
+           "project": "jarvis", "state": "needs|working|paused|done|stopped|failed", "ts": 1791230000,
            "started": …, "finished": …?, "minutes": 95, "line": "what changed, or doing now",
            "asked": "the user's words, whole", "report": "whole"?,
-           "result": {"report_md": true?, "shipped": [{"repo": "tether", "for_you": ["…"]}]?}?,
+           "result": {"report_md": true?, "shipped": [{"repo": "jarvis", "for_you": ["…"]}]?}?,
            "questions": [249], "busy": false, "live": true, "unread": true, "ticked": …?,
            "talk": [{"id": "t31-4", "who": "user|agent|note", "text": "whole", "short": "…"?, "ts": …,
                      "files": [{"id", "name", "size", "image"}]?}]}],
@@ -438,8 +438,8 @@ These are new keys in the `dibs` payload, sent only to app 0.5.0 and newer. Olde
     ("The board" above) or, since 0.10.5, the Start/Park button on its face (`value.act` = its `primary`).
 - Unchanged: `stop`, `reopen` and the question answers. `tell` stays for older apps.
 
-### What changes in Tether
-- **Daemon:** a new `tether send --channel <ch> <file>…` (socket op `send_channel_file`), so dibs can hand the
+### What changes in Jarvis
+- **Daemon:** a new `jarvis-link send --channel <ch> <file>…` (socket op `send_channel_file`), so dibs can hand the
   phone a file on its channel.
   - The core already sends `ChannelFile` both ways, and the phone already keeps channel files in
     `channels/<ch>/`, out of Downloads and the chat (`Core.kt`). The core doesn't change.
@@ -459,7 +459,7 @@ These are new keys in the `dibs` payload, sent only to app 0.5.0 and newer. Olde
 - **Version 0.5.0.** The ship installs the daemon first, then dibs, then the app.
 
 ### Build order (each step shippable and reviewed)
-1. Tether daemon: `send --channel` and its test. Nothing uses it yet, so it ships alone.
+1. Jarvis daemon: `send --channel` and its test. Nothing uses it yet, so it ships alone.
 2. dibs: the data and actions, delivery to the task's agent and its replies coming back, the transcript renderer
    (`dibs task transcript`, also useful at the laptop) and `fetch`. The plan is in dibs's PLAN.md.
 3. App: the Tasks tab and the task page (summary, questions, result, tick off, stop, Open on laptop). This is
@@ -492,7 +492,7 @@ one matters" flag would be the next step.
   keyboard on 320×568 dp it wasn't laid out at all). Now the toggles step aside while typing, as the tab bar
   already did, and `ScreensTest` checks the box at 30, 45 and 55 % keyboards. PNGs:
   `./gradlew :dibs:testDebugUnitTest -Pscreenshots --tests '*ScreensTest*'` → `dibs/build/outputs/roborazzi/`.
-- **Typed answers on every question card** are task #66's (dibs-tether-questions), on both sides.
+- **Typed answers on every question card** are task #66's (dibs-jarvis-questions), on both sides.
 - **Pictures full screen** (word 125): a tap on a thumbnail opens `ImageViewer` (pinch or double tap to zoom, drag
   while zoomed, back or ✕ closes). `DibsHost.image(id, maxPx)` gives the sharpest copy: a file dibs sent is kept
   in its channel folder; the user's own sent copies are gone, so theirs show the 720 px thumbnail. Images dibs
@@ -555,7 +555,7 @@ Gemini (free tier, key in `local.properties`) transcribe and title, and sends th
   worker take only the file whose hash the view names (`IdeaNote.loadPrefix`). `:app` prunes them as transcripts.
 - **Drafts** (`ideas/Drafts.kt`): what was made here and isn't listed yet, one JSON file each under
   `files/dibs-ideas`. A recording's draft is written when it starts, so a crash or a restart keeps what it got;
-  only an empty one goes. A whole draft goes to Tether's queue (`DibsHost.actStored`, which returns once it is
+  only an empty one goes. A whole draft goes to Jarvis's queue (`DibsHost.actStored`, which returns once it is
   stored) and is dropped when a view lists it (an addition: when its note's `adds` has it). An addition whose note
   is in Trash, or gone, fails and keeps its words (Retry, Delete). One not listed 10 min after it went goes again,
   only while the link is up. The last view's `ideas` is kept on disk for a cold worker.
@@ -580,7 +580,7 @@ The user chose option A of dibs's docs/plan/talking.md: a short conversation abo
 later a project or a file) with a helper that knows only that subject, so questions don't wake dibs's brain or
 crowd the main chat. The contract both apps draw is the task's DESIGN.md (payload and actions below); the
 mockups are its p1–p9. The user never sees the word "thread": it is **Ask about it** / **Ask about this note**,
-**Back to your questions** while one is open, **Ask more** once ended (dibs words the label). Tether already has a
+**Back to your questions** while one is open, **Ask more** once ended (dibs words the label). Jarvis already has a
 "thread" channel kind, so the Kotlin says `Asking`, `AskPage`, `Page.Ask(about)`, `AskRow`.
 
 - **Contract.** The payload's `threads` (dibs ≥ the #102 ship; dibs gates it on app 0.7.0): conversations active in
@@ -670,9 +670,9 @@ the wire formats both sides build byte for byte are the task's SPEC.md (dibs tas
   none (or it was invalidated), shows its code (sha256 of the public key's SubjectPublicKeyInfo, 16 hex in 4
   groups; the laptop's setup popup shows the same) and sends `root-key` `{spki: base64, strongbox, fingerprint}`.
   dibs only stores it; the laptop's setup step, with one password, makes the helper trust it.
-- **Release signing.** Once the release key moves to `/var/lib/dibs-root/keys` (root only), `~/.config/tether/
+- **Release signing.** Once the release key moves to `/var/lib/dibs-root/keys` (root only), `~/.config/jarvis/
   keystore.properties` is gone, Gradle builds `app-release-unsigned.apk` (zipaligned) and
-  `scripts/install-phone.sh` runs `dibs root request "Sign Tether <version> for your phone" --script
+  `scripts/install-phone.sh` runs `dibs root request "Sign Jarvis <version> for your phone" --script
   scripts/sign-apk.sh --file app.apk=<unsigned> --wait 1800`, then installs the `app.apk` from the `out: <dir>` it
   prints. `scripts/sign-apk.sh` is the fixed script the user approves (keep its bytes stable, so "Never ask
   again" keeps matching). While `keystore.properties` exists, the build signs as before.
@@ -707,7 +707,7 @@ a few lines typed and the keyboard closed, the chat got under 40 % of the screen
 - **The dibs page** (`Page.Status`, opened by a tap on the bar's mark, name or marks, and from ⋮ "Laptop and
   phone"): the state in words, the two lend switches as full cards, the spending limit if there is one (the 5-hour and weekly windows are the bar's rings),
   the laptop's load (memory, cores, builds, agents; moved off the Tasks tab) and its room for more tasks, Start
-  dibs when the brain is down, Open Tether. This is the one place for all of it; no tab shows lend cards
+  dibs when the brain is down, Open Jarvis. This is the one place for all of it; no tab shows lend cards
   any more. "Start dibs" also stays in the bar while the brain is down (it blocks everything).
 - **Tasks**: each board section shows its count ("Working now · 2", "Queue · 5"); dibs renames "Up next" to
   **Queue** in its board (phone, desktop app and the brain's own words match). When the laptop has no room, the
@@ -731,7 +731,7 @@ state just when dibs is working. A slim pinned bar gives the chat about 240 dp b
   filled accent pills with an icon, only while lent; "5h 88%" shows in amber only for the first window past 80 %;
   the whole mark, name and marks area is one button (`dibs, laptop and phone`) opening `Page.Status`
   (`ui/StatusPage.kt`: state, both lend cards stacked, every usage line whole, the laptop's load and the board's
-  `room.line`, Start dibs, Open Tether). The Tasks tab's laptop block is gone. On a 412×915 dp screen the
+  `room.line`, Start dibs, Open Jarvis). The Tasks tab's laptop block is gone. On a 412×915 dp screen the
   conversation takes more than 65 % of the window with the keyboard closed (`ScreensTest.theChatKeepsMostOfTheScreen`);
   a 320×568 dp screen has less room because of its 80 dp tab bar, and its keyboard-open cases still show the box.
 - Folded in: section counts and "Move to the queue" (the column title is dibs's, never hard-coded), the room line
@@ -841,7 +841,7 @@ three agree. Screen tests: `ScreensTest` (`links-chat`, `links-card`, `links-tas
 Things the user asked to hear about at once (a task they called urgent, done or stuck; a promise to tell them urgently)
 ring loudly. dibs decides what is loud; the phone only obeys the flag.
 
-- **The flag.** A thread post with `"loud": true` (`tether post --loud`, `dibs-phone post --loud`). An older app ignores
+- **The flag.** A thread post with `"loud": true` (`jarvis-link post --loud`, `dibs-phone post --loud`). An older app ignores
   the field and shows a normal notification.
 - **The channel.** `loud`, shown in Android's settings as "Urgent from dibs": high importance, the default alarm sound on
   the alarm stream (so it is heard in silent mode), a long vibration, played once (no looping, no volume change, no

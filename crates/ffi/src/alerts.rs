@@ -165,9 +165,9 @@ mod tests {
         let (phone, gate, stranger) = (endpoint(vec![ALERT_ALPN.to_vec()]).await, endpoint(vec![]).await, endpoint(vec![]).await);
         tokio::spawn(accept(phone.clone(), gate.id()));
 
-        let answer = send(&gate, &phone, "{\"id\":42,\"ts_ms\":1,\"title\":\"Job done\",\"text\":\"tether notify \",\"url\":\"/t/42\"}\n").await.unwrap();
+        let answer = send(&gate, &phone, "{\"id\":42,\"ts_ms\":1,\"title\":\"Job done\",\"text\":\"jarvis notify \",\"url\":\"/t/42\"}\n").await.unwrap();
         assert_eq!(answer, "42\n");
-        assert_eq!(shown.0.lock().unwrap().as_slice(), [(42, "Job done".to_string(), "tether notify /t/42".to_string())]);
+        assert_eq!(shown.0.lock().unwrap().as_slice(), [(42, "Job done".to_string(), "jarvis notify /t/42".to_string())]);
 
         // Not shown (notifications off): the reason instead of the id, so the sender can say it.
         *shown.1.lock().unwrap() = Some("Jarvis channel off".to_string());

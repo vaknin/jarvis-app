@@ -1,4 +1,4 @@
-//! uniffi bindings of [`tether_core::node::Node`] for the Android app.
+//! uniffi bindings of [`jarvis_core::node::Node`] for the Android app.
 //!
 //! The library owns one multi-threaded tokio runtime. Async exports run their work on it and are
 //! awaited from Kotlin coroutines. The app keeps one node running for as long as its process lives
@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use tether_core::{
+use jarvis_core::{
     node::{self, Config, Net, Node},
     proto::{self, Frame},
     store::{self, State},
@@ -29,37 +29,37 @@ static RT: LazyLock<Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
-        .thread_name("tether")
+        .thread_name("jarvis")
         .build()
         .expect("tokio runtime")
 });
 
 #[derive(Debug, uniffi::Error)]
-pub enum TetherError {
+pub enum JarvisError {
     Failed { reason: String },
 }
 
-impl std::fmt::Display for TetherError {
+impl std::fmt::Display for JarvisError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TetherError::Failed { reason } => f.write_str(reason),
+            JarvisError::Failed { reason } => f.write_str(reason),
         }
     }
 }
 
-impl std::error::Error for TetherError {}
+impl std::error::Error for JarvisError {}
 
-impl From<anyhow::Error> for TetherError {
+impl From<anyhow::Error> for JarvisError {
     fn from(e: anyhow::Error) -> Self {
-        TetherError::Failed { reason: format!("{e:#}") }
+        JarvisError::Failed { reason: format!("{e:#}") }
     }
 }
 
-type Res<T> = Result<T, TetherError>;
+type Res<T> = Result<T, JarvisError>;
 
 /// Runs `fut` on the library's runtime; iroh and the node's tasks need a tokio context.
 async fn on_rt<T: Send + 'static>(fut: impl Future<Output = T> + Send + 'static) -> T {
-    RT.spawn(fut).await.expect("tether task panicked")
+    RT.spawn(fut).await.expect("jarvis task panicked")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -305,29 +305,55 @@ pub trait EventListener: Send + Sync {
 }
 
 #[derive(uniffi::Object)]
-pub struct TetherNode {
+pub struct JarvisNode {
     node: Node,
     listener: Mutex<Option<JoinHandle<()>>>,
 }
 
+/// What [`move_fix`] found.
+#[derive(uniffi::Record)]
+pub struct MoveFix {
+    pub messages: u64,
+    pub paths: u64,
+    /// The paired identity arrived.
+    pub identity: bool,
+    pub integrity: String,
+}
+
+/// The chat database arrived from the old app (thread #190): the new file name, its file paths pointed
+/// at this app's directory, and what's in it, checked. Run while the node is stopped.
+#[uniffi::export]
+pub fn move_fix(state_dir: String, from: String, to: String) -> Res<MoveFix> {
+    let db = jarvis_core::compat::database(state_dir.as_ref())?;
+    let store = jarvis_core::store::Store::open(&db)?;
+    let paths = store.move_paths(&format!("{from}/"), &format!("{to}/"))?;
+    let key = store.get_kv("secret_key")?.unwrap_or_default();
+    Ok(MoveFix {
+        messages: store.count()?,
+        paths,
+        identity: key.len() == 32,
+        integrity: store.integrity()?,
+    })
+}
+
 /// Starts the phone's node: n0 relays + mDNS, a random port, and the core's redial loop, which
 /// dials only while something is queued for the laptop.
+/// `app_version` is told to the laptop on every link (`jarvis-link status --json`'s `phone_app`).
 #[uniffi::export]
-/// `app_version` is told to the laptop on every link (`tether status --json`'s `phone_app`).
-pub async fn start(state_dir: String, download_dir: String, name: String, app_version: String) -> Res<Arc<TetherNode>> {
+pub async fn start(state_dir: String, download_dir: String, name: String, app_version: String) -> Res<Arc<JarvisNode>> {
     init_logging();
     on_rt(async move {
         let mut cfg = Config::new(PathBuf::from(state_dir), PathBuf::from(download_dir), name);
         cfg.net = Net::Internet { port: None };
         cfg.app_version = Some(app_version);
         let node = Node::start(cfg).await?;
-        Ok(Arc::new(TetherNode { node, listener: Mutex::new(None) }))
+        Ok(Arc::new(JarvisNode { node, listener: Mutex::new(None) }))
     })
     .await
 }
 
 #[uniffi::export]
-impl TetherNode {
+impl JarvisNode {
     /// Delivers every later event to `listener`, replacing any earlier one.
     pub fn set_listener(&self, listener: Box<dyn EventListener>) {
         let mut rx = self.node.events();
@@ -349,6 +375,11 @@ impl TetherNode {
         }
     }
 
+    /// How many messages the node holds; the move checks them all arrived.
+    pub fn message_count(&self) -> Res<u64> {
+        Ok(self.node.message_count()?)
+    }
+
     pub fn status(&self) -> Res<Status> {
         let s = self.node.status()?;
         Ok(Status {
@@ -366,7 +397,7 @@ impl TetherNode {
         self.node.is_connected()
     }
 
-    /// The laptop asked the link to stay open (e.g. `tether notifications --fresh`).
+    /// The laptop asked the link to stay open (e.g. `jarvis-link notifications --fresh`).
     pub fn peer_stays(&self) -> bool {
         self.node.peer_stays()
     }
@@ -384,7 +415,7 @@ impl TetherNode {
         Ok(self.node.mark_read()?)
     }
 
-    /// Pairs with the laptop whose QR showed `code` (`tether:1:<id>:<token>`).
+    /// Pairs with the laptop whose QR showed `code` (`jarvis:1:<id>:<token>`).
     pub async fn pair(&self, code: String) -> Res<PeerInfo> {
         let node = self.node.clone();
         Ok(on_rt(async move { node.pair(&code).await }).await?.into())
@@ -455,7 +486,7 @@ impl TetherNode {
     }
 
     pub fn app_done(&self, id: String) -> Res<()> {
-        let id = id.parse().map_err(|e: uuid::Error| TetherError::Failed { reason: e.to_string() })?;
+        let id = id.parse().map_err(|e: uuid::Error| JarvisError::Failed { reason: e.to_string() })?;
         Ok(self.node.app_done(id)?)
     }
 
@@ -532,7 +563,7 @@ impl TetherNode {
     }
 }
 
-impl TetherNode {
+impl JarvisNode {
     fn dial_soon(&self) {
         if self.node.is_connected() {
             return;
@@ -550,7 +581,7 @@ fn init_logging() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         use tracing_subscriber::{Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-        let filter = tracing_subscriber::EnvFilter::new("info,tether_core=debug,iroh=warn,netwatch=error,swarm_discovery=error");
+        let filter = tracing_subscriber::EnvFilter::new("info,jarvis_core=debug,iroh=warn,netwatch=error,swarm_discovery=error");
         #[cfg(target_os = "android")]
         let out = fmt::layer().with_ansi(false).without_time().with_writer(logcat::Writer::default);
         #[cfg(not(target_os = "android"))]
@@ -561,7 +592,7 @@ fn init_logging() {
     });
 }
 
-/// Minimal logcat writer: each formatted line goes to `__android_log_write` with tag "tether".
+/// Minimal logcat writer: each formatted line goes to `__android_log_write` with tag "jarvis".
 #[cfg(target_os = "android")]
 mod logcat {
     use std::{ffi::CString, io};
@@ -592,7 +623,7 @@ mod logcat {
             let text: Vec<u8> = self.0.iter().copied().filter(|&b| b != 0 && b != b'\n').collect();
             if let Ok(text) = CString::new(text) {
                 // SAFETY: both pointers are NUL-terminated and live for the call.
-                unsafe { __android_log_write(INFO, c"tether".as_ptr().cast(), text.as_ptr().cast()) };
+                unsafe { __android_log_write(INFO, c"jarvis".as_ptr().cast(), text.as_ptr().cast()) };
             }
         }
     }
@@ -606,7 +637,7 @@ mod tests {
     /// needs no network: start, status, queue, recent, shutdown, restart on the same state.
     #[test]
     fn start_queue_restart() {
-        let dir = std::env::temp_dir().join(format!("tether-ffi-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("jarvis-ffi-{}", uuid::Uuid::new_v4()));
         let state = dir.join("state").to_string_lossy().into_owned();
         let dl = dir.join("dl").to_string_lossy().into_owned();
         RT.block_on(async {
@@ -635,7 +666,7 @@ mod tests {
 /// first [`start`].
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_kivan_tether_Native_init(
+pub extern "system" fn Java_com_kivan_jarvis_Native_init(
     env: *mut jni_sys::JNIEnv,
     _this: jni_sys::jobject,
     context: jni_sys::jobject,

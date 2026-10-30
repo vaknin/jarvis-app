@@ -23,7 +23,7 @@ pub struct UdpSocket {
     send_waker: AtomicWaker,
     /// Set to true, when an error occurred, that means we need to rebind the socket.
     is_broken: AtomicBool,
-    /// PATCHED (tether): a rebind failed and none has worked since (logs once per streak).
+    /// PATCHED (jarvis): a rebind failed and none has worked since (logs once per streak).
     rebind_failing: AtomicBool,
 }
 
@@ -84,7 +84,7 @@ impl UdpSocket {
         {
             let mut guard = self.socket.write().unwrap();
             if let Err(err) = guard.rebind() {
-                // PATCHED (tether): the old socket is gone and the state is Closed. Mark it broken so
+                // PATCHED (jarvis): the old socket is gone and the state is Closed. Mark it broken so
                 // the next poll's `maybe_rebind` tries again; upstream left `is_broken` false here, so
                 // nothing ever retried and every send/recv failed with "socket closed" for good.
                 self.rebind_failed(&err);
@@ -323,7 +323,7 @@ impl UdpSocket {
         Ok(())
     }
 
-    /// PATCHED (tether): says once per failing streak why the rebind failed, at error level so the
+    /// PATCHED (jarvis): says once per failing streak why the rebind failed, at error level so the
     /// phone's log filter (`netwatch=error`) keeps it; the retries after it stay quiet.
     fn rebind_failed(&self, err: &io::Error) {
         if !self
@@ -1194,7 +1194,7 @@ mod tests {
         Ok(())
     }
 
-    /// PATCHED (tether): a rebind that fails (here: the port is taken meanwhile) leaves the socket
+    /// PATCHED (jarvis): a rebind that fails (here: the port is taken meanwhile) leaves the socket
     /// broken, and the next send binds it again once the port is free.
     #[tokio::test]
     async fn test_udp_failed_rebind_retries() -> TestResult {

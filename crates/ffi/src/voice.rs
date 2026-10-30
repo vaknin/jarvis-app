@@ -1,4 +1,4 @@
-//! Voice calls with Jarvis for the app: [`tether_voice::Call`] behind a uniffi object. The app's
+//! Voice calls with Jarvis for the app: [`jarvis_voice::Call`] behind a uniffi object. The app's
 //! mic thread pushes 20 ms frames with `send_audio`, its speaker thread pulls with `pull_audio`
 //! (blocking writes to the AudioTrack pace it), and the listener hears the call's state.
 //!
@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use tether_voice::{Call, Events, Status, Timing, Word, websocket};
+use jarvis_voice::{Call, Events, Status, Timing, Word, websocket};
 
 use crate::RT;
 
@@ -189,7 +189,7 @@ impl Events for Bridge {
 #[uniffi::export]
 pub fn voice_end(url: String, id: String) -> bool {
     crate::init_logging();
-    match RT.block_on(tether_voice::call::end(websocket(url), id.clone(), Timing::default())) {
+    match RT.block_on(jarvis_voice::call::end(websocket(url), id.clone(), Timing::default())) {
         Ok(()) => {
             tracing::info!("voice: hung up the dropped call {id}");
             true
@@ -225,7 +225,7 @@ impl VoiceCall {
     pub fn about(url: String, listener: Box<dyn VoiceListener>, topic: u64, title: String, text: String, phone_stt: bool) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
-        let about = tether_voice::proto::About { topic, title, text, task: None };
+        let about = jarvis_voice::proto::About { topic, title, text, task: None };
         Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
     }
 
@@ -234,7 +234,7 @@ impl VoiceCall {
     pub fn about_task(url: String, listener: Box<dyn VoiceListener>, slug: String, phone_stt: bool) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
-        let about = tether_voice::proto::About { topic: 0, title: String::new(), text: String::new(), task: Some(slug) };
+        let about = jarvis_voice::proto::About { topic: 0, title: String::new(), text: String::new(), task: Some(slug) };
         Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
     }
 

@@ -1,5 +1,5 @@
-//! `tether channel add|set|rm`: the supported way to create and change a channel manifest
-//! (`~/.config/tether/apps/<name>.toml`). It edits the file; the CLI then asks the daemon to reload.
+//! `jarvis-link channel add|set|rm`: the supported way to create and change a channel manifest
+//! (`~/.config/jarvis/apps/<name>.toml`). It edits the file; the CLI then asks the daemon to reload.
 //! Every result is checked by parsing it as a manifest, so a typo or a bad value is refused here
 //! instead of the daemon logging and skipping the file later.
 
@@ -84,7 +84,7 @@ fn write(path: &Path, doc: &DocumentMut) -> Result<()> {
 
 pub fn add(dir: &Path, name: &str, new: &New, force: bool) -> Result<PathBuf> {
     let path = path(dir, name)?;
-    ensure!(force || !path.exists(), "{name} already exists (`tether channel set {name} …` changes it, --force replaces it)");
+    ensure!(force || !path.exists(), "{name} already exists (`jarvis-link channel set {name} …` changes it, --force replaces it)");
     let mut doc = DocumentMut::new();
     let strs = [
         ("title", &new.title),

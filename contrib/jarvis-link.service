@@ -1,0 +1,12 @@
+[Unit]
+Description=Jarvis: laptop <-> phone link
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.cargo/bin/jarvis-link daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

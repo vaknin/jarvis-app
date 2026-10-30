@@ -1,15 +1,15 @@
 [package]
-name = "tether-ffi"
+name = "jarvis-ffi"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "tether_ffi"
+name = "jarvis_ffi"
 
 [[bin]]
-# Generates the Kotlin bindings from the built library: `cargo run -p tether-ffi --bin uniffi-bindgen`.
+# Generates the Kotlin bindings from the built library: `cargo run -p jarvis-ffi --bin uniffi-bindgen`.
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
 required-features = ["bindgen"]
@@ -18,8 +18,8 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
-tether-core = { path = "../core" }
-tether-voice = { path = "../voice" }
+jarvis-core = { path = "../core" }
+jarvis-voice = { path = "../voice" }
 uniffi = "0.32.2"
 tokio.workspace = true
 anyhow.workspace = true

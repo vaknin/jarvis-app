@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "tether"
+rootProject.name = "jarvis-link"
 include(":app")

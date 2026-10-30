@@ -2,6 +2,6 @@
 # callback interfaces and the library interface; keep all of it.
 -keep class com.sun.jna.** { *; }
 -keep class * implements com.sun.jna.** { *; }
--keep class com.kivan.tether.core.** { *; }
+-keep class com.kivan.jarvis.core.** { *; }
 -dontwarn java.awt.**
--keep class com.kivan.tether.Native { native <methods>; }
+-keep class com.kivan.jarvis.Native { native <methods>; }

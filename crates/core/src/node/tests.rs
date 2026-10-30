@@ -98,7 +98,7 @@ async fn pairing_code_is_single_use() {
     b.pair(&code).await.unwrap();
     assert!(c.pair(&code).await.is_err());
 
-    let forged = format!("tether:1:{}:{}", a.id(), BASE32_NOPAD.encode(&[7u8; 32]));
+    let forged = format!("{}:1:{}:{}", crate::compat::PAIR_WORD, a.id(), BASE32_NOPAD.encode(&[7u8; 32]));
     a.pair_offer();
     assert!(c.pair(&forged).await.is_err());
     assert_eq!(a.peer().unwrap().id, b.id().to_string());
@@ -594,7 +594,7 @@ async fn a_queued_channel_file_is_resent_as_one() {
 
 #[tokio::test]
 async fn the_laptop_sends_a_channel_file_to_the_phone() {
-    // `tether send --channel dibs`: a transcript for the dibs app, kept with the channel.
+    // `jarvis-link send --channel dibs`: a transcript for the dibs app, kept with the channel.
     let d = tempfile::tempdir().unwrap();
     let (a, b) = paired(d.path()).await;
     let (mut ea, mut eb) = (a.events(), b.events());

@@ -1,5 +1,5 @@
 [package]
-name = "tether-voice"
+name = "jarvis-voice"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

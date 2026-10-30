@@ -7,11 +7,11 @@ Rounds 1-3 are in git history; their "no app commit explains it" and the one-bud
 ## Verdict in plain words
 The mic sometimes opens in a bad state, and a reopen brings it back. On the 13:39 call today (build 251, one connection,
 one pair of AirPods) the first open gave speech at raw peaks of 85, 703, 1753, climbing only as he kept talking. The trial
-closed the mic and opened it again in a pause, without Tether's echo and noise handles: 3300 to 19884 for the rest of the
+closed the mic and opened it again in a pause, without Jarvis's echo and noise handles: 3300 to 19884 for the rest of the
 call, every word heard, first syllable at full level even after 14 s of silence. That is his "single word doesn't work,
 keep talking and it starts": see "The gate".
 
-Not proven: one sample can't split "the reopen" from "no Tether handles", so the fix does both. It's the first
+Not proven: one sample can't split "the reopen" from "no Jarvis handles", so the fix does both. It's the first
 direct measurement of a bad mic turning good, and the first evidence not resting on matching windows.
 
 The timing stands: every AirPods call on build 234 was good, builds 235-238 landed together at 09:54 on 10-29, and since
@@ -107,7 +107,7 @@ recognizer heard it, the server's returned "". The server's speech-to-text moved
 weaker on such audio than the phone's, but it only sees what the phone sent: it decides whether quiet becomes "hears
 nothing", not why it's quiet.
 
-## What Tether does that other apps don't, on the mic path
+## What Jarvis does that other apps don't, on the mic path
 | Thing | In 234 (good)? | Verdict |
 |---|---|---|
 | `AcousticEchoCanceler`, `NoiseSuppressor` turned on on the record session | yes | **Changed.** See below |
@@ -158,7 +158,7 @@ AVRCP. It lines up with the good and bad windows, but only in one window each, t
 record ran with the switch off. The switch was on through all of it (logcat, 11:03:46).
 
 ## The fix (build 252 on)
-1. On Bluetooth Tether asks for no echo or noise processing: exactly the setup measured good. The system still attaches and
+1. On Bluetooth Jarvis asks for no echo or noise processing: exactly the setup measured good. The system still attaches and
    manages its own, which is what the headset's NREC is for.
 2. `MicWatch.kt`: a stretch on a headset reopens the mic once, in its first pause, whatever the level, because a bad open
    can't be told from a good one before he speaks. Then again if voice comes through quiet (loudest tenth under 1500 across
@@ -172,7 +172,7 @@ record ran with the switch off. The switch was on through all of it (logcat, 11:
    wait costs its full 3 s.
 3. `MediaKeys.claim` runs when headphones leave, never with headphones connected. No claim on a ring. Cost: if another app
    plays on the phone after the AirPods leave, the press belongs to that app until they next leave, and a press answers a
-   ring only when the keys are already Tether's.
+   ring only when the keys are already Jarvis's.
 4. `MicBoost` and `MicTrial` are gone: from the reopen on the boost read x1.0 for the whole call, so it wasn't the fix. Mic
    logging stays: each open logs where it landed, and a headset call logs its peak every 2 s.
 5. Phone STT stays, on every route.

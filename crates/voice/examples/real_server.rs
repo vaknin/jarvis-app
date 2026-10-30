@@ -1,6 +1,6 @@
 //! Drive the phone's call code against a real jarvis-voice: stream a 16 kHz mono WAV as the mic,
 //! print what the server says, then hang up.
-//! `cargo run -p tether-voice --example real_server -- CLIP.wav [URL] [OPTIONS]`
+//! `cargo run -p jarvis-voice --example real_server -- CLIP.wav [URL] [OPTIONS]`
 //!
 //! The call goes through a small proxy here, which can break the line mid-reply:
 //! - `--drop-ms N`: cut the line N ms after Jarvis's first reply audio came in, and refuse dials for
@@ -22,7 +22,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tether_voice::{Call, Events, Status, Timing, websocket};
+use jarvis_voice::{Call, Events, Status, Timing, websocket};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},

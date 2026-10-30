@@ -1,4 +1,4 @@
-//! `tether view --check`: does a channel view say what the phone and the panel draw? The contract
+//! `jarvis-link view --check`: does a channel view say what the phone and the panel draw? The contract
 //! is docs/PLAN.md "Data" and "Blocks"; the renderers skip what they don't know without a word,
 //! so an app that gets a field wrong sees nothing break, only a missing button. This names it.
 //! Problems are plain sentences with a JSON path; an empty list means the view is fine.
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn the_list_views_tether_makes_pass() {
+    fn the_list_views_jarvis_makes_pass() {
         let mut l = crate::lists::List::default();
         assert_eq!(check(&l.view()), Vec::<String>::new(), "empty");
         l.apply_op(crate::lists::ListOp::Add { text: "milk\nbread".into() }, 1).unwrap();

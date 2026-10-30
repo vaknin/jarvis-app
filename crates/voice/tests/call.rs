@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::anyhow;
 use futures_util::{SinkExt, StreamExt};
-use tether_voice::{Call, Connector, Earcon, Events, Frame, Status, Timing, call::Rx, call::Tx, websocket};
+use jarvis_voice::{Call, Connector, Earcon, Events, Frame, Status, Timing, call::Rx, call::Tx, websocket};
 use tokio::sync::mpsc;
 
 /// The server's side of one fake socket.
@@ -933,7 +933,7 @@ async fn a_drop_back_within_the_grace_goes_unnoticed() {
 async fn a_call_about_a_thread_says_so_until_the_server_has_it_but_never_on_resume() {
     let (conn, mut accept, _refuse) = fake();
     let log = Arc::new(Log::default());
-    let about = tether_voice::proto::About { topic: 112, title: "One app".into(), text: "Keep it?".into(), task: None };
+    let about = jarvis_voice::proto::About { topic: 112, title: "One app".into(), text: "Keep it?".into(), task: None };
     let _call = Call::start_about(conn, log.clone(), Timing::default(), Some(about));
     let with = r#"{"type":"hello","version":1,"resume":null,"about":{"topic":112,"title":"One app","text":"Keep it?"}}"#;
     let mut s = accept.recv().await.unwrap();
@@ -969,7 +969,7 @@ async fn phone_stt_says_so_feeds_the_recognizer_and_answers_each_cut() {
     wait_for(&log, "stt close 1").await;
     wait_for(&log, "stt audio 2 6400").await;
     tokio::time::sleep(Duration::from_millis(900)).await;
-    let w = |t: &str, ms| tether_voice::Word { text: t.into(), start_ms: ms };
+    let w = |t: &str, ms| jarvis_voice::Word { text: t.into(), start_ms: ms };
     call.stt_done(1, Some(vec![w("Check", 300), w("it.", 500), w("Next.", 850)]));
     let heard = s.text().await;
     assert!(heard.starts_with(r#"{"type":"heard","id":1,"text":"Check it.","ms":9"#), "{heard}");
@@ -1096,7 +1096,7 @@ async fn a_stalled_line_that_answers_ends_the_rekick() {
 #[tokio::test(start_paused = true)]
 async fn end_hangs_up_a_dropped_call_without_joining_it() {
     let (conn, mut accept, _refuse) = fake();
-    let done = tokio::spawn(tether_voice::call::end(conn, "c3".into(), Timing::default()));
+    let done = tokio::spawn(jarvis_voice::call::end(conn, "c3".into(), Timing::default()));
     let mut s = accept.recv().await.unwrap();
     assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c3","end":true}"#);
     let _ = s.to_phone.send(Ok(Frame::Close));
@@ -1104,7 +1104,7 @@ async fn end_hangs_up_a_dropped_call_without_joining_it() {
 
     // A server that never closes: not delivered (the app tries again).
     let (conn, mut accept, _refuse) = fake();
-    let done = tokio::spawn(tether_voice::call::end(conn, "c3".into(), Timing::default()));
+    let done = tokio::spawn(jarvis_voice::call::end(conn, "c3".into(), Timing::default()));
     let _s = accept.recv().await.unwrap();
     assert!(done.await.unwrap().is_err());
 }

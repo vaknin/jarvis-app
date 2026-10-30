@@ -1,5 +1,5 @@
 //! App channels (`docs/PLAN.md`, "App channels"). A channel's manifest is
-//! `~/.config/tether/apps/<name>.toml`: how the phone and the panel show it, and `exec`, the shell
+//! `~/.config/jarvis/apps/<name>.toml`: how the phone and the panel show it, and `exec`, the shell
 //! command that starts its app. The daemon reads the folder at start and on `channels_reload`, and
 //! publishes the list to the phone as the `_channels` view when it changed.
 //!
@@ -18,7 +18,7 @@ use std::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tether_core::node::{Event, Node};
+use jarvis_core::node::{Event, Node};
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 use tracing::{info, warn};
 
@@ -29,9 +29,9 @@ const RELAUNCH_GAP: Duration = Duration::from_secs(30);
 /// The daemon's own channel: the manifest list, as a view for the phone.
 pub const CHANNELS: &str = "_channels";
 
-/// `~/.config/tether/apps` (`$XDG_CONFIG_HOME` respected).
+/// `~/.config/jarvis/apps` (`$XDG_CONFIG_HOME` respected).
 pub fn default_dir() -> Result<PathBuf> {
-    Ok(crate::config_dir()?.join("tether/apps"))
+    Ok(crate::config_dir()?.join(jarvis_core::compat::DIR).join("apps"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,9 +48,9 @@ pub enum Dir {
 pub enum Kind {
     /// Has an app that publishes a view and takes actions.
     App,
-    /// Posts and replies only (`tether post`).
+    /// Posts and replies only (`jarvis-link post`).
     Thread,
-    /// A list the daemon keeps itself (`lists.rs`, `tether list`): no app has to run.
+    /// A list the daemon keeps itself (`lists.rs`, `jarvis-link list`): no app has to run.
     List,
 }
 

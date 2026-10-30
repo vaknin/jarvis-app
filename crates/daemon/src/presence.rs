@@ -1,6 +1,6 @@
 //! The phone's presence (`Presence.kt`): live frames on the reserved channel `_presence` saying
 //! the user unlocked or is using the phone, or that its screen went off. dibs reads them from
-//! `tether watch` (`{"type":"presence",…}`) and `tether status --json` (`phone_presence`), so it
+//! `jarvis-link watch` (`{"type":"presence",…}`) and `jarvis-link status --json` (`phone_presence`), so it
 //! knows the user is on the phone even away from home.
 //!
 //! Frame data: `{"op":"present","why":"unlock"|"use","ts":<phone epoch ms>}` or
@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::{Value, json};
-use tether_core::node::{Event, Node};
+use jarvis_core::node::{Event, Node};
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::debug;
 
@@ -55,7 +55,7 @@ impl Presence {
         json!({ "op": self.op, "why": self.why, "ts_ms": self.ts_ms, "got_ms": self.got_ms })
     }
 
-    /// A `tether watch` line.
+    /// A `jarvis-link watch` line.
     pub fn watch_json(&self) -> Value {
         let mut v = self.status_json();
         v["type"] = "presence".into();
@@ -104,7 +104,7 @@ pub async fn run(node: Node, tracker: Tracker) {
     loop {
         match rx.recv().await {
             Ok(Event::App { id: None, channel, data, from_me: false, .. }) if channel == CHANNEL => {
-                match Presence::parse(&data, tether_core::store::now_ms()) {
+                match Presence::parse(&data, jarvis_core::store::now_ms()) {
                     Some(p) => tracker.take(p),
                     None => debug!("presence: ignored {data:?}"),
                 }
@@ -178,7 +178,7 @@ mod tests {
     #[tokio::test]
     async fn a_phone_frame_reaches_the_tracker() {
         use std::time::Duration;
-        use tether_core::node::{Config, Net};
+        use jarvis_core::node::{Config, Net};
         let d = tempfile::tempdir().unwrap();
         let start = |name: &str| {
             let mut cfg = Config::new(d.path().join(name).join("state"), d.path().join(name).join("dl"), name);

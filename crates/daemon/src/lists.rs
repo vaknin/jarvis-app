@@ -4,7 +4,7 @@
 //!
 //! The state is `<state dir>/lists/<channel>.json`. The view the phone and the panel draw is
 //! derived from it and republished after every change; the phone's and the panel's taps arrive
-//! as ordinary app items and are applied here. Other programs use `tether list <channel> …`
+//! as ordinary app items and are applied here. Other programs use `jarvis-link list <channel> …`
 //! (add, ls, done, undo, rm, clear), which goes through the same code.
 
 use std::{
@@ -16,7 +16,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tether_core::{node::Node, store::now_ms};
+use jarvis_core::{node::Node, store::now_ms};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -41,7 +41,7 @@ pub struct List {
     pub items: Vec<Item>,
 }
 
-/// What `tether list` asks of a list channel.
+/// What `jarvis-link list` asks of a list channel.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum ListOp {
@@ -300,7 +300,7 @@ impl Lists {
         Ok(())
     }
 
-    /// A `tether list` command: apply, publish if it changed, reply.
+    /// A `jarvis-link list` command: apply, publish if it changed, reply.
     pub fn run_op(&self, node: &Node, channel: &str, keep_hours: u32, op: ListOp) -> Result<Value> {
         let now = now_ms();
         let (reply, changed) = self.with(channel, keep_hours, |l| l.apply_op(op, now))?;

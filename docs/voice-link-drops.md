@@ -26,7 +26,7 @@ or rebuild the node's endpoint when it happens; and `netwatch=error` in the ffi'
 
 ## The evening calls (20:58-21:02): a second endpoint with the phone's id
 Three calls at 20:58 died before `hello` ("Connection reset without closing handshake" at jarvis-voice).
-An emulator ran 20:55-20:58 with another job's **debug** build of Tether, and debug builds carried the
+An emulator ran 20:55-20:58 with another job's **debug** build of Jarvis, and debug builds carried the
 Pixel's forum key. The relay (iroh-relay 1.3, `clients.rs`) sends an id's traffic to its newest client,
 so the emulator took the phone's relay traffic, and on 5G (CGNAT) the call rides the relay. Debug builds
 now get their own key (`~/.config/jarvis/forum-emu-iroh-secret`, already in the gate's allow file) and
@@ -50,7 +50,7 @@ endpoint rebuild and the logs below should fix it or show it next time.
    `ended after …, B up, B down, via …; why`. jarvis-voice says why a socket ended and when a resume
    takes over a still-open socket.
 
-Checked end to end with a side gate and throwaway keys (`cargo test -p tether-ffi -- --ignored
+Checked end to end with a side gate and throwaway keys (`cargo test -p jarvis-link-ffi -- --ignored
 voice_through_the_gate`, `VOICE_HOLD=45` to keep the call up): killing the gate mid-call, the call
 stalled, dialed a second socket and carried on once the gate was back. The second connect took ~10 s
 after a gate restart (twice); not chased.
