@@ -218,3 +218,10 @@ Two things 252 got wrong or missed:
 Checked and out: permissions don't separate calls (BLUETOOTH_CONNECT is off on both apps, on good calls too). VOICE_RECOGNITION
 wasn't tried: Telecom owns the audio mode here, so another source risks being silenced by the system (from memory of AOSP, not
 tested). No app update landed around 10-29 09:00 and the system build is from September; the Bluetooth module's date wasn't checked.
+
+The 20:08 call's mic lines never reached the server: under a minute on the buds, and the update at 20:27:35 restarted the
+app before the call's end. So the log now goes the moment a call leaves a headset (every time, even after the one-minute
+send: that one only covers the stay's first minute), and before an update's restart while a call is on. The restart's send gets a
+2 s head start in the pause, not a wait for its answer: on the 20:27 install the app had at most 4 s from the download's end
+(20:27:32) to its death (20:27:36.4), so a commit alone could beat the upload. A slow network can still lose it. Look for
+`left a headset` and `an update restarts the app` in the `why` of `~/.jarvis/phone-logs/`.

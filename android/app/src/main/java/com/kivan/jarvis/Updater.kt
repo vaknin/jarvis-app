@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.kivan.jarvis.core.AppUpdate
+import com.kivan.jarvis.core.sendCallLog
 import com.kivan.jarvis.core.updateCheck
 import com.kivan.jarvis.core.updateFetch
 import kotlinx.coroutines.delay
@@ -55,6 +56,8 @@ object Updater {
     private const val DECLINED_MS = 12 * 60 * 60 * 1000L
     /** How often a waiting install looks for the call's pause. */
     private const val PAUSE_POLL_MS = 200L
+    /** What a call's log gets before the install that ends the process starts. */
+    private const val LOG_HEAD_START_MS = 2000L
 
     /** What the ⋮ menu shows: "", "Checking…", "Downloading 1.0.230 (40 MB)…", "Up to date", or an error. */
     private val _state = MutableStateFlow("")
@@ -200,6 +203,12 @@ object Updater {
                 while (!Voice.quiet()) delay(PAUSE_POLL_MS)
             }
             Log.i(TAG, "update: installing ${u.versionName} in a pause (call ${if (Voice.ui.value.live) "on" else "off"}) at ${System.currentTimeMillis()}")
+            // The process dies with the install, and the call's log with it: it goes first (thread #125).
+            if (Voice.ui.value.live) {
+                sendCallLog("an update restarts the app")
+                delay(LOG_HEAD_START_MS)
+                while (!Voice.quiet()) delay(PAUSE_POLL_MS)
+            }
             s.commit(pi.intentSender)
         }
     }

@@ -82,7 +82,7 @@ class CallService : Service() {
     @Volatile private var reroute = false
     /** When the headset's mic reopens; a new one for each stretch on a headset. */
     private var watch = MicWatch()
-    /** Frames sent from a headset's mic on this call: their lines go to the server. */
+    /** Frames sent from a headset's mic since the call last left one: their lines go to the server. */
     private var headsetFrames = 0L
     private var routeWatch: AudioManager.OnCommunicationDeviceChangedListener? = null
     /** Held while the call's audio plays, so media keys come to Jarvis after it ([MediaKeys]). */
@@ -358,7 +358,12 @@ class CallService : Service() {
         }
         openedOn = device?.id
         val onHeadset = headset(device)
-        if (!onHeadset) watch = MicWatch()
+        if (!onHeadset) {
+            watch = MicWatch()
+            // Now, not at the call's end: the call can outlast the log's window, or the process (thread #125).
+            if (headsetFrames > 0) sendCallLog("left a headset")
+            headsetFrames = 0
+        }
         val bluetooth = device?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || device?.type == AudioDeviceInfo.TYPE_BLE_HEADSET
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = try {
@@ -737,7 +742,7 @@ class CallService : Service() {
         private const val RATE = 16_000
         private const val FRAME_SAMPLES = 320
         private const val FRAME_BYTES = FRAME_SAMPLES * 2
-        /** A minute of mic on a headset, in frames: the log goes to the server then as well as at the end. */
+        /** A minute of mic on a headset, in frames: the log goes to the server then as well as on leaving it and at the end. */
         private const val LOG_AFTER_FRAMES = 3000L
         /** How long the call's first mic open waits for a connected headset to take the call. */
         private const val HEADSET_WAIT_MS = 3000L
