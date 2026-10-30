@@ -216,5 +216,5 @@ Two things 252 got wrong or missed:
    HAL or the buds. Don't treat the reopen as the fix.
 
 Checked and out: permissions don't separate calls (BLUETOOTH_CONNECT is off on both apps, on good calls too). VOICE_RECOGNITION
-wasn't tried: Telecom owns the audio mode here, so another source risks being silenced by the system. No system or Bluetooth
-module update landed around 10-29 09:00.
+wasn't tried: Telecom owns the audio mode here, so another source risks being silenced by the system (from memory of AOSP, not
+tested). No app update landed around 10-29 09:00 and the system build is from September; the Bluetooth module's date wasn't checked.
