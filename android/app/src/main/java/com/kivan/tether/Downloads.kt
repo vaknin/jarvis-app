@@ -13,7 +13,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Received files move from the app's private incoming dir into Downloads/Tether through
+ * Received files move from the app's private incoming dir into Downloads/Jarvis through
  * MediaStore (no storage permission needed for our own inserts). The resulting content URI is
  * remembered per message id so the chat can open it later.
  */
@@ -36,7 +36,7 @@ object Downloads {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
             put(MediaStore.Downloads.MIME_TYPE, mimeOf(name))
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Tether")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Jarvis")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)

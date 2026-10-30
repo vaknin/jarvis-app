@@ -31,7 +31,7 @@ object Notifier {
         nm.createNotificationChannels(
             listOf(
                 NotificationChannel(LINK, "Always on", NotificationManager.IMPORTANCE_MIN).apply {
-                    description = "Shown while Tether keeps the laptop link and the forum reachable"
+                    description = "Shown while Jarvis keeps the laptop link and the forum reachable"
                     setShowBadge(false)
                 },
                 // Low: quiet and never peeking or lighting the screen (an app may lower a channel it made).
@@ -94,7 +94,7 @@ object Notifier {
         runCatching { nm.notify(MESSAGE_ID, n) }
     }
 
-    /** A file from the laptop, now in Downloads/Tether: a tap opens it. */
+    /** A file from the laptop, now in Downloads/Jarvis: a tap opens it. */
     fun file(context: Context, m: ChatMessage, uri: Uri) {
         val nm = NotificationManagerCompat.from(context)
         if (!nm.areNotificationsEnabled()) return

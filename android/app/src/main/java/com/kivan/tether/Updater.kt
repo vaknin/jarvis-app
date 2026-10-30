@@ -65,7 +65,7 @@ object Updater {
     fun channel(nm: NotificationManager) {
         nm.createNotificationChannel(
             android.app.NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "A new Tether from Jarvis is ready to install"
+                description = "A new version of Jarvis is ready to install"
             },
         )
     }
@@ -195,7 +195,7 @@ object Updater {
     }
 
     /**
-     * "Tether 1.0.N is ready", once per version (a dismissed one isn't posted again every 6 hours).
+     * "Jarvis 1.0.N is ready", once per version (a dismissed one isn't posted again every 6 hours).
      * Its tap opens the app, which asks; or, given [confirm], Android's question itself.
      */
     private fun notice(context: Context, u: AppUpdate, downloaded: Boolean, confirm: Intent? = null) {

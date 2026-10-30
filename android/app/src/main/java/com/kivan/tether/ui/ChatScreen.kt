@@ -139,7 +139,7 @@ private fun PairScreen() {
         Icon(painterResource(R.drawable.lucide_laptop), null, Modifier.size(72.dp), tint = Accent)
         Text("Link your laptop", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Run tether pair on the laptop and scan the QR code it shows. The code works once, for 5 minutes.",
+            "Start pairing on the laptop and scan the QR code it shows. The code works once, for 5 minutes.",
             color = Muted,
             textAlign = TextAlign.Center,
         )
@@ -345,7 +345,7 @@ private fun open(ctx: Context, m: ChatMessage) {
 
 private fun copy(ctx: Context, m: ChatMessage) {
     val t = m.text ?: m.fileName ?: return
-    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Tether", t))
+    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Jarvis", t))
     toast(ctx, "Copied")
 }
 
