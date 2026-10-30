@@ -97,15 +97,33 @@ impl Drops {
         if self.sent.swap(true, Ordering::SeqCst) {
             return;
         }
-        RT.spawn(async move {
-            tokio::time::sleep(after).await;
-            let lines = crate::phonelog::recent(crate::phonelog::SEND_WINDOW, crate::phonelog::SEND_MAX);
-            match crate::forum::send_log(&why, &lines).await {
-                Ok(answer) => tracing::info!("voice: log sent ({} B, {why}): {answer}", lines.len()),
-                Err(e) => tracing::warn!("voice: log not sent ({why}): {e:#}"),
-            }
-        });
+        upload(why, after);
     }
+}
+
+/// Sends the recent log lines to the server, `after` from now. Best effort.
+fn upload(why: String, after: Duration) {
+    RT.spawn(async move {
+        tokio::time::sleep(after).await;
+        let lines = crate::phonelog::recent(crate::phonelog::SEND_WINDOW, crate::phonelog::SEND_MAX);
+        match crate::forum::send_log(&why, &lines).await {
+            Ok(answer) => tracing::info!("voice: log sent ({} B, {why}): {answer}", lines.len()),
+            Err(e) => tracing::warn!("voice: log not sent ({why}): {e:#}"),
+        }
+    });
+}
+
+/// A line from the app's mic code, for the call's log.
+#[uniffi::export]
+pub fn mic_note(line: String) {
+    tracing::info!("mic: {line}");
+}
+
+/// Sends the call's log to the server now (a call on a headset, whose mic lines are worth reading away
+/// from the phone: logcat rolls over in minutes).
+#[uniffi::export]
+pub fn send_call_log(why: String) {
+    upload(why, Duration::ZERO);
 }
 
 impl Events for Bridge {
@@ -215,6 +233,11 @@ impl VoiceCall {
     /// One 20 ms mic frame (640 bytes PCM16 LE mono 16 kHz). Never blocks.
     pub fn send_audio(&self, pcm: Vec<u8>) {
         self.0.send_audio(pcm);
+    }
+
+    /// Whether the mic is a headset's, whose level the call looks after (`tether_voice::MicBoost`).
+    pub fn set_mic_boost(&self, on: bool) {
+        self.0.set_mic_boost(on);
     }
 
     /// The next `samples` samples for the speaker; empty once the call is over and its last

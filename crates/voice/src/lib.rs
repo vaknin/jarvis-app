@@ -3,11 +3,13 @@
 //! side pulls from, the earcons, and the reconnect with `resume`. No platform code: the Android app
 //! reaches it through `crates/ffi` (`VoiceCall`), and another app (motoparty) can use it the same way.
 
+pub mod boost;
 pub mod call;
 pub mod player;
 pub mod proto;
 pub mod stt;
 
+pub use boost::MicBoost;
 pub use call::{Call, Connector, Events, Frame, Status, Timing, websocket};
 pub use stt::Word;
 pub use player::{Earcon, Player};

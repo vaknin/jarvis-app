@@ -31,6 +31,8 @@ import androidx.core.telecom.CallsManager
 import com.kivan.tether.core.CallState
 import com.kivan.tether.core.VoiceCall
 import com.kivan.tether.core.VoiceListener
+import com.kivan.tether.core.micNote
+import com.kivan.tether.core.sendCallLog
 import com.kivan.tether.core.forumNetworkChanged
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -52,10 +54,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Audio: the mic (VOICE_COMMUNICATION, so the phone cancels Jarvis's voice out of it) goes out in
  * 20 ms frames. It is reopened on the new route whenever the call's audio device changes: an
  * AudioRecord opened before the AirPods' call link came up stays on the phone's own mic, which goes
- * silent while Bluetooth carries the call (2026-10-28, Aviv heard by nothing once the AirPods joined). A headset
- * whose own mic gives near-silence while the phone's mic hears speech is given up on: the phone's mic hears Aviv
- * while the headset still plays the call (2026-10-29, the AirPods' mic dead on their call link); the speaker thread pulls 20 ms at a time from the Rust jitter buffer, and its
- * blocking writes pace it. The earcons come mixed into the same stream.
+ * silent while Bluetooth carries the call (2026-10-28, Aviv heard by nothing once the AirPods joined). A headset's mic
+ * can come over Bluetooth far too quiet: the call brings it up (`MicBoost` in the voice crate). The speaker thread
+ * pulls 20 ms at a time from the Rust jitter buffer, and its blocking writes pace it. The earcons come mixed into the
+ * same stream.
  */
 class CallService : Service() {
     // Per call: a redial can land on this same service before Android has destroyed it.
@@ -78,10 +80,10 @@ class CallService : Service() {
     private var shown: Pair<String, Boolean>? = null
     /** The call's audio device changed: the mic reopens on it. */
     @Volatile private var reroute = false
-    /** The headset whose mic went silent on this call: the phone's mic hears Aviv while it carries the call. */
-    @Volatile private var deadMic: Int? = null
-    /** The phone's mic, under that headset, refused as VOICE_COMMUNICATION's input: opened as a plain mic instead. */
-    @Volatile private var plainMic = false
+    /** The way the headset's mic opens; a new one for each stretch on a headset. */
+    private var trial = MicTrial()
+    /** Frames sent from a headset's mic on this call: their lines go to the server. */
+    private var headsetFrames = 0L
     private var routeWatch: AudioManager.OnCommunicationDeviceChangedListener? = null
     /** Held while the call's audio plays, so media keys come to Tether after it ([MediaKeys]). */
     private var keys: android.media.session.MediaSession? = null
@@ -144,8 +146,8 @@ class CallService : Service() {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         over = CompletableDeferred()
         heldMute = false
-        deadMic = null
-        plainMic = false
+        trial = MicTrial()
+        headsetFrames = 0
         started = System.currentTimeMillis()
         shown = null
         stt?.stop()
@@ -306,12 +308,17 @@ class CallService : Service() {
     private fun mic() {
         val c = call ?: return
         var failures = 0
-        while (running) {
+        loop@ while (running) {
             when (micOnce(c)) {
-                Mic.OVER -> return
+                Mic.OVER -> break@loop
                 Mic.REROUTE -> failures = 0
                 Mic.FAILED -> {
-                    if (++failures >= 3) break
+                    // A way the trial asked for is never what ends a call.
+                    if (trial.way != MicTrial.Way.USUAL) {
+                        trial.refused(::micNote)
+                        continue@loop
+                    }
+                    if (++failures >= 3) break@loop
                     Log.w(TAG, "mic failed, try $failures")
                     Thread.sleep(500)
                 }
@@ -321,6 +328,7 @@ class CallService : Service() {
             Voice.update(this) { it.copy(error = "the microphone stopped") }
             c.hangup()
         }
+        if (headsetFrames > 0) sendCallLog("a call on a headset")
     }
 
     private enum class Mic { OVER, REROUTE, FAILED }
@@ -332,42 +340,39 @@ class CallService : Service() {
         val am = getSystemService(AudioManager::class.java)
         // On the call's own device: the AirPods' mic while they carry the call, else the phone's.
         // The headset's input can show up a moment after the call moved to it.
-        var want = micFor(am)
+        var want = headsetMic(am)
         for (i in 1..5) {
             if (want != null || !headset(am.communicationDevice)) break
             Thread.sleep(200)
-            want = micFor(am)
+            want = headsetMic(am)
         }
-        val fallback = want != null && want.type == AudioDeviceInfo.TYPE_BUILTIN_MIC
-        val source = if (fallback && plainMic) MediaRecorder.AudioSource.MIC else MediaRecorder.AudioSource.VOICE_COMMUNICATION
+        val onHeadset = headset(want)
+        if (!onHeadset) trial = MicTrial()
+        val way = trial.way
+        c.setMicBoost(onHeadset)
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = try {
             @Suppress("MissingPermission")
-            AudioRecord(source, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
+            AudioRecord(way.source, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
         } catch (e: Exception) {
             Log.w(TAG, "mic", e)
             return Mic.FAILED
         }
         if (!rec.setPreferredDevice(want)) Log.w(TAG, "mic: ${name(want)} refused as the preferred input")
         // VOICE_COMMUNICATION already cancels echo on most phones; asking again costs nothing.
-        val aec = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId) else null
-        val ns = if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId) else null
+        val aec = if (way.effects && AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId) else null
+        val ns = if (way.effects && NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId) else null
         aec?.enabled = true
         ns?.enabled = true
-        // Beside a headset's mic, the phone's (is that headset's mic dead?); beside the phone's mic standing in for a
-        // dead headset's, the headset's (has it come back?).
-        var probe: Probe? = null
         try {
             rec.startRecording()
-            Log.i(TAG, "mic open: wanted ${name(want)}${if (source == MediaRecorder.AudioSource.MIC) " as a plain mic" else ""}, on ${name(rec.routedDevice)}, call on ${name(am.communicationDevice)}")
-            if (fallback) probe = headsetMic(am)?.let { openProbe(it, BACK, "the headset's mic listens alongside, for it to come back") }
+            Log.i(TAG, "mic open: $way, wanted ${name(want)}, on ${name(rec.routedDevice)}, call on ${name(am.communicationDevice)}")
             val buf = ByteArray(FRAME_BYTES)
             var frames = 0L
             var peak = 0
             var zeros = 0
-            // Frames in a row the headset's mic stayed under QUIET.
-            var quiet = 0
-            var unchecked = false
+            // Whether the last look found the mic on the device it was asked for.
+            var onWant = false
             val t0 = System.nanoTime()
             while (running && !reroute) {
                 var got = 0
@@ -385,58 +390,20 @@ class CallService : Service() {
                 // for 2 s. So does one that isn't on the headset it was asked for after a second.
                 // Reopened at most every 10 s (a mute by the system zeroes it too).
                 zeros = if (p == 0) zeros + 1 else 0
-                val astray = ++frames % 50 == 0L && want != null && rec.routedDevice?.id != want.id
-                if (headset(want)) {
-                    // A headset's mic that stays near-silent while the phone's own mic hears two bursts of speech,
-                    // seconds apart, is dead: the call hears Aviv through the phone's mic.
-                    if (p < QUIET && !Voice.ui.value.muted) {
-                        if (++quiet == CHECK_AFTER && probe == null && !unchecked) {
-                            probe = phoneMic(am)?.let { openProbe(it, LOUD, "the headset is quiet; the phone's mic listens alongside") }
-                            if (probe == null) unchecked = true
-                        }
-                    } else {
-                        quiet = 0
-                    }
-                    probe?.let { pr ->
-                        pr.drain()
-                        if (quiet == 0) pr.reset()
-                        if (pr.bursts >= 2) {
-                            return deadHeadset(am, want!!, "the phone's mic heard ${pr.bursts} bursts of speech it didn't")
-                        }
-                        if (pr.useless(AudioDeviceInfo.TYPE_BUILTIN_MIC)) {
-                            Log.w(TAG, "mic check: the phone's mic gives ${if (pr.live) "audio" else "zeros"} on ${name(pr.rec.routedDevice)}: no check on this headset")
-                            pr.close()
-                            probe = null
-                            unchecked = true
-                        }
-                    }
-                } else if (fallback) {
-                    probe?.let { pr ->
-                        pr.drain()
-                        if (pr.bursts >= 1) {
-                            Log.i(TAG, "mic: ${name(pr.rec.routedDevice)} hears speech again; back on it")
-                            deadMic = null
-                            plainMic = false
-                            clearDeadNotice()
-                            return Mic.REROUTE
-                        }
-                        if (pr.useless(headsetMic(am)?.type ?: -1)) {
-                            Log.w(TAG, "mic check: the headset's mic gives ${if (pr.live) "audio" else "zeros"} on ${name(pr.rec.routedDevice)}: the route button brings it back")
-                            pr.close()
-                            probe = null
-                        }
-                    }
-                }
-                if (astray && fallback) {
-                    if (!plainMic) {
-                        // Under a Bluetooth call, VOICE_COMMUNICATION can be held to the headset's input.
-                        Log.w(TAG, "mic: the phone's mic refused under ${name(am.communicationDevice)}; trying it as a plain mic")
-                        plainMic = true
+                val look = ++frames % 50 == 0L
+                if (look) onWant = want != null && rec.routedDevice?.id == want.id
+                val astray = look && want != null && !onWant
+                if (onHeadset) {
+                    if (frames == 50L) describeMic(rec, am, way)
+                    if (++headsetFrames == LOG_AFTER_FRAMES) sendCallLog("a minute on a headset")
+                    val talking = !Voice.ui.value.muted && Voice.ui.value.state is CallState.Listening
+                    val reopen = onWant && talking && trial.frame(p, ::micNote)
+                    if (trial.report()) sendCallLog("mic trial done")
+                    if (reopen) return Mic.REROUTE
+                    // A way the system took off the headset is no use: this is never the phone's mic.
+                    if (astray && way != MicTrial.Way.USUAL) {
+                        trial.refused(::micNote)
                         return Mic.REROUTE
-                    }
-                    if (frames == 50L) {
-                        Log.w(TAG, "mic: the phone's mic refused as a plain mic too, on ${name(rec.routedDevice)}")
-                        Voice.update(this) { it.copy(error = "${am.communicationDevice?.productName}'s mic is silent and the phone's can't stand in: tap the route button for the speaker") }
                     }
                 }
                 if ((astray || zeros >= 100 && !Voice.ui.value.muted) && System.nanoTime() - lastWatchReopen > 10_000_000_000L) {
@@ -456,7 +423,6 @@ class CallService : Service() {
             Log.w(TAG, "mic", e)
             return Mic.FAILED
         } finally {
-            probe?.close()
             runCatching { rec.stop() }
             aec?.release()
             ns?.release()
@@ -464,103 +430,25 @@ class CallService : Service() {
         }
     }
 
-    /** Gives up on [mic], a headset's own mic, while the call stays on that headset, and says so on the call screen. */
-    private fun deadHeadset(am: AudioManager, mic: AudioDeviceInfo, why: String): Mic {
-        deadMic = am.communicationDevice?.id
-        Log.w(TAG, "mic: ${name(mic)} hears nothing ($why); the phone's mic hears Aviv while ${name(am.communicationDevice)} plays the call")
-        Voice.update(this) { it.copy(error = "${mic.productName}'s mic is silent: Jarvis hears you through the phone") }
-        return Mic.REROUTE
+    /** The mic as the system has it, into the call's log: what can make a headset's mic quiet, seen from here. */
+    private fun describeMic(rec: AudioRecord, am: AudioManager, way: MicTrial.Way) {
+        runCatching {
+            val c = rec.activeRecordingConfiguration
+            val mics = rec.activeMicrophones.joinToString { it.description }
+            micNote(
+                "$way on ${name(rec.routedDevice)}, mode ${am.mode}, muted ${am.isMicrophoneMute}, " +
+                    "silenced ${c?.isClientSilenced}, source ${c?.audioSource}, ${c?.format?.sampleRate} Hz, " +
+                    "effects ${c?.effects?.joinToString { it.type.toString() }} [$mics]",
+            )
+        }.onFailure { Log.w(TAG, "mic: can't describe it", it) }
     }
 
-    private fun clearDeadNotice() =
-        Voice.update(this) { if (it.error?.contains("mic is silent") == true) it.copy(error = null) else it }
-
-    /** The input that goes with the call's output device: a headset's own mic (the phone's, if that one is dead),
-     *  or null (the system's choice, the phone's mics) for the earpiece and the speaker. */
-    private fun micFor(am: AudioManager): AudioDeviceInfo? {
-        if (deadMic != null && am.communicationDevice?.id == deadMic) return phoneMic(am)
-        return headsetMic(am)
-    }
-
+    /** The input that goes with the call's output device: a headset's own mic, or null (the system's choice, the
+     *  phone's mics) for the earpiece and the speaker. */
     private fun headsetMic(am: AudioManager): AudioDeviceInfo? {
         val out = am.communicationDevice?.takeIf(::headset) ?: return null
         val ins = am.getDevices(AudioManager.GET_DEVICES_INPUTS).filter { it.type == out.type }
         return ins.firstOrNull { it.address == out.address } ?: ins.firstOrNull()
-    }
-
-    private fun phoneMic(am: AudioManager) =
-        am.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
-
-    /**
-     * A second mic, recording alongside the call's. Beside a headset's mic that has gone quiet, the phone's: speech
-     * there that the headset doesn't carry means the headset's mic is dead. The AirPods' call link once came up with
-     * their mic giving near-silence (peaks of 11 to 214 where speech is thousands; the phone's input from them at a
-     * flat -81 dB), the AudioRecord on the AirPods and fed in real time (2026-10-29). Quiet on both is just Aviv
-     * listening; a rustle in a pocket is one burst, not two seconds apart.
-     */
-    private class Probe(val rec: AudioRecord, private val loud: Int) {
-        private val buf = ByteArray(FRAME_BYTES)
-        /** How much came in, and whether any of it wasn't zeros. */
-        var ms = 0
-        var live = false
-        /** Runs of sound at [loud] or more for BURST_MS, at least BURST_GAP_MS apart, since the last [reset]. */
-        var bursts = 0
-        private var run = 0
-        private var lastBurst = Int.MIN_VALUE / 2
-
-        /** What came in since the last call, without waiting for more. */
-        fun drain() {
-            while (true) {
-                val n = rec.read(buf, 0, buf.size, AudioRecord.READ_NON_BLOCKING)
-                if (n <= 0) return
-                val p = peakOf(buf, n)
-                ms += n / 32
-                if (p > 0) live = true
-                if (p < loud) { run = 0; continue }
-                val was = run
-                run += n / 32
-                if (was < BURST_MS && run >= BURST_MS && ms - lastBurst >= BURST_GAP_MS) {
-                    bursts++
-                    lastBurst = ms
-                }
-            }
-        }
-
-        fun reset() {
-            bursts = 0
-            run = 0
-            lastBurst = Int.MIN_VALUE / 2
-        }
-
-        /** After 2 s: only zeros, or on another device than [type]. */
-        fun useless(type: Int) = ms >= 2000 && (!live || rec.routedDevice?.type != type)
-
-        fun close() {
-            runCatching { rec.stop() }
-            rec.release()
-        }
-    }
-
-    private fun openProbe(device: AudioDeviceInfo, loud: Int, why: String): Probe? {
-        val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val rec = try {
-            @Suppress("MissingPermission")
-            AudioRecord(MediaRecorder.AudioSource.MIC, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 8))
-        } catch (e: Exception) {
-            Log.w(TAG, "mic check: no second recording", e)
-            return null
-        }
-        if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); return null }
-        rec.setPreferredDevice(device)
-        return try {
-            rec.startRecording()
-            Log.i(TAG, "mic check: $why, asked for ${name(device)}, on ${name(rec.routedDevice)}")
-            Probe(rec, loud)
-        } catch (e: Exception) {
-            Log.w(TAG, "mic check: ${name(device)} didn't start", e)
-            rec.release()
-            null
-        }
     }
 
     /** An output whose input of the same type is its own mic. */
@@ -574,12 +462,6 @@ class CallService : Service() {
         val am = getSystemService(AudioManager::class.java)
         val l = AudioManager.OnCommunicationDeviceChangedListener {
             Log.i(TAG, "call device: ${name(it)}")
-            // Moved off the headset whose mic was dead: back on it, its mic gets another chance.
-            if (deadMic != null && it?.id != deadMic) {
-                deadMic = null
-                plainMic = false
-                clearDeadNotice()
-            }
             reroute = true
         }
         am.addOnCommunicationDeviceChangedListener(mainExecutor, l)
@@ -823,25 +705,14 @@ class CallService : Service() {
         private const val RATE = 16_000
         private const val FRAME_SAMPLES = 320
         private const val FRAME_BYTES = FRAME_SAMPLES * 2
+        /** A minute of mic on a headset, in frames: the log goes to the server then as well as at the end. */
+        private const val LOG_AFTER_FRAMES = 3000L
 
         private fun name(d: AudioDeviceInfo?) = d?.let { "${it.productName} (type ${it.type})" } ?: "default"
 
-        /** A headset's mic under this, frame after frame, while Aviv isn't muted: it may be dead ([Probe]). */
-        private const val QUIET = 400
-        /** Speech, or anything as loud, at the phone's mic. */
-        private const val LOUD = 3000
-        /** Speech at a headset's mic that was given up on: it hears again. A dead one gave 214 at most. */
-        private const val BACK = 1500
-        /** 3 s of a quiet headset before the phone's mic listens alongside it. */
-        private const val CHECK_AFTER = 150
-        /** A burst of speech at the other mic: this long at LOUD or more, frame after frame. */
-        private const val BURST_MS = 300
-        /** Two bursts this far apart, start to start, are two; a rustle in a pocket is one. */
-        private const val BURST_GAP_MS = 2000
-
-        private fun peakOf(pcm: ByteArray, len: Int = pcm.size): Int {
+        private fun peakOf(pcm: ByteArray): Int {
             var m = 0
-            for (i in 0 until len - 1 step 2) {
+            for (i in 0 until pcm.size - 1 step 2) {
                 val v = (pcm[i].toInt() and 0xff) or (pcm[i + 1].toInt() shl 8)
                 m = maxOf(m, kotlin.math.abs(v.toShort().toInt()))
             }

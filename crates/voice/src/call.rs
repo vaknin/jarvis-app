@@ -49,6 +49,7 @@ use tokio::{
 };
 
 use crate::{
+    boost::MicBoost,
     player::{Earcon, Player},
     proto::{About, Down, Up},
     stt::{Do, Stt, Word},
@@ -263,6 +264,7 @@ pub struct Call {
     shared: Arc<Shared>,
     cmd: mpsc::UnboundedSender<Cmd>,
     mic: mpsc::Sender<Vec<u8>>,
+    boost: Mutex<MicBoost>,
 }
 
 impl Call {
@@ -304,15 +306,21 @@ impl Call {
         // 10 frames (200 ms): a send that lags more than that drops the newest speech, not the call.
         let (mic, mic_rx) = mpsc::channel(10);
         tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, phone_stt, rejoin));
-        Call { shared, cmd, mic }
+        Call { shared, cmd, mic, boost: Mutex::default() }
     }
 
     /// One mic frame (PCM16 LE mono 16 kHz, 20 ms). Never blocks: dropped while muted, while the
     /// line is down, or if the socket is behind.
-    pub fn send_audio(&self, pcm: Vec<u8>) {
+    pub fn send_audio(&self, mut pcm: Vec<u8>) {
         if self.shared.live.load(Ordering::SeqCst) && !self.shared.muted.load(Ordering::SeqCst) {
+            self.boost.lock().unwrap().apply(&mut pcm);
             let _ = self.mic.try_send(pcm);
         }
+    }
+
+    /// Whether the mic is a headset's, whose level [`MicBoost`] looks after.
+    pub fn set_mic_boost(&self, on: bool) {
+        self.boost.lock().unwrap().set(on);
     }
 
     /// The next `samples` samples for the speaker; empty once the call has ended and the last
