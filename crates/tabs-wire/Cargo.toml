@@ -1,0 +1,19 @@
+[package]
+name = "jarvis-tabs-wire"
+edition = "2021"
+version.workspace = true
+license.workspace = true
+description = "A copy of the jarvis repo's tabs/wire, which stays private: what goes between the tab server and the app. goldens/ holds it to the same shape on both sides"
+
+[lib]
+name = "jarvis_tabs_wire"
+path = "src/lib.rs"
+
+[features]
+# Reads and writes frames on any tokio stream: a unix socket now, an iroh stream later.
+async = ["dep:tokio"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tokio = { version = "1", default-features = false, features = ["io-util"], optional = true }

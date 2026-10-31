@@ -1,0 +1,13 @@
+{"ask":"list"}
+{"ask":"open","name":"Piano app"}
+{"ask":"open","want":3,"name":""}
+{"ask":"close","id":"t1"}
+{"ask":"reopen","id":"t1"}
+{"ask":"closed"}
+{"ask":"move","id":"t1","to":2}
+{"ask":"say","id":"t1","text":"go ahead"}
+{"ask":"say","id":"t1","text":"","via":"typed","replies":[{"to":120,"quote":"Three things changed","text":"good"}]}
+{"ask":"follow","id":"wall","after":0}
+{"ask":"unfollow","id":"t1"}
+{"ask":"seen","id":"t1","upto":120}
+{"ask":"file","id":"t1","name":"chord.png"}

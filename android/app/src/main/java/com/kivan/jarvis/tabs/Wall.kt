@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.kivan.jarvis.R
 
@@ -421,7 +422,7 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
         ) {
             BasicText(
                 tile.name,
-                style = style.copy(color = ink),
+                style = style.copy(color = ink, lineHeight = 1.2.em),
                 maxLines = if (size == TileSize.Small) 2 else 3,
                 overflow = TextOverflow.Ellipsis,
                 autoSize = WholeWords(style.fontSize),
@@ -447,8 +448,10 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
  */
 private data class WholeWords(val biggest: TextUnit) : TextAutoSize {
     override fun TextAutoSizeLayoutScope.getFontSize(constraints: Constraints, text: AnnotatedString): TextUnit {
+        // The floor is on the glass, not in sp: at double text size 10 sp is still a comfortable 20 dp.
+        val floor = 12.dp.toSp().value
         var size = biggest.value
-        while (size > 11f) {
+        while (size > floor) {
             val r = performLayout(constraints, text, size.sp)
             val spilled = r.hasVisualOverflow || (r.lineCount > 0 && r.isLineEllipsized(r.lineCount - 1))
             val split = (0 until r.lineCount - 1).any { i ->
@@ -458,6 +461,6 @@ private data class WholeWords(val biggest: TextUnit) : TextAutoSize {
             if (!spilled && !split) break
             size *= 0.9f
         }
-        return size.coerceAtLeast(11f).sp
+        return size.coerceAtLeast(floor).sp
     }
 }

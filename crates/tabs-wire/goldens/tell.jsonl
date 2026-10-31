@@ -1,0 +1,15 @@
+{"tell":"tabs","tabs":[{"n":1,"id":"t1","mirrored":false,"tile":{"name":"Piano app","line":"","needs":"","amber":false,"unread":0,"open":{},"session":null,"seen":0,"end":0}}]}
+{"tell":"closed","tabs":[]}
+{"tell":"opened","tab":{"n":2,"id":"t2","mirrored":true,"tile":{"name":"","line":"a line","needs":"which one?","amber":true,"unread":1,"open":{"w1":"Testing"},"session":"s1","seen":10,"end":40,"new":[40]}}}
+{"tell":"landed","id":"t1","offset":120}
+{"tell":"event","id":"t1","event":{"offset":120,"at":1793430374000,"kind":"said","who":"aviv","text":"go ahead"}}
+{"tell":"event","id":"t1","event":{"offset":200,"at":1793430374000,"kind":"said","who":"jarvis","text":"Done.","via":"typed","files":[{"name":"chord.png","alt":"a chart"}]}}
+{"tell":"event","id":"t1","event":{"offset":300,"at":1793430374000,"kind":"needs","text":"which one?"}}
+{"tell":"event","id":"t1","event":{"offset":400,"at":1793430374000,"kind":"work","id":"w1","state":"started","what":"Testing"}}
+{"tell":"event","id":"t1","event":{"offset":500,"at":1793430374000,"kind":"work","id":"w1","state":"ended","what":"Testing","how":"failed"}}
+{"tell":"text","id":"t1","block":1,"from":0,"text":"The ch"}
+{"tell":"badoffset","id":"t1","asked":7}
+{"tell":"ended","id":"t1"}
+{"tell":"file","id":"t1","name":"chord.png","data":"aGk="}
+{"tell":"refused","id":"t1","why":"read only"}
+{"tell":"done"}

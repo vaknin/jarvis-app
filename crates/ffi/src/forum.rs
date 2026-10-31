@@ -433,6 +433,43 @@ fn via(conn: &Connection) -> &'static str {
     }
 }
 
+/// A stream to the gate that isn't a pipe: it holds the endpoint open, as a forum connection does.
+pub(crate) struct Stream {
+    pub send: iroh::endpoint::SendStream,
+    pub recv: iroh::endpoint::RecvStream,
+    _conn: Connection,
+    _busy: Busy,
+}
+
+/// A long-lived stream on the tunnel's endpoint, for the tab screens. A failure here only costs a
+/// redial: the endpoint is shared with calls, so a tab link never closes it while anything else runs
+/// on it. With nothing else on it, a dead endpoint is rebuilt as a pipe would, once `stale` says it's
+/// been failing a while.
+pub(crate) async fn open_stream(handshake: &[u8; 5], stale: bool) -> Result<Stream> {
+    let lazy = tunnel().await?;
+    lazy.open.fetch_add(1, Ordering::SeqCst);
+    let busy = Busy(lazy.clone());
+    let (which, ep) = lazy.get().await?;
+    let linked = tokio::time::timeout(Duration::from_secs(20), async {
+        let conn = ep.connect(lazy.addr.clone(), ALPN).await.context("connect")?;
+        let (mut send, recv) = conn.open_bi().await.context("open")?;
+        send.write_all(handshake).await.context("hello")?;
+        anyhow::Ok((conn, send, recv))
+    })
+    .await
+    .context("the server didn't answer in 20 s")
+    .and_then(|r| r);
+    match linked {
+        Ok((conn, send, recv)) => Ok(Stream { send, recv, _conn: conn, _busy: busy }),
+        Err(e) => {
+            if stale && lazy.pipes.lock().unwrap().is_empty() {
+                lazy.broken(PIPES.fetch_add(1, Ordering::Relaxed), which, &format!("tabs: {e:#}")).await;
+            }
+            Err(e)
+        }
+    }
+}
+
 /// Which end of a [`pump`] is the iroh stream.
 #[derive(Clone, Copy, PartialEq)]
 enum Side {

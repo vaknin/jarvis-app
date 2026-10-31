@@ -7,6 +7,7 @@
 
 mod alerts;
 mod forum;
+mod tabs;
 mod phonelog;
 mod voice;
 

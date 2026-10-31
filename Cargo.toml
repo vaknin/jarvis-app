@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/daemon", "crates/ffi", "crates/voice"]
+members = ["crates/core", "crates/daemon", "crates/ffi", "crates/tabs-wire", "crates/voice"]
 exclude = ["vendor/netwatch"]
 
 [workspace.package]
