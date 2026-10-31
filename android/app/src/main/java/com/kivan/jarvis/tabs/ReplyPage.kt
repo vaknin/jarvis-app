@@ -1,15 +1,19 @@
 package com.kivan.jarvis.tabs
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +48,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -159,12 +167,12 @@ fun ReplyPage(
             )
         }
         Row(
-            Modifier.overKeyboard().padding(start = 18.dp, end = 10.dp, top = 6.dp, bottom = 8.dp),
+            Modifier.overKeyboard().padding(start = Space.margin, end = 10.dp, top = 6.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                if (draft.count == 0) "Tap a paragraph to answer it" else "Only these are sent",
+                if (draft.count == 0) "Tap a paragraph to answer it" else "Skipped ones aren't sent",
                 Modifier.weight(1f),
                 look.faint,
                 style = Words.small,
@@ -213,21 +221,32 @@ private fun Paragraph(
     onQuote: (String) -> Unit,
 ) {
     // Tapping the paragraph itself or the gap under it writes there, so the target is the whole block
-    // and the page needs no row of buttons. A long press still selects words.
+    // and the page reads like a page, with no marks down its side. A long press still selects words.
     val tap = remember { MutableInteractionSource() }
+    val pressed by tap.collectIsPressedAsState()
+    val wash by animateFloatAsState(if (pressed) 1f else 0f, tween(Curves.QUICK), label = "press")
+    val washed = look.surface
     Column(
         Modifier
             .animateContentSize(tween(Curves.PAGE, easing = Curves.out))
+            .drawBehind {
+                if (wash > 0f) {
+                    val out = 8.dp.toPx()
+                    drawRoundRect(
+                        washed.copy(alpha = wash),
+                        Offset(-out, -out / 2),
+                        Size(size.width + out * 2, size.height - Space.para.toPx() + out),
+                        CornerRadius(12.dp.toPx()),
+                    )
+                }
+            }
             .then(if (note == null) Modifier.clickable(tap, null, onClickLabel = WRITE_HERE, onClick = onWrite) else Modifier),
     ) {
         // Words he picked light up where they stand; only what can't be lit there is repeated under it.
         val lit = note != null && block !is Block.Code && block.shown.contains(note.quote)
         Quotable(onQuote) { BlockView(block, mark = if (lit) note?.quote.orEmpty() else "") }
         if (note == null) {
-            // A list stays a list: its items are tappable too, without a mark on every line.
-            Box(Modifier.fillMaxWidth().height(if (block is Block.Item) 14.dp else 30.dp).padding(top = 4.dp)) {
-                if (block !is Block.Item) Glyph(R.drawable.lucide_corner_down_left, look.faint, 13.dp)
-            }
+            Spacer(Modifier.fillMaxWidth().height(Space.para))
         } else {
             val ask = remember { FocusRequester() }
             if (note.quote.isNotEmpty() && !lit) {
@@ -293,7 +312,8 @@ private fun NoteField(
         decorationBox = { inner ->
             Box(
                 Modifier
-                    .background(look.surface, RoundedCornerShape(18.dp))
+                    // Outlined, since a filled panel is what his words look like once they're sent.
+                    .border(1.dp, if (had) look.faint else look.line, RoundedCornerShape(18.dp))
                     .heightIn(min = Space.target)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 Alignment.CenterStart,

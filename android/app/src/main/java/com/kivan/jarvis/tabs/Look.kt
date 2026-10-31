@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -120,7 +121,9 @@ object Words {
     val code = Base.copy(fontFamily = Mono, fontSize = 13.sp, lineHeight = 20.sp)
 
     /** A tile's name: large while there's room for it, the type is the wall's one decoration. */
-    fun tile(size: TileSize) = when (size) {
+    fun tile(size: TileSize) = tileSize(size).copy(lineBreak = LineBreak.Heading)
+
+    private fun tileSize(size: TileSize) = when (size) {
         TileSize.Big -> Base.copy(fontSize = 30.sp, lineHeight = 35.sp, fontWeight = FontWeight.W500, letterSpacing = (-0.7).sp)
         TileSize.Large -> Base.copy(fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.W500, letterSpacing = (-0.4).sp)
         TileSize.Medium -> Base.copy(fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.W500, letterSpacing = (-0.25).sp)

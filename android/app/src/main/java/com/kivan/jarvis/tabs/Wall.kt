@@ -145,7 +145,8 @@ fun Wall(
         } else {
             Tiles(
                 state.tiles, map, active, onOpen, onClose, onMove,
-                Modifier.weight(1f).fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp),
+                // The dock is a tool, not a seventh row of tiles: more air here than between them.
+                Modifier.weight(1f).fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 10.dp),
             )
         }
         AnimatedVisibility(undo != null, enter = fadeIn(tween(Curves.QUICK)), exit = fadeOut(tween(Curves.QUICK))) {
@@ -456,7 +457,8 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
     val number = if (tile.needs) look.onUrgent.copy(alpha = 0.72f) else look.faint
     val style = Words.tile(size)
     Box(modifier.fillMaxSize().padding(start = pad, end = pad, top = pad - 2.dp, bottom = pad - 2.dp)) {
-        Text("${tile.n}", color = number, style = Words.number)
+        // At huge font sizes the name grows and the number stops, or the number outweighs it.
+        Text("${tile.n}", color = number, style = Words.number, fontSize = Words.number.fontSize * (1.3f / LocalDensity.current.fontScale).coerceAtMost(1f))
         Box(Modifier.align(Alignment.TopEnd)) {
             when {
                 tile.needs -> Triangle(look.onUrgent, if (size >= TileSize.Medium) 15.dp else 18.dp)

@@ -16,11 +16,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -147,8 +157,7 @@ object Prose {
 
 /** Bold is ink at any tone of text; a link is underlined, since blue here means new. */
 @Composable
-fun annotated(spans: List<Span>, ink: Color = look.ink, mark: String = ""): AnnotatedString {
-    val lit = look.line
+fun annotated(spans: List<Span>, ink: Color = look.ink): AnnotatedString {
     val mono = Words.code.fontFamily ?: FontFamily.Monospace
     return buildAnnotatedString {
         for (s in spans) when (s.kind) {
@@ -160,24 +169,45 @@ fun annotated(spans: List<Span>, ink: Color = look.ink, mark: String = ""): Anno
                 LinkAnnotation.Url(s.url, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))),
             ) { append(s.text) }
         }
-        val at = if (mark.isEmpty()) -1 else spans.joinToString("") { it.text }.indexOf(mark)
-        if (at >= 0) addStyle(SpanStyle(background = lit), at, at + mark.length)
     }
+}
+
+/** Words he quoted light up where they stand, with soft ends; a span's own background has square ones. */
+@Composable
+private fun Marked(spans: List<Span>, mark: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
+    val at = if (mark.isEmpty()) -1 else spans.joinToString("") { it.text }.indexOf(mark)
+    var laid by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val lit = look.line
+    val soft = with(LocalDensity.current) { 6.dp.toPx() }
+    Text(
+        annotated(spans),
+        if (at < 0) modifier else modifier.drawBehind {
+            val words = laid?.getPathForRange(at, at + mark.length) ?: return@drawBehind
+            val paint = Paint().apply {
+                this.color = lit
+                pathEffect = PathEffect.cornerPathEffect(soft)
+            }
+            drawIntoCanvas { it.drawPath(words, paint) }
+        },
+        color,
+        style = style,
+        onTextLayout = { if (at >= 0) laid = it },
+    )
 }
 
 @Composable
 fun BlockView(block: Block, color: Color = look.ink, modifier: Modifier = Modifier, mark: String = "") {
     val style = Words.prose
     when (block) {
-        is Block.Para -> Text(annotated(block.spans, mark = mark), modifier, color, style = style)
-        is Block.Head -> Text(annotated(block.spans, mark = mark), modifier.padding(top = 6.dp), color, style = Words.proseHead)
+        is Block.Para -> Marked(block.spans, mark, color, style, modifier)
+        is Block.Head -> Marked(block.spans, mark, color, Words.proseHead, modifier.padding(top = 6.dp))
         is Block.Lifted -> Row(modifier.height(IntrinsicSize.Min)) {
             Box(Modifier.width(2.dp).fillMaxHeight().background(look.line, RoundedCornerShape(1.dp)))
-            Text(annotated(block.spans, mark = mark), Modifier.padding(start = 12.dp), look.soft, style = style)
+            Marked(block.spans, mark, look.soft, style, Modifier.padding(start = 12.dp))
         }
         is Block.Item -> Row(modifier.padding(start = (block.depth * 18).dp)) {
             Text(block.mark, Modifier.width(if (block.mark.length > 1) 26.dp else 18.dp), look.faint, style = style)
-            Text(annotated(block.spans, mark = mark), Modifier, color, style = style)
+            Marked(block.spans, mark, color, style)
         }
         is Block.Code -> CodeView(block.plain, modifier)
     }

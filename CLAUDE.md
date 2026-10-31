@@ -208,6 +208,17 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   (`crates/ffi/src/lib.rs`), because swarm_discovery logs every failed mDNS send (EPERM) on the phone.
 - netwatch (iroh's UDP sockets) is a patched copy in `vendor/netwatch` (`[patch.crates-io]`): a failed rebind
   after a network change is retried instead of leaving the laptop link's socket dead (`vendor/netwatch/PATCHED.md`).
+- Tabs, the app's next home (thread #167): `android/.../tabs`, opened from a button on today's home, which stays as it
+  was. The look is the jarvis repo's `design/jarvis-app/LOOK.md`, "On the phone"; `docs/DESIGN.md` doesn't apply here.
+  `Stage.kt` holds the one zoom (tap, pinch, predictive back) between the wall (`Wall.kt`, `Grid.kt`) and a tab
+  (`TabPage.kt`); `ReplyPage.kt` is the reply page. The screens only draw `Deck`: `RealDeck.kt` keeps what's stored and
+  shows it at once, and carries frames through `crates/ffi/src/tabs.rs` on the tunnel's handshake `tabs1`, which the gate
+  pipes to the tab server's socket. `crates/tabs-wire` is a copy of the jarvis repo's `tabs/wire` (that repo is private),
+  held to the same goldens. Fake tabs (`src/debug/.../Fake.kt`) exist only in debug and bench builds: `am start -n
+  com.kivan.jarvis.debug/com.kivan.jarvis.tabs.TabsActivity --ei tabs 9`. Screenshots without an emulator:
+  `:app:testDebugUnitTest -Proborazzi.test.record=true --tests '*ScreensTest*'`, in `app/build/shots`. Startup and frames:
+  `-Pbench` adds a shrunk emulator-only build and the `:bench` module; `-Pbench=plain` is what `Profile` takes
+  `app/src/main/baseline-prof.txt` from.
 
 ## The move from the old name (thread #190)
 The app was `com.kivan.tether` until 2026-10-30. Android treats the new id as another app, so `com.kivan.jarvis` moved
