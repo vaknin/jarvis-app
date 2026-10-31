@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.roborazzi)
 }
 
 // The Rust core (crates/ffi) is built by the two tasks below (buildSrc/RustTasks.kt): cargo-ndk
@@ -144,6 +145,14 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // Screens drawn on the JVM (Robolectric + Roborazzi): no emulator, so light on memory.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all { it.maxHeapSize = "2g" }
+        }
+    }
 }
 
 androidComponents {
@@ -167,4 +176,10 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.androidx.core.telecom)
     testImplementation("junit:junit:4.13.2")
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

@@ -1,0 +1,197 @@
+package com.kivan.jarvis.tabs
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+
+/**
+ * Jarvis's words as blocks: a paragraph, a bullet or a block of code is one thing to read and one
+ * thing to answer, which is what the reply page walks. [plain] is the block's words as they stand in
+ * the answer, since that's what a quote carries.
+ */
+@Immutable
+sealed interface Block {
+    val plain: String
+
+    data class Para(override val plain: String, val spans: List<Span>) : Block
+    data class Head(override val plain: String, val spans: List<Span>) : Block
+    data class Item(override val plain: String, val mark: String, val spans: List<Span>, val depth: Int) : Block
+    data class Lifted(override val plain: String, val spans: List<Span>) : Block
+    data class Code(override val plain: String) : Block
+}
+
+enum class Kind { Plain, Bold, Italic, Mono, Link }
+
+@Immutable
+data class Span(val text: String, val kind: Kind = Kind.Plain, val url: String = "")
+
+object Prose {
+    private val BULLET = Regex("""^(\s*)[-*•]\s+(.*)$""")
+    private val NUMBER = Regex("""^(\s*)(\d{1,3}[.)])\s+(.*)$""")
+    private val HEAD = Regex("""^#{1,4}\s+(.*)$""")
+    private val INLINE = Regex("""\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)]\((https?://[^)\s]+)\)|(?<![\w*])\*([^*\s][^*]*?)\*(?![\w*])|(https?://[^\s)]+)""")
+
+    fun parse(text: String): List<Block> {
+        val out = ArrayList<Block>()
+        val para = StringBuilder()
+        fun flush() {
+            if (para.isNotBlank()) para.toString().trim().let { out += Block.Para(it, spans(it)) }
+            para.clear()
+        }
+        val lines = text.lines()
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i]
+            val t = line.trim()
+            when {
+                t.startsWith("```") -> {
+                    flush()
+                    val code = StringBuilder()
+                    i++
+                    while (i < lines.size && !lines[i].trim().startsWith("```")) {
+                        if (code.isNotEmpty()) code.append('\n')
+                        code.append(lines[i])
+                        i++
+                    }
+                    out += Block.Code(code.toString())
+                }
+                t.isEmpty() -> flush()
+                HEAD.matches(t) -> {
+                    flush()
+                    val w = HEAD.find(t)!!.groupValues[1]
+                    out += Block.Head(w, spans(w))
+                }
+                t.startsWith("> ") -> {
+                    flush()
+                    val w = t.removePrefix("> ")
+                    out += Block.Lifted(w, spans(w))
+                }
+                BULLET.matches(line) -> {
+                    flush()
+                    val m = BULLET.find(line)!!.groupValues
+                    out += Block.Item(m[2], "•", spans(m[2]), m[1].length / 2)
+                }
+                NUMBER.matches(line) -> {
+                    flush()
+                    val m = NUMBER.find(line)!!.groupValues
+                    out += Block.Item(m[3], m[2], spans(m[3]), m[1].length / 2)
+                }
+                else -> {
+                    if (para.isNotEmpty()) para.append(' ')
+                    para.append(t)
+                }
+            }
+            i++
+        }
+        flush()
+        return out
+    }
+
+    fun spans(text: String): List<Span> {
+        val out = ArrayList<Span>()
+        var at = 0
+        for (m in INLINE.findAll(text)) {
+            if (m.range.first > at) out += Span(text.substring(at, m.range.first))
+            val g = m.groupValues
+            out += when {
+                g[1].isNotEmpty() -> Span(g[1], Kind.Bold)
+                g[2].isNotEmpty() -> Span(g[2], Kind.Mono)
+                g[3].isNotEmpty() -> Span(g[3], Kind.Link, g[4])
+                g[5].isNotEmpty() -> Span(g[5], Kind.Italic)
+                else -> Span(g[6], Kind.Link, g[6])
+            }
+            at = m.range.last + 1
+        }
+        if (at < text.length) out += Span(text.substring(at))
+        return out
+    }
+}
+
+/** Bold is ink at any tone of text; a link is underlined, since blue here means new. */
+@Composable
+fun annotated(spans: List<Span>, ink: Color = look.ink): AnnotatedString {
+    val code = look.surface
+    val mono = Words.code.fontFamily ?: FontFamily.Monospace
+    return buildAnnotatedString {
+        for (s in spans) when (s.kind) {
+            Kind.Plain -> append(s.text)
+            Kind.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.W600, color = ink)) { append(s.text) }
+            Kind.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(s.text) }
+            Kind.Mono -> withStyle(SpanStyle(fontFamily = mono, background = code)) { append(s.text) }
+            Kind.Link -> withLink(
+                LinkAnnotation.Url(s.url, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))),
+            ) { append(s.text) }
+        }
+    }
+}
+
+@Composable
+fun BlockView(block: Block, color: Color = look.ink, modifier: Modifier = Modifier) {
+    val style = Words.prose
+    when (block) {
+        is Block.Para -> Text(annotated(block.spans), modifier, color, style = style)
+        is Block.Head -> Text(annotated(block.spans), modifier.padding(top = 6.dp), color, style = Words.proseHead)
+        is Block.Lifted -> Row(modifier) {
+            Box(Modifier.width(3.dp).padding(end = 0.dp))
+            Text(annotated(block.spans), Modifier.padding(start = 12.dp), look.soft, style = style)
+        }
+        is Block.Item -> Row(modifier.padding(start = (block.depth * 18).dp)) {
+            Text(block.mark, Modifier.width(if (block.mark.length > 1) 26.dp else 18.dp), look.faint, style = style)
+            Text(annotated(block.spans), Modifier, color, style = style)
+        }
+        is Block.Code -> CodeView(block.plain, modifier)
+    }
+}
+
+/** A long line of code scrolls sideways on its own; the prose around it never does. */
+@Composable
+private fun CodeView(code: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .background(look.surface, RoundedCornerShape(12.dp))
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(code, color = look.soft, style = Words.code, softWrap = false)
+    }
+}
+
+@Composable
+fun ProseView(blocks: List<Block>, modifier: Modifier = Modifier, color: Color = look.ink, style: TextStyle = Words.prose) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.para)) {
+        var last: Block? = null
+        for (b in blocks) {
+            // A list's items sit closer together than paragraphs do.
+            val close = last is Block.Item && b is Block.Item
+            BlockView(b, color, if (close) Modifier.padding(top = 0.dp) else Modifier)
+            last = b
+        }
+    }
+}
