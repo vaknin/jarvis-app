@@ -302,6 +302,7 @@ internal fun DeckState.with(tab: TabRec): DeckState {
         if (tab.working) WorkView(tab.what, tab.since.toLong()) else null,
         tab.closed,
         tab.loading,
+        tab.jobs,
     )
     return copy(tabs = tabs + (id to view))
 }

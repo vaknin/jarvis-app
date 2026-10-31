@@ -89,6 +89,8 @@ pub struct TabRec {
     pub what: String,
     /// When the work began, in ms.
     pub since: u64,
+    /// The one small line about the jobs it started, empty with none.
+    pub jobs: String,
     pub closed: bool,
     pub loading: bool,
 }
@@ -666,6 +668,7 @@ impl Desk {
                 working: open.is_some(),
                 what: open.map_or(String::new(), |(_, what)| what.clone()),
                 since: open.and_then(|(id, _)| t.began.get(id).copied()).unwrap_or(0),
+                jobs: t.tile.jobs_line().unwrap_or_default(),
                 closed: t.closed,
                 loading: t.end < t.tile.end,
             }));

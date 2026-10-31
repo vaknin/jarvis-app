@@ -85,6 +85,11 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                     ),
                     WorkView("Waiting on your answer", System.currentTimeMillis() - 2_000).takeIf { false },
                 )
+                "t3" -> TabView(
+                    t.copy(working = true),
+                    listOf(Entry.Yours("y1", "Add dark mode and fix the update prompt"), Entry.Answer("a1", 6, "Both are running side by side. I'll check them and tell you.")),
+                    jobs = "2 jobs running: Dark mode, The update prompt",
+                )
                 "t4" -> TabView(t, listOf(Entry.Yours("y1", "Find me a quiet place near the river"), Entry.Answer("a1", 9, ANSWER)))
                 else -> TabView(t, listOf(Entry.Answer("a1", 3, "Nothing new here since yesterday.")))
             }

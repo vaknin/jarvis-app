@@ -58,6 +58,7 @@ class ScreensTest {
     @Test fun wallEmpty() = wall(0, "wall-00")
     @Test fun wallLight() = wall(9, "wall-09-light", dark = false)
     @Test fun tab() = shot("tab") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1")) }
+    @Test fun tabJobs() = shot("tab-jobs") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t3")) }
     @Test fun tabQuestion() = shot("tab-question") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t2")) }
     @Test fun tabLight() = shot("tab-light", dark = false) { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1")) }
     @Test fun zoom() = shot("zoom-50") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1", zoom = 0.5f)) }

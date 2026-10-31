@@ -5,7 +5,8 @@
 //! - **Blue:** something new to read past his last `seen`: Jarvis's written words, a report, a
 //!   `needs`. His own words and lines he heard aloud aren't new. Opening the tab clears it; only
 //!   answering clears amber.
-//! - **Working:** any `work` open. It shows alongside the other two.
+//! - **Working:** any `work` open, or a job the tab started still running. It shows alongside the other
+//!   two.
 //! - **Quiet:** none of them.
 
 use crate::event::{Body, Event, SessionState, Via, Who, WorkState};
@@ -24,6 +25,9 @@ pub struct Tile {
     pub unread: usize,
     /// Open work, by id: what it is.
     pub open: BTreeMap<String, String>,
+    /// The jobs it started that are still running: their titles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<String>,
     /// The session running, by the record's word.
     pub session: Option<String>,
     /// How far he has read.
@@ -41,7 +45,18 @@ impl Tile {
     }
 
     pub fn working(&self) -> bool {
+        self.at_work() || !self.jobs.is_empty()
+    }
+
+    /// A turn or a helper in the tab itself: its jobs alone leave a tab asleep, with nothing to stop.
+    pub fn at_work(&self) -> bool {
         !self.open.is_empty()
+    }
+
+    /// The tab's one small line about its jobs, the same on every screen.
+    pub fn jobs_line(&self) -> Option<String> {
+        let n = self.jobs.len();
+        (n > 0).then(|| format!("{n} job{} running: {}", if n == 1 { "" } else { "s" }, self.jobs.join(", ")))
     }
 
     pub fn quiet(&self) -> bool {
@@ -100,6 +115,7 @@ impl Tile {
                 self.new.retain(|o| *o > seen);
                 self.unread = self.new.len();
             }
+            Body::Jobs { jobs } => self.jobs = jobs.clone(),
             Body::Line { text } => self.line = text.clone(),
             Body::Named { name } => self.name = name.clone(),
             Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Other => {}

@@ -128,7 +128,7 @@ fun TabPage(
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Box(Modifier.width(96.dp).height(2.dp).workLine(look.faint, LocalGlide.current))
                 }
-            } else if (rows.isEmpty() && tab.work == null) {
+            } else if (rows.isEmpty() && tab.work == null && tab.jobs.isEmpty()) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text("Nothing here yet", color = look.faint, style = Words.label)
                 }
@@ -142,6 +142,11 @@ fun TabPage(
                 ) {
                     if (tab.work != null) {
                         item(key = "work", contentType = "work") { WorkRow(tab.work, active && online) }
+                    }
+                    if (tab.jobs.isNotEmpty()) {
+                        item(key = "jobs", contentType = "jobs") {
+                            Text(tab.jobs, Modifier.testTag("jobs"), look.faint, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                     items(rows, key = { it.key }, contentType = { it::class }) { entry ->
                         EntryView(

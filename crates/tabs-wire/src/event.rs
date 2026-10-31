@@ -90,6 +90,9 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn: Option<TurnTokens>,
     },
+    /// The jobs this tab started that are still running, a title each, whole every time it changes.
+    /// A job outlives its tab's sessions, so a session's start or end leaves this alone.
+    Jobs { jobs: Vec<String> },
     /// In the wall's own record: a tab got number `n`.
     Opened { n: u32, id: String },
     /// In the wall's own record: tab `n` closed. Its record stays and the number is free.

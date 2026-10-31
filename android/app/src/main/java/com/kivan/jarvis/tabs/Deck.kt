@@ -67,6 +67,8 @@ data class TabView(
     val closed: Boolean = false,
     /** Waiting for the record to arrive for the first time. */
     val loading: Boolean = false,
+    /** The one small line about the jobs it started, empty with none. They run on their own: there's nothing to tap. */
+    val jobs: String = "",
 )
 
 @Immutable
