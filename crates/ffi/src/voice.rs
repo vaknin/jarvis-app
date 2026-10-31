@@ -133,9 +133,8 @@ const UPLOAD_WAITS: [Duration; 4] =
 pub struct Sensed {
     pub lark: bool,
     pub airpods: bool,
-    pub screen: bool,
-    pub music: bool,
-    pub muted: bool,
+    /// A real call, not dictation.
+    pub call: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -143,7 +142,6 @@ pub enum MicPick {
     Lark,
     Phone,
     AirPods,
-    Shut,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -154,15 +152,14 @@ pub struct Route {
     pub rule: String,
 }
 
-/// The two rules: which mic, and whether Jarvis speaks.
+/// Which mic, and whether Jarvis speaks.
 #[uniffi::export]
 pub fn pick_route(s: Sensed) -> Route {
-    let p = rules::pick(rules::Sense { lark: s.lark, airpods: s.airpods, screen: s.screen, music: s.music, muted: s.muted });
+    let p = rules::pick(rules::Sense { lark: s.lark, airpods: s.airpods, call: s.call });
     let mic = match p.mic {
         rules::Mic::Lark => MicPick::Lark,
         rules::Mic::Phone => MicPick::Phone,
         rules::Mic::AirPods => MicPick::AirPods,
-        rules::Mic::Shut => MicPick::Shut,
     };
     Route { mic, speak: p.speak, telecom: p.telecom, rule: p.rule.into() }
 }
@@ -290,6 +287,25 @@ impl VoiceCall {
         Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), None, phone_stt)))
     }
 
+    /// [`VoiceCall::new`] standing at `tab` from the start: a tab's id, or `""` the wall, where his
+    /// first words open a new tab. `task`: a tracked task's slug, for Jarvis to open with.
+    #[uniffi::constructor]
+    pub fn at(url: String, listener: Box<dyn VoiceListener>, tab: String, task: Option<String>, phone_stt: bool) -> Arc<Self> {
+        crate::init_logging();
+        let _rt = RT.enter();
+        let about = task.map(|slug| jarvis_voice::proto::About { topic: 0, title: String::new(), text: String::new(), task: Some(slug) });
+        Arc::new(VoiceCall(Call::start_at(websocket(url), bridge(listener), Timing::default(), about, phone_stt, tab)))
+    }
+
+    /// Dictation in `tab` (`""` the wall): his words come back through `on_words`, nothing sounds,
+    /// and Jarvis writes.
+    #[uniffi::constructor]
+    pub fn dictate(url: String, listener: Box<dyn VoiceListener>, tab: String) -> Arc<Self> {
+        crate::init_logging();
+        let _rt = RT.enter();
+        Arc::new(VoiceCall(Call::dictate(websocket(url), bridge(listener), Timing::default(), tab)))
+    }
+
     /// [`VoiceCall::new`] for a call about forum thread `topic` (its notification's Call button): the
     /// first hello carries the thread's title and newest posts, so Jarvis opens with it.
     #[uniffi::constructor]
@@ -337,11 +353,6 @@ impl VoiceCall {
 
     pub fn set_muted(&self, on: bool) {
         self.0.set_muted(on);
-    }
-
-    /// The mic is closed: the ring goes to zero.
-    pub fn mic_shut(&self) {
-        self.0.mic_shut();
     }
 
     /// Pause Jarvis mid-reply (true), or let him go on (false).

@@ -1,22 +1,20 @@
-//! The two rules of thread #167, in one place: which mic hears Aviv, and whether Jarvis speaks or
-//! writes. Pure, so every case is a test; the app only reports what it senses and does what comes
-//! back, and logs [`Pick::rule`], so one real run says which rule picked the mic.
+//! Thread #195's rule, in one place: which mic hears Aviv, and whether Jarvis speaks. Pure, so every
+//! case is a test; the app only reports what it senses and does what comes back, and logs
+//! [`Pick::rule`], so one real run says which rule picked the mic.
 //!
-//! Mic: the Lark if it's plugged in, otherwise the phone's with the screen on and the AirPods' with
-//! it off. Jarvis speaks when the screen is off, or when the Lark and the AirPods are both connected;
-//! a Lark left plugged in with no AirPods doesn't make the phone talk aloud. The AirPods' mic stays
-//! shut while music plays: opening it would drop the music to call quality. A press of the stem
-//! pauses the music, which is what opens it.
+//! Being on a call decides who speaks, nothing else does: the screen doesn't, and neither does
+//! another app in front. On a call Jarvis speaks and the mic is the Lark if it's plugged in, else
+//! the AirPods or a headset if connected, else the phone's. Dictating, Jarvis writes and the mic is
+//! the Lark, else the phone's, so the AirPods keep their music at full quality. The pick reads no
+//! screen, so a screen turning over mid-call can't flip the mic.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Sense {
     pub lark: bool,
     /// AirPods or any other headset with a mic of its own.
     pub airpods: bool,
-    pub screen: bool,
-    /// Another app's music, held over the gaps between songs.
-    pub music: bool,
-    pub muted: bool,
+    /// A real call he started or answered. Otherwise he's dictating.
+    pub call: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,8 +22,6 @@ pub enum Mic {
     Lark,
     Phone,
     AirPods,
-    /// Muted, or the AirPods' mic while music plays: nothing is recording.
-    Shut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,85 +36,54 @@ pub struct Pick {
 
 pub fn pick(s: Sense) -> Pick {
     let (mic, rule) = match () {
-        _ if s.muted => (Mic::Shut, "muted"),
-        _ if s.lark => (Mic::Lark, "lark plugged in"),
-        _ if s.screen => (Mic::Phone, "screen on: phone mic"),
-        _ if s.airpods && s.music => (Mic::Shut, "screen off, music plays: airpods mic shut"),
-        _ if s.airpods => (Mic::AirPods, "screen off: airpods mic"),
-        _ => (Mic::Phone, "screen off, no airpods: phone mic"),
+        _ if s.call && s.lark => (Mic::Lark, "call: lark plugged in"),
+        _ if s.call && s.airpods => (Mic::AirPods, "call: airpods mic"),
+        _ if s.call => (Mic::Phone, "call: phone mic"),
+        _ if s.lark => (Mic::Lark, "dictation: lark plugged in"),
+        _ => (Mic::Phone, "dictation: phone mic"),
     };
-    // Muted with nothing in his ears: the phone in a room doesn't start talking to it.
-    let speak = (!s.screen || s.lark && s.airpods) && (s.airpods || mic != Mic::Shut);
-    let telecom = match mic {
-        Mic::AirPods => true,
-        Mic::Phone => speak,
-        Mic::Lark | Mic::Shut => false,
-    };
-    Pick { mic, speak, telecom, rule }
+    // The Lark records on its own, in stereo at 48 kHz; the call route would take it away.
+    Pick { mic, speak: s.call, telecom: s.call && mic != Mic::Lark, rule }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn at(lark: bool, airpods: bool, screen: bool, music: bool) -> Pick {
-        pick(Sense { lark, airpods, screen, music, muted: false })
+    fn at(lark: bool, airpods: bool, call: bool) -> Pick {
+        pick(Sense { lark, airpods, call })
     }
 
     #[test]
-    fn the_lark_wins_the_mic_and_never_takes_the_call_route() {
-        for (airpods, screen, music) in [(false, false, false), (false, true, false), (true, false, true), (true, true, true)] {
-            let p = at(true, airpods, screen, music);
-            assert_eq!((p.mic, p.telecom), (Mic::Lark, false), "{airpods} {screen} {music}");
+    fn every_case() {
+        let cases = [
+            ((true, true, true), Mic::Lark, true, false, "call: lark plugged in"),
+            ((true, false, true), Mic::Lark, true, false, "call: lark plugged in"),
+            ((false, true, true), Mic::AirPods, true, true, "call: airpods mic"),
+            ((false, false, true), Mic::Phone, true, true, "call: phone mic"),
+            ((true, true, false), Mic::Lark, false, false, "dictation: lark plugged in"),
+            ((true, false, false), Mic::Lark, false, false, "dictation: lark plugged in"),
+            ((false, true, false), Mic::Phone, false, false, "dictation: phone mic"),
+            ((false, false, false), Mic::Phone, false, false, "dictation: phone mic"),
+        ];
+        for ((lark, airpods, call), mic, speak, telecom, rule) in cases {
+            assert_eq!(at(lark, airpods, call), Pick { mic, speak, telecom, rule }, "{lark} {airpods} {call}");
         }
     }
 
     #[test]
-    fn the_lark_and_the_airpods_speak_even_with_the_screen_on() {
-        assert!(at(true, true, true, false).speak);
-    }
-
-    #[test]
-    fn a_lark_left_plugged_in_without_airpods_does_not_talk_aloud() {
-        assert!(!at(true, false, true, false).speak);
-    }
-
-    #[test]
-    fn screen_on_is_the_phone_mic_and_leaves_the_airpods_their_music() {
-        let p = at(false, true, true, true);
-        assert_eq!(p, Pick { mic: Mic::Phone, speak: false, telecom: false, rule: "screen on: phone mic" });
-    }
-
-    #[test]
-    fn screen_off_with_airpods_records_from_them_on_the_call_route() {
-        let p = at(false, true, false, false);
-        assert_eq!(p, Pick { mic: Mic::AirPods, speak: true, telecom: true, rule: "screen off: airpods mic" });
-    }
-
-    #[test]
-    fn music_keeps_the_airpods_mic_shut_and_their_quality_up_and_jarvis_still_speaks() {
-        let p = at(false, true, false, true);
-        assert_eq!((p.mic, p.speak, p.telecom), (Mic::Shut, true, false));
-    }
-
-    #[test]
-    fn screen_off_alone_is_todays_route() {
-        let p = at(false, false, false, false);
-        assert_eq!((p.mic, p.speak, p.telecom), (Mic::Phone, true, true));
-    }
-
-    #[test]
-    fn mute_shuts_every_mic_and_changes_nothing_else() {
-        for (lark, airpods, screen, music) in [(true, true, true, false), (false, true, false, false), (false, false, true, true)] {
-            let p = pick(Sense { lark, airpods, screen, music, muted: true });
-            assert_eq!((p.mic, p.telecom), (Mic::Shut, false));
-            assert_eq!(p.speak, at(lark, airpods, screen, music).speak);
+    fn dictating_never_touches_the_airpods() {
+        for lark in [false, true] {
+            let p = at(lark, true, false);
+            assert!(p.mic != Mic::AirPods && !p.telecom && !p.speak);
         }
     }
 
     #[test]
-    fn muted_in_a_pocket_with_nothing_in_his_ears_the_phone_keeps_quiet() {
-        let p = pick(Sense { screen: false, airpods: false, muted: true, ..Sense::default() });
-        assert_eq!((p.mic, p.speak, p.telecom), (Mic::Shut, false, false));
+    fn jarvis_speaks_exactly_on_a_call() {
+        for (lark, airpods) in [(false, false), (false, true), (true, false), (true, true)] {
+            assert!(at(lark, airpods, true).speak);
+            assert!(!at(lark, airpods, false).speak);
+        }
     }
 }

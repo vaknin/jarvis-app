@@ -188,6 +188,8 @@ pub struct Timing {
     pub send_timeout: Duration,
     /// How long a hangup waits for the server to close.
     pub hangup_wait: Duration,
+    /// How long stopping dictation waits for his last turn's words, which the server is finishing.
+    pub words_wait: Duration,
     pub jitter: Duration,
 }
 
@@ -206,6 +208,7 @@ impl Default for Timing {
             grace: Duration::from_millis(2500),
             send_timeout: Duration::from_secs(3),
             hangup_wait: Duration::from_secs(3),
+            words_wait: Duration::from_secs(5),
             jitter: Duration::from_millis(120),
         }
     }
@@ -239,6 +242,8 @@ struct Shared {
     place: Mutex<Option<(Option<String>, bool, bool)>>,
     /// He reads: Jarvis's earcons don't sound.
     quiet: AtomicBool,
+    /// Dictation, until a `where` makes it a call: hanging up waits for his last words.
+    dictating: AtomicBool,
 }
 
 impl Shared {
@@ -260,7 +265,9 @@ impl Shared {
         self.live.store(false, Ordering::SeqCst);
         {
             let mut p = self.player.lock().unwrap();
-            p.earcon(Earcon::Ended);
+            if !self.quiet.load(Ordering::SeqCst) {
+                p.earcon(Earcon::Ended);
+            }
             p.end();
         }
         self.set_status(Status::Ended(why));
@@ -273,6 +280,13 @@ impl Shared {
         }
         self.player.lock().unwrap().earcon(e);
     }
+}
+
+/// Where a new call stands and who speaks, for its first hello alone: a resume is already somewhere.
+#[derive(Debug, Clone, Default)]
+struct Start {
+    tab: Option<String>,
+    speak: Option<bool>,
 }
 
 /// A call in progress. Dropping it hangs up.
@@ -289,6 +303,18 @@ impl Call {
         Self::start_about(connector, events, timing, None)
     }
 
+    /// A call that stands at `tab` from its first hello: a tab's id, or `""` the wall, where his
+    /// first words open a new tab. `about`: Jarvis opens with it.
+    pub fn start_at(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, tab: String) -> Call {
+        Self::begin(connector, events, timing, about, phone_stt, None, Start { tab: Some(tab), speak: None })
+    }
+
+    /// Dictation in `tab` (`""` the wall): the same line, and nothing about it sounds. His words come
+    /// back through [`Events::words`], Jarvis stays silent, and no hangup is ever owed.
+    pub fn dictate(connector: Connector, events: Arc<dyn Events>, timing: Timing, tab: String) -> Call {
+        Self::begin(connector, events, timing, None, false, None, Start { tab: Some(tab), speak: Some(false) })
+    }
+
     /// [`Call::start`], for a call about one thread: the first hello says which, so Jarvis opens with it.
     pub fn start_about(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>) -> Call {
         Self::start_full(connector, events, timing, about, false)
@@ -297,17 +323,18 @@ impl Call {
     /// [`Call::start_about`]; `phone_stt`: the app's own recognizer transcribes Aviv's turns (the
     /// hello says `"stt":"phone"`, and [`Events::stt_open`] and its kin feed it; see `stt.rs`).
     pub fn start_full(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool) -> Call {
-        Self::begin(connector, events, timing, about, phone_stt, None)
+        Self::begin(connector, events, timing, about, phone_stt, None, Start::default())
     }
 
     /// Back to the dropped call `id` the app had left (its process died mid-call, or Aviv answered
     /// Jarvis calling back): its first hello resumes `id`, with `rejoin` when Aviv had left it
     /// (`aviv_left`), and from there it's a call like any other.
     pub fn rejoin(connector: Connector, events: Arc<dyn Events>, timing: Timing, id: String, phone_stt: bool, aviv_left: bool) -> Call {
-        Self::begin(connector, events, timing, None, phone_stt, Some((id, aviv_left)))
+        Self::begin(connector, events, timing, None, phone_stt, Some((id, aviv_left)), Start::default())
     }
 
-    fn begin(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, rejoin: Option<(String, bool)>) -> Call {
+    fn begin(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, rejoin: Option<(String, bool)>, start: Start) -> Call {
+        let dictating = start.speak == Some(false);
         let shared = Arc::new(Shared {
             player: Mutex::new(Player::new(timing.jitter)),
             events,
@@ -316,14 +343,15 @@ impl Call {
             muted: AtomicBool::new(false),
             voice_muted: AtomicBool::new(false),
             place: Mutex::new(None),
-            quiet: AtomicBool::new(false),
+            quiet: AtomicBool::new(dictating),
+            dictating: AtomicBool::new(dictating),
             pausing: AtomicBool::new(false),
             paused: AtomicBool::new(false),
         });
         let (cmd, cmd_rx) = mpsc::unbounded_channel();
         // 10 frames (200 ms): a send that lags more than that drops the newest speech, not the call.
         let (mic, mic_rx) = mpsc::channel(10);
-        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, phone_stt, rejoin));
+        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, phone_stt, rejoin, start));
         Call { shared, cmd, mic, meter: MicMeter::default() }
     }
 
@@ -335,11 +363,6 @@ impl Call {
         }
         let heard = level(rms(&pcm));
         self.meter.set(if self.mic.try_send(pcm).is_ok() { heard } else { 0.0 });
-    }
-
-    /// The mic is closed, so no frame will come to bring the ring down.
-    pub fn mic_shut(&self) {
-        self.meter.set(0.0);
     }
 
     /// How well Jarvis hears the mic right now, 0 to 1 ([`crate::meter`]). Never waits.
@@ -366,6 +389,7 @@ impl Call {
     pub fn set_where(&self, tab: Option<String>, speak: bool, stay: bool) {
         *self.shared.place.lock().unwrap() = Some((tab.clone(), speak, stay));
         self.shared.quiet.store(!speak, Ordering::SeqCst);
+        self.shared.dictating.fetch_and(!speak, Ordering::SeqCst);
         let _ = self.cmd.send(Cmd::Where(tab, speak, stay));
     }
 
@@ -435,7 +459,7 @@ impl Drop for Call {
 /// line didn't carry his hangup): an `"end":true` hello, and the server closes once it has it.
 pub async fn end(connector: Connector, id: String, t: Timing) -> Result<()> {
     let (mut tx, mut rx) = timeout(t.connect_timeout, connector()).await.context("connect timed out")??;
-    let hello = Up::Hello { version: 1, resume: Some(id), about: None, stt: None, rejoin: false, end: true, have: None, queued_ms: None };
+    let hello = Up::Hello { version: 1, resume: Some(id), about: None, stt: None, rejoin: false, end: true, have: None, queued_ms: None, tab: None, speak: None };
     timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await.context("send timed out")??;
     timeout(t.connect_timeout, async {
         loop {
@@ -489,7 +513,7 @@ struct Dial {
 
 /// `holds`: the player holds this call's audio (it had a `ready`), so a resume says what it has.
 #[allow(clippy::too_many_arguments)]
-fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, stt: bool, rejoin: bool, holds: bool) -> Dial {
+fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, start: Start, stt: bool, rejoin: bool, holds: bool) -> Dial {
     let (hello, (stop, mut stopped)) = (Arc::new(AtomicBool::new(false)), oneshot::channel::<()>());
     let (connect, said, t) = (connector(), hello.clone(), t.clone());
     let fut = Box::pin(async move {
@@ -509,7 +533,7 @@ fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<Strin
         } else {
             (None, None)
         };
-        let hello = Up::Hello { version: 1, resume, about, stt: stt.then_some("phone"), rejoin, end: false, have, queued_ms };
+        let hello = Up::Hello { version: 1, resume, about, stt: stt.then_some("phone"), rejoin, end: false, have, queued_ms, tab: start.tab, speak: start.speak };
         match timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await {
             Ok(Ok(())) => said.store(true, Ordering::SeqCst),
             Ok(Err(e)) => return Dialed::Failed(format!("send: {e:#}")),
@@ -550,6 +574,8 @@ struct Run {
     id: Option<String>,
     /// What the call is about, said in each hello until the server has the call.
     about: Option<About>,
+    /// Where it stands, likewise.
+    start: Start,
     line: Option<Line>,
     next: Option<Dial>,
     /// Since when the line has been stalled or down (or the call started); `None` while it's fine.
@@ -586,10 +612,11 @@ async fn run(
     about: Option<About>,
     phone_stt: bool,
     rejoin: Option<(String, bool)>,
+    start: Start,
 ) {
     sh.set_status(Status::Connecting);
     let (rejoin, aviv_left) = rejoin.map_or((None, false), |(id, left)| (Some(id), left));
-    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), phone_stt, aviv_left, false));
+    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), start.clone(), phone_stt, aviv_left, false));
     let mut r = Run {
         connector,
         sh: sh.clone(),
@@ -600,6 +627,7 @@ async fn run(
         id: rejoin,
         online: true,
         about,
+        start,
         line: None,
         next,
         down: Some(Instant::now()),
@@ -776,8 +804,8 @@ impl Run {
             return;
         }
         // Until the server has the call, a redial is still its first hello, and says what it's about.
-        let about = if self.id.is_none() { self.about.clone() } else { None };
-        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, self.stt.is_some(), self.rejoin, self.holds));
+        let (about, start) = if self.id.is_none() { (self.about.clone(), self.start.clone()) } else { (None, Start::default()) };
+        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, start, self.stt.is_some(), self.rejoin, self.holds));
     }
 
     async fn set_online(&mut self, on: bool) {
@@ -825,6 +853,27 @@ impl Run {
             // Even on a line that just broke: a hangup ends the call, it never reconnects. If the
             // server never hears it, the app owes it (below).
             let _ = timeout(self.t.send_timeout, l.tx.send(Frame::Text(Up::Hangup.json()))).await;
+            // The mic stops now, and the sentence he was in still comes back as words: only then
+            // is it over, so the app takes them into the box whole.
+            if self.sh.dictating.load(Ordering::SeqCst) {
+                self.sh.live.store(false, Ordering::SeqCst);
+                let sh = self.sh.clone();
+                let _ = timeout(self.t.words_wait, async {
+                    while let Some(Ok(f)) = l.rx.next().await {
+                        match f {
+                            Frame::Close => return,
+                            Frame::Text(s) => {
+                                if let Some(Down::Words { text }) = Down::parse(&s) {
+                                    sh.events.words(&text);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                })
+                .await;
+                return self.sh.end("hung up".into());
+            }
             // Over for Aviv now; the socket stays a moment, since the server checks for a
             // conclusion worth keeping, then closes.
             self.sh.end("hung up".into());
@@ -839,7 +888,8 @@ impl Run {
             .await
             .unwrap_or(false);
         }
-        if !heard && let Some(id) = &self.id {
+        // A dictation owes nothing: with no line the server ends it alone.
+        if !heard && !self.sh.dictating.load(Ordering::SeqCst) && let Some(id) = &self.id {
             tracing::info!("voice: the server didn't confirm the hangup of {id}: owed");
             self.sh.events.hangup_owed(id);
         }

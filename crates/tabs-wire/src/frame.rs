@@ -68,6 +68,9 @@ pub enum Ask {
     Seen { id: String, upto: u64 },
     /// A picture or a sound beside the record, by the name in its `FileRef`: answered by `File`.
     File { id: String, name: String },
+    /// A file he attached, as base64 because frames are JSON: kept beside the record, for a `Say` to
+    /// name. `name` is what he called it, and keeps its extension. Answered by `Put`.
+    Put { id: String, name: String, data: String },
     /// The tab's Jarvis truly can't go on (amber), or no longer needs him.
     Needs {
         id: String,
@@ -150,6 +153,8 @@ pub enum Tell {
     Scrubbed { found: usize },
     /// A file a client asked for, as base64 because frames are JSON. Empty if it isn't there.
     File { id: String, name: String, data: String },
+    /// A file is kept, as `file`: `name` is the one the `Put` gave, so a client can tell them apart.
+    Put { id: String, name: String, file: FileRef },
     /// An ask that didn't work, and why.
     Refused {
         #[serde(default, skip_serializing_if = "String::is_empty")]

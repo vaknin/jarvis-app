@@ -12,3 +12,5 @@
 {"ask":"seen","id":"t1","upto":120}
 {"ask":"file","id":"t1","name":"chord.png"}
 {"ask":"report","id":"t1","from":"job-x","line":"Done.","text":"Done, tested."}
+{"ask":"put","id":"t1","name":"chord.png","data":"aGk="}
+{"ask":"say","id":"t1","text":"look","files":[{"name":"1-0.png","alt":"chord.png"}]}

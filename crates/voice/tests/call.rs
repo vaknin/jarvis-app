@@ -131,6 +131,9 @@ impl Events for Log {
     fn hangup_owed(&self, id: &str) {
         self.0.lock().unwrap().push(format!("owed {id}"));
     }
+    fn words(&self, text: &str) {
+        self.0.lock().unwrap().push(format!("words {text}"));
+    }
 }
 
 async fn wait_for(log: &Log, s: &str) {
@@ -255,6 +258,66 @@ async fn hangup_sends_hangup_and_ends_with_the_earcon() {
         n += b.len() / 2;
     }
     assert!(n >= Earcon::Ended.samples().len());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_tab_is_said_in_the_hello_until_the_server_has_the_call() {
+    let (connector, mut servers, _) = fake();
+    let log = Arc::new(Log::default());
+    let _call = Call::start_at(connector, log.clone(), Timing::default(), None, false, String::new());
+    let mut s = servers.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":null,"tab":""}"#);
+    // A line that breaks before `ready` is still the first hello.
+    drop(s);
+    let mut s = servers.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":null,"tab":""}"#);
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    drop(s);
+    let mut s = servers.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1","have":0,"queued_ms":0}"#, "a resume is already somewhere");
+}
+
+#[tokio::test(start_paused = true)]
+async fn dictation_is_silent_and_its_last_words_land_before_it_ends() {
+    let (connector, mut servers, _) = fake();
+    let log = Arc::new(Log::default());
+    let call = Call::dictate(connector, log.clone(), Timing::default(), "t3".into());
+    let mut s = servers.recv().await.unwrap();
+    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":null,"tab":"t3","speak":false}"#);
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(call.pull_audio(16_000).iter().filter(|b| **b != 0).count(), 0, "no earcon");
+    call.hangup();
+    assert_eq!(s.text().await, r#"{"type":"hangup"}"#);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!log.statuses().iter().any(|x| x.contains("Ended")), "still waiting for his last sentence");
+    call.send_audio(vec![1; 640]);
+    assert_eq!(call.mic_level(), 0.0, "the mic stopped at the tap");
+    s.send(r#"{"type":"words","text":"and the rest"}"#);
+    wait_for(&log, "words and the rest").await;
+    assert!(!log.statuses().iter().any(|x| x.contains("Ended")), "the words land first");
+    let _ = s.to_phone.send(Ok(Frame::Close));
+    wait_for(&log, r#"status Ended("hung up")"#).await;
+    assert_eq!(call.pull_audio(16_000).iter().filter(|b| **b != 0).count(), 0, "no ended earcon");
+    assert!(!log.has("owed c1"), "nothing's owed for a dictation");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_dictation_the_server_never_closes_ends_after_the_wait() {
+    let (connector, mut servers, _) = fake();
+    let log = Arc::new(Log::default());
+    let call = Call::dictate(connector, log.clone(), Timing::default(), String::new());
+    let mut s = servers.recv().await.unwrap();
+    s.text().await;
+    s.send(r#"{"type":"ready","call":"c1"}"#);
+    wait_for(&log, "status Listening").await;
+    call.hangup();
+    s.text().await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    assert!(log.has(r#"status Ended("hung up")"#));
+    assert!(!log.has("owed c1"));
 }
 
 #[tokio::test(start_paused = true)]

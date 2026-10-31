@@ -13,3 +13,4 @@
 {"tell":"file","id":"t1","name":"chord.png","data":"aGk="}
 {"tell":"refused","id":"t1","why":"read only"}
 {"tell":"done"}
+{"tell":"put","id":"t1","name":"chord.png","file":{"name":"1-0.png","alt":"chord.png"}}

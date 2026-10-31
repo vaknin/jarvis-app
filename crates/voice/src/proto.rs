@@ -30,6 +30,13 @@ pub enum Up {
         /// (A resume) Jarvis's audio still queued here to play, in ms.
         #[serde(skip_serializing_if = "Option::is_none")]
         queued_ms: Option<u64>,
+        /// (A new call) where it stands: a tab's id, `""` the wall, so his first words open a new
+        /// tab. `None`: the server's pick, which for a ring being answered is the tab that asked.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tab: Option<String>,
+        /// (A new call) `Some(false)`: he dictates, Jarvis writes. `None` is a call.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        speak: Option<bool>,
     },
     /// The phone's words for `cut` `id` (`None`: it has none, the server uses its own); `ms`: its
     /// recognizer's time after the cut.
@@ -110,22 +117,26 @@ mod tests {
 
     #[test]
     fn up_is_the_contracts_json() {
-        assert_eq!(Up::Hello { version: 1, resume: None, about: None, stt: None, rejoin: false, end: false, have: None, queued_ms: None }.json(), r#"{"type":"hello","version":1,"resume":null}"#);
+        assert_eq!(Up::Hello { version: 1, resume: None, about: None, stt: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None }.json(), r#"{"type":"hello","version":1,"resume":null}"#);
         assert_eq!(
-            Up::Hello { version: 1, resume: Some("c1".into()), about: None, stt: None, rejoin: false, end: false, have: None, queued_ms: None }.json(),
+            Up::Hello { version: 1, resume: Some("c1".into()), about: None, stt: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None }.json(),
             r#"{"type":"hello","version":1,"resume":"c1"}"#
+        );
+        assert_eq!(
+            Up::Hello { version: 1, resume: None, about: None, stt: None, rejoin: false, end: false, have: None, queued_ms: None, tab: Some(String::new()), speak: Some(false) }.json(),
+            r#"{"type":"hello","version":1,"resume":null,"tab":"","speak":false}"#
         );
         let about = About { topic: 112, title: "One app".into(), text: "Keep it?".into(), task: None };
         assert_eq!(
-            Up::Hello { version: 1, resume: None, about: Some(about), stt: None, rejoin: false, end: false, have: None, queued_ms: None }.json(),
+            Up::Hello { version: 1, resume: None, about: Some(about), stt: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None }.json(),
             r#"{"type":"hello","version":1,"resume":null,"about":{"topic":112,"title":"One app","text":"Keep it?"}}"#
         );
         assert_eq!(
-            Up::Hello { version: 1, resume: None, about: None, stt: Some("phone"), rejoin: false, end: false, have: None, queued_ms: None }.json(),
+            Up::Hello { version: 1, resume: None, about: None, stt: Some("phone"), rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None }.json(),
             r#"{"type":"hello","version":1,"resume":null,"stt":"phone"}"#
         );
         assert_eq!(
-            Up::Hello { version: 1, resume: Some("c1".into()), about: None, stt: None, rejoin: false, end: false, have: Some(7), queued_ms: Some(1200) }.json(),
+            Up::Hello { version: 1, resume: Some("c1".into()), about: None, stt: None, rejoin: false, end: false, have: Some(7), queued_ms: Some(1200), tab: None, speak: None }.json(),
             r#"{"type":"hello","version":1,"resume":"c1","have":7,"queued_ms":1200}"#
         );
         assert_eq!(Up::Heard { id: 3, text: Some("Check it.".into()), ms: 900 }.json(), r#"{"type":"heard","id":3,"text":"Check it.","ms":900}"#);
