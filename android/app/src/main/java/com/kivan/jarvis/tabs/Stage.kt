@@ -28,14 +28,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -70,7 +72,8 @@ private class Replying(val tab: String, val answer: Entry.Answer)
  */
 @Composable
 fun Stage(deck: Deck, opening: Opening = Opening()) {
-    val state by deck.state.collectAsStateWithLifecycle()
+    // Immediate, so what's typed is back in the field before the next key: the field reads from here.
+    val state by deck.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val scope = rememberCoroutineScope()
     val map = remember { WallMap() }
     val buzz = rememberBuzz()
@@ -86,7 +89,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
         mutableStateOf(answer?.let { Replying(opening.tab.orEmpty(), it) })
     }
     var closedPage by rememberSaveable { mutableStateOf(opening.closed) }
-    var wallWords by rememberSaveable { mutableStateOf("") }
     var undo by remember { mutableStateOf<ClosedTab?>(null) }
 
     fun go(to: Float, then: () -> Unit = {}) {
@@ -118,8 +120,10 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
             undo = null
         }
     }
+    val wallWords = state.typed[WALL].orEmpty()
     val anyWork = state.tiles.any { it.working } || state.tabs.values.any { it.work != null }
-    val glide = rememberGlide(anyWork || open != null)
+    val anyLoading = open != null && state.tabs.values.any { it.loading }
+    val glide = rememberGlide((anyWork || anyLoading) && state.online)
 
     CompositionLocalProvider(LocalGlide provides glide) {
         Box(Modifier.fillMaxSize()) {
@@ -128,13 +132,13 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 map = map,
                 active = open == null,
                 text = wallWords,
-                onText = { wallWords = it },
+                onText = { deck.type(WALL, it) },
                 onStart = {
                     val w = wallWords.trim()
                     if (w.isNotEmpty()) {
                         buzz.sent()
                         deck.start(w)
-                        wallWords = ""
+                        deck.type(WALL, "")
                     }
                 },
                 onOpen = ::openTab,
@@ -266,6 +270,9 @@ private fun TabLayer(
     val density = LocalDensity.current
     val corner = with(density) { 28.dp.toPx() }
     val page = pager.settledPage
+    val rim = look.line
+    fun zoomTile(full: Size) = open.order.getOrNull(pager.currentPage)?.let(map::rect)
+        ?: Rect(full.width * 0.1f, full.height * 0.3f, full.width * 0.9f, full.height * 0.7f)
 
     // The wire follows the tab on screen and its neighbours, so a swipe finds them ready.
     LaunchedEffect(page, open) {
@@ -315,8 +322,7 @@ private fun TabLayer(
             .graphicsLayer {
                 val full = size
                 val p = zoom.value.coerceIn(0f, 1f)
-                val tile = open.order.getOrNull(pager.currentPage)?.let(map::rect)
-                    ?: Rect(full.width * 0.1f, full.height * 0.3f, full.width * 0.9f, full.height * 0.7f)
+                val tile = zoomTile(full)
                 val w = tile.width + (full.width - tile.width) * p
                 val h = tile.height + (full.height - tile.height) * p
                 val s = maxOf(w / full.width, h / full.height)
@@ -326,8 +332,26 @@ private fun TabLayer(
                 translationX = tile.left * (1f - p) + (w - full.width * s) / 2
                 translationY = tile.top * (1f - p) + (h - full.height * s) / 2
                 clip = p < 1f
-                shape = ZoomShape(w / s, h / s, corner * (1f - p) / s)
+                shape = ZoomShape(w / s, h / s, corner * cornerLeft(p) / s)
                 alpha = (p / 0.14f).coerceAtMost(1f)
+            }
+            .drawWithContent {
+                drawContent()
+                // A hairline rim while it grows, so the tab reads as the tile and not as a cut.
+                val p = zoom.value.coerceIn(0f, 1f)
+                if (p > 0f && p < 1f) {
+                    val tile = zoomTile(size)
+                    val w = tile.width + (size.width - tile.width) * p
+                    val h = tile.height + (size.height - tile.height) * p
+                    val s = maxOf(w / size.width, h / size.height)
+                    drawRoundRect(
+                        rim.copy(alpha = 1f - p),
+                        Offset((size.width - w / s) / 2, (size.height - h / s) / 2),
+                        Size(w / s, h / s),
+                        CornerRadius(corner * cornerLeft(p) / s),
+                        Stroke(density.run { 2.dp.toPx() } / s),
+                    )
+                }
             },
     ) {
         HorizontalPager(
@@ -362,16 +386,15 @@ private fun TabLayer(
     }
 }
 
+/** The corners stay a tile's for most of the way and square off only near the end. */
+private fun cornerLeft(p: Float) = 1f - p * p * p
+
 /** A centred window of the full-size tab, in the tab's own units, with rounded corners. */
 private class ZoomShape(private val w: Float, private val h: Float, private val r: Float) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val left = (size.width - w) / 2
         val top = (size.height - h) / 2
-        return Outline.Generic(
-            Path().apply {
-                addRoundRect(RoundRect(Rect(left, top, left + w, top + h), CornerRadius(r)))
-            },
-        )
+        return Outline.Rounded(RoundRect(Rect(left, top, left + w, top + h), CornerRadius(r)))
     }
 
     override fun equals(other: Any?) = other is ZoomShape && other.w == w && other.h == h && other.r == r

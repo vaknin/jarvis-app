@@ -138,7 +138,8 @@ object Prose {
 
 /** Bold is ink at any tone of text; a link is underlined, since blue here means new. */
 @Composable
-fun annotated(spans: List<Span>, ink: Color = look.ink): AnnotatedString {
+fun annotated(spans: List<Span>, ink: Color = look.ink, mark: String = ""): AnnotatedString {
+    val lit = look.line
     val mono = Words.code.fontFamily ?: FontFamily.Monospace
     return buildAnnotatedString {
         for (s in spans) when (s.kind) {
@@ -150,22 +151,24 @@ fun annotated(spans: List<Span>, ink: Color = look.ink): AnnotatedString {
                 LinkAnnotation.Url(s.url, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))),
             ) { append(s.text) }
         }
+        val at = if (mark.isEmpty()) -1 else toString().indexOf(mark)
+        if (at >= 0) addStyle(SpanStyle(background = lit), at, at + mark.length)
     }
 }
 
 @Composable
-fun BlockView(block: Block, color: Color = look.ink, modifier: Modifier = Modifier) {
+fun BlockView(block: Block, color: Color = look.ink, modifier: Modifier = Modifier, mark: String = "") {
     val style = Words.prose
     when (block) {
-        is Block.Para -> Text(annotated(block.spans), modifier, color, style = style)
-        is Block.Head -> Text(annotated(block.spans), modifier.padding(top = 6.dp), color, style = Words.proseHead)
+        is Block.Para -> Text(annotated(block.spans, mark = mark), modifier, color, style = style)
+        is Block.Head -> Text(annotated(block.spans, mark = mark), modifier.padding(top = 6.dp), color, style = Words.proseHead)
         is Block.Lifted -> Row(modifier.height(IntrinsicSize.Min)) {
             Box(Modifier.width(2.dp).fillMaxHeight().background(look.line, RoundedCornerShape(1.dp)))
-            Text(annotated(block.spans), Modifier.padding(start = 12.dp), look.soft, style = style)
+            Text(annotated(block.spans, mark = mark), Modifier.padding(start = 12.dp), look.soft, style = style)
         }
         is Block.Item -> Row(modifier.padding(start = (block.depth * 18).dp)) {
             Text(block.mark, Modifier.width(if (block.mark.length > 1) 26.dp else 18.dp), look.faint, style = style)
-            Text(annotated(block.spans), Modifier, color, style = style)
+            Text(annotated(block.spans, mark = mark), Modifier, color, style = style)
         }
         is Block.Code -> CodeView(block.plain, modifier)
     }

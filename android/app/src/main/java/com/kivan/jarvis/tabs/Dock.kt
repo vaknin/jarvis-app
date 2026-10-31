@@ -9,15 +9,20 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -122,13 +127,21 @@ private fun WordsBox(
     }
 }
 
-/** A line under the status bar: what's wrong, faint, and typing goes on. */
+/** A strip under the status bar: what's wrong, and typing goes on behind it. */
 @Composable
 fun OfflineBar(modifier: Modifier = Modifier) {
-    Box(modifier.padding(horizontal = Space.margin, vertical = 6.dp)) {
-        Text("offline, reconnecting…", color = look.faint, style = Words.small)
+    Box(modifier.fillMaxWidth().background(look.raised).padding(horizontal = Space.margin, vertical = 7.dp)) {
+        Text("Offline, reconnecting…", color = look.soft, style = Words.small)
     }
 }
 
 /** Text in a page keeps its reading width on a tablet. */
 fun Modifier.reading(): Modifier = widthIn(max = Space.reading)
+
+/** A page: on a tablet it stands in the middle at reading width, its header and box with it. */
+@Composable
+fun Page(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Box(modifier.fillMaxSize().background(look.canvas).windowInsetsPadding(WindowInsets.statusBars), Alignment.TopCenter) {
+        Column(Modifier.reading().fillMaxSize(), content = content)
+    }
+}

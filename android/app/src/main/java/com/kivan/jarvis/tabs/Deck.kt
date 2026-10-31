@@ -98,6 +98,9 @@ data class DeckState(
     val opened: String? = null,
 )
 
+/** The key of the wall's own box in [DeckState.typed]. */
+const val WALL = ""
+
 /** What the screens can ask for. All of it goes to the server, which answers by changing [state]. */
 interface Deck {
     val state: StateFlow<DeckState>

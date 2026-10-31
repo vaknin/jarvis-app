@@ -63,6 +63,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Constraints
@@ -91,6 +93,12 @@ class WallMap {
 }
 
 private val Gap = 8.dp
+
+private fun padFor(size: TileSize): Dp = when (size) {
+    TileSize.Big -> 20.dp
+    TileSize.Large -> 16.dp
+    else -> 12.dp
+}
 
 private fun cornerFor(size: TileSize): Dp = when (size) {
     TileSize.Big -> 28.dp
@@ -128,8 +136,8 @@ fun Wall(
     ) {
         AnimatedVisibility(!state.online) { OfflineBar() }
         if (state.tiles.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) {
-                Text("Type to start your first tab", color = look.faint, style = Words.label)
+            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Space.margin, vertical = 24.dp), Alignment.BottomStart) {
+                Text("Nothing open", color = look.faint, style = Words.tile(TileSize.Big))
             }
         } else {
             Tiles(
@@ -147,8 +155,8 @@ fun Wall(
             onSend = onStart,
             muted = state.muted,
             onMute = onMute,
-            leading = {
-                Round(R.drawable.lucide_search, "Search closed tabs", onClosedTabs, fill = look.surface, size = 48.dp)
+            leading = if (state.closed.isEmpty()) null else {
+                { Round(R.drawable.lucide_search, "Search closed tabs", onClosedTabs, fill = look.surface, size = 48.dp) }
             },
         )
     }
@@ -211,6 +219,25 @@ private fun Tiles(
                 with(density) { Grid.size(it.width.toDp().value, it.height.toDp().value) }
             } ?: TileSize.Small
         }
+        // One name size for the whole wall, set by the name that would otherwise split a word. A wall of
+        // mixed sizes looks broken. Each tile still steps down alone if it can't fit its height.
+        val measurer = rememberTextMeasurer(cacheSize = 0)
+        val base = Words.tile(type)
+        val names = order.map { byId[it]?.name.orEmpty() }
+        val biggest = remember(names, grid, base) {
+            val pad = with(density) { padFor(type).toPx() * 2 }
+            val floor = with(density) { 12.dp.toSp().value }
+            var size = base.fontSize.value
+            while (size > floor) {
+                val fits = names.zip(grid.rects).all { (name, rect) ->
+                    val room = Constraints(maxWidth = (rect.width - pad).toInt().coerceAtLeast(1))
+                    !measurer.measure(name, base.copy(fontSize = size.sp), constraints = room).splitsWord(name)
+                }
+                if (fits) break
+                size *= 0.92f
+            }
+            size.coerceAtLeast(floor).sp
+        }
         val fractions = remember(grid) { grid.rects.map { Rect(it.left / w, it.top / h, it.right / w, it.bottom / h) } }
         val ids = order.toList()
         map.slots.keys.retainAll(ids.toSet())
@@ -223,7 +250,7 @@ private fun Tiles(
                     if (tile != null && to != null) {
                         key(id) {
                             TileSlot(
-                                tile, to, type, active, map,
+                                tile, to, type, biggest, active, map,
                                 up = lifted == id,
                                 onLift = { lifted = if (it) id else null },
                                 onOver = { spot ->
@@ -276,6 +303,7 @@ private fun TileSlot(
     tile: TileView,
     to: Rect,
     type: TileSize,
+    biggest: TextUnit,
     active: Boolean,
     map: WallMap,
     up: Boolean,
@@ -331,7 +359,7 @@ private fun TileSlot(
                 )
             },
     ) {
-        TileCell(tile, type, active, onOpen, onClose, onStep)
+        TileCell(tile, type, biggest, active, onOpen, onClose, onStep)
         DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
             DropdownMenuItem(
                 text = { Text("Close tab", color = look.ink, style = Words.label) },
@@ -348,6 +376,7 @@ private fun TileSlot(
 private fun TileCell(
     tile: TileView,
     size: TileSize,
+    biggest: TextUnit,
     active: Boolean,
     onOpen: () -> Unit,
     onClose: () -> Unit,
@@ -385,7 +414,7 @@ private fun TileCell(
                 )
             },
     ) {
-        TileFace(tile, size, active)
+        TileFace(tile, size, active, biggest = biggest)
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = flash.value }.background(Color.White))
     }
 }
@@ -399,12 +428,8 @@ fun describe(tile: TileView): String = buildList {
 
 /** A name plus one mark, and the moving line beside either. Number top left, name bottom left. */
 @Composable
-fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier = Modifier) {
-    val pad = when (size) {
-        TileSize.Big -> 20.dp
-        TileSize.Large -> 16.dp
-        else -> 12.dp
-    }
+fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier = Modifier, biggest: TextUnit = Words.tile(size).fontSize) {
+    val pad = padFor(size)
     val ink = if (tile.needs) look.onUrgent else look.ink
     val number = if (tile.needs) look.onUrgent.copy(alpha = 0.72f) else look.faint
     val style = Words.tile(size)
@@ -425,7 +450,7 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
                 style = style.copy(color = ink, lineHeight = 1.2.em),
                 maxLines = if (size == TileSize.Small) 2 else 3,
                 overflow = TextOverflow.Ellipsis,
-                autoSize = WholeWords(style.fontSize),
+                autoSize = WholeWords(biggest),
             )
             if (tile.working) {
                 val glide = LocalGlide.current
@@ -442,6 +467,11 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
     }
 }
 
+private fun TextLayoutResult.splitsWord(text: String) = (0 until lineCount - 1).any { i ->
+    val end = getLineEnd(i)
+    end in 1 until text.length && text[end - 1].isLetterOrDigit() && text[end].isLetterOrDigit()
+}
+
 /**
  * A tile's name stays at its size unless that would split a word or spill out of the tile, as it would
  * with large text in a small tile. Then it steps down: a smaller name beats "Sourdo-ugh".
@@ -454,11 +484,7 @@ private data class WholeWords(val biggest: TextUnit) : TextAutoSize {
         while (size > floor) {
             val r = performLayout(constraints, text, size.sp)
             val spilled = r.hasVisualOverflow || (r.lineCount > 0 && r.isLineEllipsized(r.lineCount - 1))
-            val split = (0 until r.lineCount - 1).any { i ->
-                val end = r.getLineEnd(i)
-                end in 1 until text.length && text[end - 1].isLetterOrDigit() && text[end].isLetterOrDigit()
-            }
-            if (!spilled && !split) break
+            if (!spilled && !r.splitsWord(text.text)) break
             size *= 0.9f
         }
         return size.coerceAtLeast(floor).sp

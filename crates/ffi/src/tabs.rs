@@ -697,7 +697,8 @@ async fn keep_linked() {
     }
 }
 
-/// The screens are up: they hear everything now, and the link comes up.
+/// The screens are up and the link comes up. They hear nothing until it's there or the grace has
+/// passed, so a quick link never shows them "offline" on the way.
 #[uniffi::export]
 pub fn tabs_attach(listener: Arc<dyn TabsListener>) {
     let mut attached = SHARED.attached.lock().unwrap();
@@ -713,8 +714,6 @@ pub fn tabs_attach(listener: Arc<dyn TabsListener>) {
             t.moved(0);
         }
     }
-    drop(desk);
-    deliver();
 }
 
 /// The screens are gone: no link and no battery until they're back.

@@ -67,7 +67,7 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
         41,
         notes = mapOf(
             1 to Note("", "So the sustain was the whole problem?"),
-            9 to Note("a slash chord played very softly", "How soft is very softly?"),
+            7 to Note("a slash chord played very softly", "How soft is very softly?"),
         ),
     )
 

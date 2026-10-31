@@ -10,16 +10,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -48,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
@@ -101,7 +99,7 @@ fun ReplyPage(
         buzz.sent()
         onSend(draft, quotes, draft.end.trim())
     }
-    Column(modifier.fillMaxSize().background(look.canvas).windowInsetsPadding(WindowInsets.statusBars)) {
+    Page(modifier) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 4.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -112,7 +110,7 @@ fun ReplyPage(
         }
         Box(Modifier.weight(1f).fillMaxWidth(), Alignment.TopCenter) {
             LazyColumn(
-                Modifier.reading().fillMaxSize().testTag("reply"),
+                Modifier.fillMaxSize().testTag("reply"),
                 state = list,
                 contentPadding = PaddingValues(start = Space.margin, end = Space.margin, top = 8.dp, bottom = 24.dp),
             ) {
@@ -143,6 +141,14 @@ fun ReplyPage(
                     )
                 }
             }
+            // The page runs out under the bar instead of being cut by it.
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(24.dp)
+                    .background(Brush.verticalGradient(listOf(look.canvas.copy(alpha = 0f), look.canvas))),
+            )
         }
         Row(
             Modifier.overKeyboard().padding(start = 18.dp, end = 10.dp, top = 6.dp, bottom = 8.dp),
@@ -150,7 +156,7 @@ fun ReplyPage(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                if (draft.count == 0) "Tap a paragraph to answer it" else "The rest isn't sent",
+                if (draft.count == 0) "Tap a paragraph to answer it" else "Only these are sent",
                 Modifier.weight(1f),
                 look.faint,
                 style = Words.small,
@@ -206,14 +212,17 @@ private fun Paragraph(
             .animateContentSize(tween(Curves.PAGE, easing = Curves.out))
             .then(if (note == null) Modifier.clickable(tap, null, onClickLabel = WRITE_HERE, onClick = onWrite) else Modifier),
     ) {
-        Quotable(onQuote) { BlockView(block) }
+        // Words he picked light up where they stand; only what can't be lit there is repeated under it.
+        val lit = note != null && block !is Block.Code && block.plain.contains(note.quote)
+        Quotable(onQuote) { BlockView(block, mark = if (lit) note?.quote.orEmpty() else "") }
         if (note == null) {
-            Box(Modifier.fillMaxWidth().height(if (block is Block.Item) 16.dp else 28.dp), Alignment.CenterStart) {
-                if (block !is Block.Item) Glyph(R.drawable.lucide_corner_down_left, look.line, 13.dp)
+            // A list stays a list: its items are tappable too, without a mark on every line.
+            Box(Modifier.fillMaxWidth().height(if (block is Block.Item) 14.dp else 30.dp).padding(top = 4.dp)) {
+                if (block !is Block.Item) Glyph(R.drawable.lucide_corner_down_left, look.faint, 13.dp)
             }
         } else {
             val ask = remember { FocusRequester() }
-            if (note.quote.isNotEmpty()) {
+            if (note.quote.isNotEmpty() && !lit) {
                 Row(Modifier.padding(top = 10.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
                     Box(Modifier.width(2.dp).fillMaxHeight().background(look.ink, RoundedCornerShape(1.dp)))
                     Text(note.quote, Modifier.padding(start = 10.dp), look.soft, style = Words.small, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -223,7 +232,7 @@ private fun Paragraph(
                 note.text,
                 TYPE_HERE,
                 { onNote(note.copy(text = it)) },
-                Modifier.padding(top = 10.dp, bottom = 16.dp),
+                Modifier.padding(start = 20.dp, top = 10.dp, bottom = 16.dp),
                 ask,
                 onBlur = onDone,
             )

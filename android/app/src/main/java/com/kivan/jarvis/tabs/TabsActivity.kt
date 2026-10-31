@@ -5,20 +5,27 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 
-/** The wall and its tabs, beside today's home. */
+/** The wall of tabs. The link to the server lives only while this is on screen. */
 class TabsActivity : ComponentActivity() {
+    private lateinit var deck: Deck
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val deck = (lastNonConfigurationInstance as? Deck) ?: FakeDeck(Fake.deck(intent.getIntExtra("tabs", 9)))
-        held = deck
-        setContent {
-            TabsTheme { Stage(deck) }
-        }
+        deck = (lastNonConfigurationInstance as? Deck) ?: trialDeck(intent) ?: RealDeck.get(this)
+        setContent { TabsTheme { Stage(deck) } }
     }
 
-    private var held: Deck? = null
+    override fun onStart() {
+        super.onStart()
+        (deck as? RealDeck)?.up()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) (deck as? RealDeck)?.down()
+    }
 
     @Deprecated("A Deck outlives a rotation")
-    override fun onRetainCustomNonConfigurationInstance(): Any? = held
+    override fun onRetainCustomNonConfigurationInstance(): Any = deck
 }

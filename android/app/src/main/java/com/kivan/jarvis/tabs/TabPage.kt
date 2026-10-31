@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,9 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -111,7 +108,7 @@ fun TabPage(
         if (tall > room) list.scrollToItem(i, tall - room)
     }
 
-    Column(modifier.fillMaxSize().background(look.canvas).windowInsetsPadding(WindowInsets.statusBars)) {
+    Page(modifier) {
         Header(tab, onWall, onClose)
         AnimatedVisibility(!online) { OfflineBar() }
         AnimatedVisibility(
@@ -142,7 +139,7 @@ fun TabPage(
                     verticalArrangement = Arrangement.spacedBy(Space.turn, Alignment.Bottom),
                 ) {
                     if (tab.work != null) {
-                        item(key = "work", contentType = "work") { WorkRow(tab.work, active) }
+                        item(key = "work", contentType = "work") { WorkRow(tab.work, active && online) }
                     }
                     items(rows, key = { it.key }, contentType = { it::class }) { entry ->
                         EntryView(
@@ -302,10 +299,7 @@ private fun YoursView(entry: Entry.Yours) {
                 }
             }
             if (entry.voice) {
-                Row(Modifier.padding(top = 5.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Glyph(R.drawable.lucide_mic, look.faint, 12.dp)
-                    Text(" said", color = look.faint, style = Words.small)
-                }
+                Glyph(R.drawable.lucide_mic, look.faint, 13.dp, Modifier.padding(top = 6.dp, end = 6.dp))
             }
             if (entry.state == Sending.Refused) {
                 Text(entry.why.ifEmpty { "Didn't send" }, Modifier.padding(top = 5.dp, end = 4.dp), look.urgentText, style = Words.small)
@@ -439,12 +433,14 @@ private fun WorkRow(work: WorkView, active: Boolean) {
     }
     val secs = ((now - work.since) / 1000).coerceAtLeast(0)
     val still = LocalStill.current
+    // A turn with no step named yet is him writing, the first thing after a message lands.
+    val said = work.what.ifEmpty { "Jarvis is writing" }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (!still) Box(Modifier.fillMaxWidth().height(2.dp).workLine(look.soft, LocalGlide.current, segment = 0.18f))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                work.what.ifEmpty { "Working" },
-                Modifier.weight(1f).semantics { contentDescription = "Working: ${work.what}" },
+                said,
+                Modifier.weight(1f),
                 look.soft,
                 style = Words.small,
                 maxLines = 2,
