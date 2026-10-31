@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.text.modifiers.TextAutoSizeLayoutScope
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -39,7 +42,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,11 +64,13 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kivan.jarvis.R
-import kotlinx.coroutines.launch
 
 /** Where each tile is, for the zoom: a tab grows out of its own tile and shrinks back into it. */
 class WallMap {
@@ -177,7 +181,6 @@ private fun Tiles(
     modifier: Modifier,
 ) {
     val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
     val buzz = rememberBuzz()
     // The order on screen follows the server, except under a finger.
     val order = remember { mutableStateListOf<String>() }
@@ -209,83 +212,34 @@ private fun Tiles(
         }
         val fractions = remember(grid) { grid.rects.map { Rect(it.left / w, it.top / h, it.right / w, it.bottom / h) } }
         val ids = order.toList()
-        ids.forEachIndexed { i, id ->
-            val to = fractions.getOrNull(i) ?: return@forEachIndexed
-            val slot = map.slots.getOrPut(id) { Animatable(to, Rect.VectorConverter) }
-            LaunchedEffect(id, to) {
-                if (slot.targetValue != to) slot.animateTo(to, spring(Spring.DampingRatioNoBouncy, Curves.settle))
-            }
-        }
         map.slots.keys.retainAll(ids.toSet())
-
-        var finger by remember { mutableStateOf(Offset.Zero) }
         Layout(
             content = {
-                for (id in ids) key(id) {
-                    val tile = byId[id] ?: return@key
-                    var menu by remember { mutableStateOf(false) }
-                    var start by remember { mutableStateOf(Offset.Zero) }
-                    var moved by remember { mutableStateOf(false) }
-                    val up = lifted == id
-                    val lift by animateFloatAsState(if (up) 1.04f else 1f, Curves.press)
-                    Box(
-                        Modifier
-                            .layoutId(id)
-                            .graphicsLayer {
-                                scaleX = lift
-                                scaleY = lift
-                                if (up) {
-                                    val s = map.slots[id]?.value
-                                    if (s != null) {
-                                        translationX = finger.x - s.center.x * size.width / s.width
-                                        translationY = finger.y - s.center.y * size.height / s.height
+                for (i in ids.indices) {
+                    val id = ids[i]
+                    val tile = byId[id]
+                    val to = fractions.getOrNull(i)
+                    if (tile != null && to != null) {
+                        key(id) {
+                            TileSlot(
+                                tile, to, type, active, map,
+                                up = lifted == id,
+                                onLift = { lifted = if (it) id else null },
+                                onOver = { spot ->
+                                    val into = fractions.indexOfFirst { it.contains(spot) }
+                                    val from = order.indexOf(id)
+                                    if (into >= 0 && into != from) {
+                                        order.removeAt(from)
+                                        order.add(into, id)
+                                        buzz.tick()
                                     }
-                                }
-                            }
-                            .pointerInput(id) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { at ->
-                                        val s = map.slots[id]?.value ?: return@detectDragGesturesAfterLongPress
-                                        start = Offset(s.left * map.size.width + at.x, s.top * map.size.height + at.y)
-                                        finger = Offset(s.center.x * map.size.width, s.center.y * map.size.height)
-                                        moved = false
-                                        lifted = id
-                                        buzz.lift()
-                                    },
-                                    onDrag = { change, by ->
-                                        change.consume()
-                                        finger += by
-                                        if (by.getDistance() > 0.5f) moved = true
-                                        val here = Offset(finger.x, finger.y)
-                                        val to = grid.rects.indexOfFirst { r ->
-                                            r.contains(Offset(here.x, here.y * h / map.size.height.coerceAtLeast(1f)))
-                                        }
-                                        val from = order.indexOf(id)
-                                        if (to >= 0 && to != from) {
-                                            order.removeAt(from)
-                                            order.add(to, id)
-                                            buzz.tick()
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        val at = order.indexOf(id)
-                                        lifted = null
-                                        if (moved) onMove(id, at) else menu = true
-                                    },
-                                    onDragCancel = { lifted = null },
-                                )
-                            },
-                    ) {
-                        TileCell(tile, type, active, { onOpen(id) }, onClose = { onClose(id) }, onMove = { by ->
-                            val at = order.indexOf(id) + by
-                            if (at in order.indices) onMove(id, at)
-                        })
-                        DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
-                            DropdownMenuItem(
-                                text = { Text("Close tab", color = look.ink, style = Words.label) },
-                                onClick = {
-                                    menu = false
-                                    scope.launch { onClose(id) }
+                                },
+                                onDrop = { onMove(id, order.indexOf(id)) },
+                                onOpen = { onOpen(id) },
+                                onClose = { onClose(id) },
+                                onStep = { by ->
+                                    val at = order.indexOf(id) + by
+                                    if (at in order.indices) onMove(id, at)
                                 },
                             )
                         }
@@ -308,6 +262,83 @@ private fun Tiles(
                     p.place((s.left * fullW).toInt(), (s.top * fullH).toInt(), if (id == lifted) 1f else 0f)
                 }
             }
+        }
+    }
+}
+
+/**
+ * One tile in its place. It glides when the grid changes. Held down it lifts: a drag moves it, and
+ * letting go without moving offers to close it.
+ */
+@Composable
+private fun TileSlot(
+    tile: TileView,
+    to: Rect,
+    type: TileSize,
+    active: Boolean,
+    map: WallMap,
+    up: Boolean,
+    onLift: (Boolean) -> Unit,
+    onOver: (Offset) -> Unit,
+    onDrop: () -> Unit,
+    onOpen: () -> Unit,
+    onClose: () -> Unit,
+    onStep: (Int) -> Unit,
+) {
+    val buzz = rememberBuzz()
+    val slot = remember { map.slots.getOrPut(tile.id) { Animatable(to, Rect.VectorConverter) } }
+    if (map.slots[tile.id] == null) map.slots[tile.id] = slot
+    LaunchedEffect(to) {
+        if (slot.targetValue != to) slot.animateTo(to, spring(Spring.DampingRatioNoBouncy, Curves.settle))
+    }
+    var menu by remember { mutableStateOf(false) }
+    var finger by remember { mutableStateOf(Offset.Zero) }
+    val lift by animateFloatAsState(if (up) 1.04f else 1f, Curves.press)
+    val slop = with(LocalDensity.current) { 10.dp.toPx() }
+    Box(
+        Modifier
+            .layoutId(tile.id)
+            .graphicsLayer {
+                scaleX = lift
+                scaleY = lift
+                if (up) {
+                    translationX = finger.x - slot.value.center.x * map.size.width
+                    translationY = finger.y - slot.value.center.y * map.size.height
+                }
+            }
+            .pointerInput(tile.id) {
+                var travel = 0f
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        val s = slot.value
+                        finger = Offset(s.center.x * map.size.width, s.center.y * map.size.height)
+                        travel = 0f
+                        onLift(true)
+                        buzz.lift()
+                    },
+                    onDrag = { change, by ->
+                        change.consume()
+                        finger += by
+                        travel += by.getDistance()
+                        onOver(Offset(finger.x / map.size.width, finger.y / map.size.height))
+                    },
+                    onDragEnd = {
+                        onLift(false)
+                        if (travel > slop) onDrop() else menu = true
+                    },
+                    onDragCancel = { onLift(false) },
+                )
+            },
+    ) {
+        TileCell(tile, type, active, onOpen, onClose, onStep)
+        DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
+            DropdownMenuItem(
+                text = { Text("Close tab", color = look.ink, style = Words.label) },
+                onClick = {
+                    menu = false
+                    onClose()
+                },
+            )
         }
     }
 }
@@ -384,8 +415,17 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
                 tile.unread -> Dot(size = 10.dp, modifier = Modifier.padding(top = 2.dp))
             }
         }
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(tile.name, color = ink, style = style, maxLines = if (size == TileSize.Small) 2 else 3, overflow = TextOverflow.Ellipsis)
+        Column(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(top = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp, Alignment.Bottom),
+        ) {
+            BasicText(
+                tile.name,
+                style = style.copy(color = ink),
+                maxLines = if (size == TileSize.Small) 2 else 3,
+                overflow = TextOverflow.Ellipsis,
+                autoSize = WholeWords(style.fontSize),
+            )
             if (tile.working) {
                 val glide = LocalGlide.current
                 val line = if (tile.needs) look.onUrgent else look.soft
@@ -398,5 +438,26 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
                 Box(Modifier.height(2.dp))
             }
         }
+    }
+}
+
+/**
+ * A tile's name stays at its size unless that would split a word or spill out of the tile, as it would
+ * with large text in a small tile. Then it steps down: a smaller name beats "Sourdo-ugh".
+ */
+private data class WholeWords(val biggest: TextUnit) : TextAutoSize {
+    override fun TextAutoSizeLayoutScope.getFontSize(constraints: Constraints, text: AnnotatedString): TextUnit {
+        var size = biggest.value
+        while (size > 11f) {
+            val r = performLayout(constraints, text, size.sp)
+            val spilled = r.hasVisualOverflow || (r.lineCount > 0 && r.isLineEllipsized(r.lineCount - 1))
+            val split = (0 until r.lineCount - 1).any { i ->
+                val end = r.getLineEnd(i)
+                end in 1 until text.length && text[end - 1].isLetterOrDigit() && text[end].isLetterOrDigit()
+            }
+            if (!spilled && !split) break
+            size *= 0.9f
+        }
+        return size.coerceAtLeast(11f).sp
     }
 }

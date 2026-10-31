@@ -150,7 +150,11 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
-            all { it.maxHeapSize = "2g" }
+            all {
+                it.maxHeapSize = "2g"
+                // Robolectric on API 36 reaches into FileDescriptor.
+                it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--add-opens=java.base/java.io=ALL-UNNAMED")
+            }
         }
     }
 }

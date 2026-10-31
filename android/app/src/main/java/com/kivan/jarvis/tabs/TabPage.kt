@@ -51,7 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -98,6 +98,18 @@ fun TabPage(
     if (atEnd) seenEnd = rows.firstOrNull()?.key
     val hasNew = !atEnd && rows.firstOrNull()?.key != seenEnd
     val hasWork = tab.work != null
+    // Coming to a new answer taller than the screen, start at its first line, not its last.
+    val wasNew = remember { tab.tile.unread }
+    LaunchedEffect(rows.isEmpty()) {
+        if (!wasNew) return@LaunchedEffect
+        val i = rows.indexOfFirst { it is Entry.Answer }
+        if (i < 0) return@LaunchedEffect
+        list.scrollToItem(i)
+        val info = list.layoutInfo
+        val tall = info.visibleItemsInfo.firstOrNull { it.index == i }?.size ?: 0
+        val room = info.viewportEndOffset - info.viewportStartOffset
+        if (tall > room) list.scrollToItem(i, tall - room)
+    }
 
     Column(modifier.fillMaxSize().background(look.canvas).windowInsetsPadding(WindowInsets.statusBars)) {
         Header(tab, onWall, onClose)
@@ -135,13 +147,21 @@ fun TabPage(
                     items(rows, key = { it.key }, contentType = { it::class }) { entry ->
                         EntryView(
                             entry,
-                            canReply = !tab.closed && !tab.tile.readOnly,
+                            canReply = !tab.closed && !tab.tile.readOnly && !(question != null && entry.key == lastAnswer),
                             newest = entry.key == lastAnswer,
                             drafted = draft != null && entry is Entry.Answer && draft.to == entry.offset && !draft.empty,
                             onReply = onReply,
                         )
                     }
                 }
+            }
+            if (list.canScrollForward) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .background(Brush.verticalGradient(listOf(look.canvas, look.canvas.copy(alpha = 0f)))),
+                )
             }
             androidx.compose.animation.AnimatedVisibility(
                 hasNew,
@@ -186,7 +206,7 @@ fun TabPage(
 private fun Header(tab: TabView, onWall: () -> Unit, onClose: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 4.dp),
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Round(R.drawable.lucide_layout_grid, "Back to the wall", onWall)

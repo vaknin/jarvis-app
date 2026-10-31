@@ -62,7 +62,16 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
         Entry.Yours("y3", "Now make the keys light up as I play", voice = true),
     )
 
-    fun deck(n: Int = 9, online: Boolean = true, muted: Boolean = false): DeckState {
+    /** A reply half written on the piano answer. */
+    val draft = ReplyDraft(
+        41,
+        notes = mapOf(
+            1 to Note("", "So the sustain was the whole problem?"),
+            9 to Note("a slash chord played very softly", "How soft is very softly?"),
+        ),
+    )
+
+    fun deck(n: Int = 9, online: Boolean = true, muted: Boolean = false, drafts: Map<String, ReplyDraft> = emptyMap()): DeckState {
         val tiles = tiles(n)
         val tabs = tiles.associate { t ->
             t.id to when (t.id) {
@@ -76,6 +85,7 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                     ),
                     WorkView("Waiting on your answer", System.currentTimeMillis() - 2_000).takeIf { false },
                 )
+                "t4" -> TabView(t, listOf(Entry.Yours("y1", "Find me a quiet place near the river"), Entry.Answer("a1", 9, ANSWER)))
                 else -> TabView(t, listOf(Entry.Answer("a1", 3, "Nothing new here since yesterday.")))
             }
         }
@@ -91,6 +101,7 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
             ),
             online = online,
             muted = muted,
+            drafts = drafts,
         )
     }
 }

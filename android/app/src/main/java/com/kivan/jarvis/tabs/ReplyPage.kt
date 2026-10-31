@@ -4,12 +4,14 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,7 +30,13 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
+import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +49,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -52,7 +64,7 @@ import androidx.compose.ui.unit.dp
 import com.kivan.jarvis.R
 
 /** The hint under a paragraph, and what the box says inside. */
-private const val WRITE_HERE = "Answer this"
+private const val WRITE_HERE = "Answer this paragraph"
 private const val TYPE_HERE = "Type your answer to this"
 
 /**
@@ -91,7 +103,7 @@ fun ReplyPage(
     }
     Column(modifier.fillMaxSize().background(look.canvas).windowInsetsPadding(WindowInsets.statusBars)) {
         Row(
-            Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 12.dp),
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 4.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Round(R.drawable.lucide_arrow_left, "Back, the draft is kept", onBack)
@@ -116,6 +128,10 @@ fun ReplyPage(
                             if (writing == i) writing = null
                             if (draft.notes[i]?.text.isNullOrBlank()) onDraft(draft.copy(notes = draft.notes - i))
                         },
+                        onQuote = { words ->
+                            onDraft(draft.copy(notes = draft.notes + (i to (draft.notes[i] ?: Note("", "")).copy(quote = words))))
+                            writing = i
+                        },
                     )
                 }
                 item(key = "end") {
@@ -134,7 +150,7 @@ fun ReplyPage(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                "Only what you answer is sent",
+                if (draft.count == 0) "Tap a paragraph to answer it" else "The rest isn't sent",
                 Modifier.weight(1f),
                 look.faint,
                 style = Words.small,
@@ -180,28 +196,26 @@ private fun Paragraph(
     onWrite: () -> Unit,
     onNote: (Note) -> Unit,
     onDone: () -> Unit,
+    onQuote: (String) -> Unit,
 ) {
-    Column(Modifier.animateContentSize(tween(Curves.PAGE, easing = Curves.out))) {
-        SelectionContainer { BlockView(block) }
+    // Tapping the paragraph itself or the gap under it writes there, so the target is the whole block
+    // and the page needs no row of buttons. A long press still selects words.
+    val tap = remember { MutableInteractionSource() }
+    Column(
+        Modifier
+            .animateContentSize(tween(Curves.PAGE, easing = Curves.out))
+            .then(if (note == null) Modifier.clickable(tap, null, onClickLabel = WRITE_HERE, onClick = onWrite) else Modifier),
+    ) {
+        Quotable(onQuote) { BlockView(block) }
         if (note == null) {
-            // The whole gap under a paragraph is the target, since "under it" is the only instruction.
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClickLabel = WRITE_HERE, onClick = onWrite)
-                    .heightIn(min = 44.dp)
-                    .padding(bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Glyph(R.drawable.lucide_corner_down_left, look.faint, 14.dp)
-                Text(WRITE_HERE, color = look.faint, style = Words.small)
+            Box(Modifier.fillMaxWidth().height(if (block is Block.Item) 16.dp else 28.dp), Alignment.CenterStart) {
+                if (block !is Block.Item) Glyph(R.drawable.lucide_corner_down_left, look.line, 13.dp)
             }
         } else {
             val ask = remember { FocusRequester() }
             if (note.quote.isNotEmpty()) {
                 Row(Modifier.padding(top = 10.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-                    Box(Modifier.width(2.dp).fillMaxSize().background(look.ink, RoundedCornerShape(1.dp)))
+                    Box(Modifier.width(2.dp).fillMaxHeight().background(look.ink, RoundedCornerShape(1.dp)))
                     Text(note.quote, Modifier.padding(start = 10.dp), look.soft, style = Words.small, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -258,4 +272,52 @@ private fun NoteField(
             }
         },
     )
+}
+
+/** Selecting words offers Quote this; each paragraph is its own selection, so a quote knows its paragraph. */
+@Composable
+private fun Quotable(onQuote: (String) -> Unit, content: @Composable () -> Unit) {
+    val real = LocalClipboard.current
+    val catcher = remember(real) { Catcher(real) }
+    catcher.onWords = onQuote
+    CompositionLocalProvider(LocalClipboard provides catcher) {
+        Box(
+            Modifier
+                .filterTextContextMenuComponents { c ->
+                    if (c is TextContextMenuItem && c.key === TextContextMenuKeys.CopyKey) catcher.copy = c
+                    c.key === TextContextMenuKeys.CopyKey || c.key === QUOTE
+                }
+                .appendTextContextMenuComponents {
+                    item(QUOTE, "Quote this") { catcher.catching { catcher.copy?.onClick?.invoke(this) } }
+                },
+        ) { SelectionContainer(content = content) }
+    }
+}
+
+private val QUOTE = Any()
+
+/**
+ * Compose has no public way to ask a selection for its words, but its Copy has them. So Quote this
+ * presses Copy with this clipboard in the way: the words land here and the real clipboard stays as it
+ * was. Copy pressed by hand passes straight through.
+ */
+private class Catcher(private val real: Clipboard) : Clipboard {
+    var copy: TextContextMenuItem? = null
+    var onWords: (String) -> Unit = {}
+    private var catching = false
+
+    fun catching(press: () -> Unit) {
+        catching = true
+        press()
+    }
+
+    override val nativeClipboard: NativeClipboard get() = real.nativeClipboard
+
+    override suspend fun getClipEntry(): ClipEntry? = real.getClipEntry()
+
+    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+        if (!catching) return real.setClipEntry(clipEntry)
+        catching = false
+        clipEntry?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.let { onWords(it.toString()) }
+    }
 }

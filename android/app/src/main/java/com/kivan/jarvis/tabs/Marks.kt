@@ -85,6 +85,8 @@ fun rememberGlide(running: Boolean): State<Float> {
 fun Modifier.workLine(color: Color, glide: State<Float>, thickness: Dp = 2.dp, segment: Float = 0.3f): Modifier =
     drawBehind {
         val t = thickness.toPx()
+        // A faint rail, so a stopped frame still reads as a line at work and not a stray underline.
+        drawRoundRect(color.copy(alpha = color.alpha * 0.16f), Offset(0f, (size.height - t) / 2), Size(size.width, t), CornerRadius(t / 2))
         val seg = size.width * segment
         val x = (size.width + seg) * glide.value - seg
         val left = x.coerceAtLeast(0f)

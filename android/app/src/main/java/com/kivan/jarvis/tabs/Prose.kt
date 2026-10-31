@@ -2,11 +2,13 @@ package com.kivan.jarvis.tabs
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -29,6 +31,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 
 /**
  * Jarvis's words as blocks: a paragraph, a bullet or a block of code is one thing to read and one
@@ -136,14 +139,13 @@ object Prose {
 /** Bold is ink at any tone of text; a link is underlined, since blue here means new. */
 @Composable
 fun annotated(spans: List<Span>, ink: Color = look.ink): AnnotatedString {
-    val code = look.surface
     val mono = Words.code.fontFamily ?: FontFamily.Monospace
     return buildAnnotatedString {
         for (s in spans) when (s.kind) {
             Kind.Plain -> append(s.text)
             Kind.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.W600, color = ink)) { append(s.text) }
             Kind.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(s.text) }
-            Kind.Mono -> withStyle(SpanStyle(fontFamily = mono, background = code)) { append(s.text) }
+            Kind.Mono -> withStyle(SpanStyle(fontFamily = mono, fontSize = 0.92.em)) { append(s.text) }
             Kind.Link -> withLink(
                 LinkAnnotation.Url(s.url, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))),
             ) { append(s.text) }
@@ -157,8 +159,8 @@ fun BlockView(block: Block, color: Color = look.ink, modifier: Modifier = Modifi
     when (block) {
         is Block.Para -> Text(annotated(block.spans), modifier, color, style = style)
         is Block.Head -> Text(annotated(block.spans), modifier.padding(top = 6.dp), color, style = Words.proseHead)
-        is Block.Lifted -> Row(modifier) {
-            Box(Modifier.width(3.dp).padding(end = 0.dp))
+        is Block.Lifted -> Row(modifier.height(IntrinsicSize.Min)) {
+            Box(Modifier.width(2.dp).fillMaxHeight().background(look.line, RoundedCornerShape(1.dp)))
             Text(annotated(block.spans), Modifier.padding(start = 12.dp), look.soft, style = style)
         }
         is Block.Item -> Row(modifier.padding(start = (block.depth * 18).dp)) {
@@ -184,13 +186,17 @@ private fun CodeView(code: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ProseView(blocks: List<Block>, modifier: Modifier = Modifier, color: Color = look.ink, style: TextStyle = Words.prose) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.para)) {
+fun ProseView(blocks: List<Block>, modifier: Modifier = Modifier, color: Color = look.ink) {
+    Column(modifier) {
         var last: Block? = null
         for (b in blocks) {
             // A list's items sit closer together than paragraphs do.
-            val close = last is Block.Item && b is Block.Item
-            BlockView(b, color, if (close) Modifier.padding(top = 0.dp) else Modifier)
+            val above = when {
+                last == null -> 0.dp
+                last is Block.Item && b is Block.Item -> 6.dp
+                else -> Space.para
+            }
+            BlockView(b, color, Modifier.padding(top = above))
             last = b
         }
     }

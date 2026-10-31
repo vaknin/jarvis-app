@@ -61,6 +61,13 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- The wall of tabs, one tap from home. -->
+        <activity
+            android:name=".tabs.TabsActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- The chat with the laptop, one tap from home. -->
         <activity
             android:name=".LaptopActivity"

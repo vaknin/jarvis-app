@@ -52,7 +52,7 @@ import kotlinx.coroutines.launch
 data class Opening(
     val tab: String? = null,
     val zoom: Float = 1f,
-    val reply: Boolean = false,
+    val reply: String? = null,
     val closed: Boolean = false,
 )
 
@@ -81,7 +81,10 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     }
     val zoom = remember { Animatable(if (opening.tab != null) opening.zoom else 0f) }
     var closedTab by remember { mutableStateOf<String?>(null) }
-    var replying by remember { mutableStateOf<Replying?>(null) }
+    var replying by remember {
+        val answer = state.tabs[opening.tab]?.entries?.firstOrNull { it.key == opening.reply } as? Entry.Answer
+        mutableStateOf(answer?.let { Replying(opening.tab.orEmpty(), it) })
+    }
     var closedPage by rememberSaveable { mutableStateOf(opening.closed) }
     var wallWords by rememberSaveable { mutableStateOf("") }
     var undo by remember { mutableStateOf<ClosedTab?>(null) }

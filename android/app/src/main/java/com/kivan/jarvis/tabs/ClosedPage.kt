@@ -51,7 +51,7 @@ fun ClosedPage(
     val focus = remember { FocusRequester() }
     Column(modifier.fillMaxSize().background(look.canvas).windowInsetsPadding(WindowInsets.statusBars)) {
         Row(
-            Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 12.dp),
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 4.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Round(R.drawable.lucide_arrow_left, "Back to the wall", onBack)

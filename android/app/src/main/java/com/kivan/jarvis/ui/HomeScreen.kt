@@ -115,6 +115,9 @@ fun HomeScreen() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Jarvis", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                    IconButton(onClick = { ctx.startActivity(android.content.Intent(ctx, com.kivan.jarvis.tabs.TabsActivity::class.java)) }) {
+                        Icon(painterResource(R.drawable.lucide_layout_grid), "Tabs", tint = Accent)
+                    }
                     IconButton(onClick = { ctx.startActivity(TasksActivity.intent(ctx)) }) {
                         Icon(painterResource(R.drawable.lucide_list_checks), "Tasks", tint = Accent)
                     }
