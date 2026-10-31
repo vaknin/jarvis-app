@@ -85,6 +85,14 @@ pub enum Ask {
         line: String,
         text: String,
     },
+    /// Another session's note for this tab: on the record like a report, and it starts a turn, the
+    /// tab asleep or not. Never his words: those are `Say`.
+    Note {
+        id: String,
+        from: String,
+        line: String,
+        text: String,
+    },
     /// Overwrite a secret in every record, in place: answered by `Scrubbed`. `word`: only as a whole
     /// word, for one group of a value with spaces, which could be any four letters.
     Scrub {
