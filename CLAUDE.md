@@ -35,7 +35,9 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   up (iroh's relay ping every 15 s is the standing battery cost; no connection is held). Design: the jarvis repo's
   `notes/jarvis-notify.md`.
   One app, voice first (thread #112, 2026-10-29; the forum app `com.vaknin.forum` folded in): the label is "Jarvis".
-  Home (`MainActivity`, `ui/HomeScreen.kt`) is the big Call button plus What's new (`Brief.kt`, `GET /brief` on the
+  The app opens on the wall (thread #195): `MainActivity` is the gate, first-run steps then `wallIntent`; its old home
+  shows only with `home` from the wall's menu, a fallback for a week of testing.
+  That home (`MainActivity`, `ui/HomeScreen.kt`) is the big Call button plus What's new (`Brief.kt`, `GET /brief` on the
   tunnel's 8791; the forum's unread list until that answers). The top bar opens the forum (`forum/ForumActivity`, a
   WebView on `Forum.URL`) and the laptop chat (`LaptopActivity`). `forum/Watch.kt` starts with the process. It notifies
   only for what is aimed at Aviv: Discourse's unread notifications of types 1/6/7/15, and chat DMs and @mentions. It
@@ -208,8 +210,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   (`crates/ffi/src/lib.rs`), because swarm_discovery logs every failed mDNS send (EPERM) on the phone.
 - netwatch (iroh's UDP sockets) is a patched copy in `vendor/netwatch` (`[patch.crates-io]`): a failed rebind
   after a network change is retried instead of leaving the laptop link's socket dead (`vendor/netwatch/PATCHED.md`).
-- Tabs, the app's next home (thread #167): `android/.../tabs`, opened from a button on today's home, which stays as it
-  was. The look is the jarvis repo's `design/jarvis-app/LOOK.md`, "On the phone"; `docs/DESIGN.md` doesn't apply here.
+- Tabs, the app's home (threads #167, #195): `android/.../tabs`. The look is the jarvis repo's `design/jarvis-app/LOOK.md`, "On the phone"; `docs/DESIGN.md` doesn't apply here.
   `Stage.kt` holds the one zoom (tap, pinch, predictive back) between the wall (`Wall.kt`, `Grid.kt`) and a tab
   (`TabPage.kt`); `ReplyPage.kt` is the reply page. The screens only draw `Deck`: `RealDeck.kt` keeps what's stored and
   shows it at once, and carries frames through `crates/ffi/src/tabs.rs` on the tunnel's handshake `tabs1`, which the gate
@@ -220,7 +221,12 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   `-Pbench` adds a shrunk emulator-only build and the `:bench` module; `-Pbench=plain` is what `Profile` takes
   `app/src/main/baseline-prof.txt` from.
 
-- Voice in tabs (thread #167, step 5): talking to Jarvis has no mode and no name: with Tabs up and no mute the mic is on, and his words go where he is (`where` to the server, `Voice.place`). The server stands on that tab's own session (the jarvis repo's `voice/src/tabbed.rs`); at the wall his words open a tab. `crates/voice/src/rules.rs` is the one pure function behind everything that follows, unit tested, and its rule's name goes to the log (`mic: rule …`): the Lark if it's plugged in, else the phone mic with the screen on and the AirPods with it off; Jarvis speaks with the screen off, or with the Lark and the AirPods both connected, otherwise he writes; the AirPods mic stays shut while music plays, until a stem press stops the music; the conversation screen counts as screen off, so it keeps today's route. `Senses.kt` gathers what the rule reads and `CallService` acts on it leg by leg: Telecom only on a leg that opens the AirPods mic; a Lark or phone-mic leg skips it, so the AirPods stay at music quality (Lark: `usb_device`, 48 kHz stereo, left channel, 48->16 kHz in `lark.rs`, the path motoparty proved). Mute closes the mic for real and outlives a restart (`Voice.saved`); muted and out of sight for 10 minutes ends quietly. The notification shows the tab, the answer's last line (`ToPhone::Line`) and Mute, posted only when its text changes. `Voice.heard` holds what's said on screen until a tap, a jump or Send; with the reply box open it goes into the box. `SenseFeed` is a debug receiver that fakes the Lark, the AirPods and music for the emulator.
+- Voice in tabs (threads #167 and #195): the app opens silent. Nothing listens until he acts, and a screen never decides who speaks: being on a call does. `crates/voice/src/rules.rs` is the one pure function behind this, unit tested, and its rule's name goes to the log (`mic: rule: …`).
+  The mic button in the words box is dictation (`Dictation.kt`, `Hello.speak` false, `VoiceCall.dictate`): his words collect in the box, Send, a tap or a jump sends them, Jarvis writes. Leaving the app or the screen going off stops it and keeps the draft; it never becomes a call. It takes the Lark if it's plugged in, else the phone's mic, with no Telecom, so music keeps playing at full quality.
+  The Call button in a tab is a real call on that tab's own session (`Voice.start` with `tab`; `NEW_TAB` is `""`; the jarvis repo's `voice/src/tabbed.rs`): Jarvis speaks until he hangs up, with the screen off or another app in front. Its mic is the Lark, else AirPods or a headset, else the phone's, and a flipped screen doesn't flip it. It pauses music and brings it back at hang up. `CallActivity` is that tab's call view; Back goes to the tab, whose `CallStrip` returns to the call. A stem press, the tile, the shortcut and the assistant open a call in a new tab. A ring (`Callback.kt`) leaves `tab` out: the server places it on the tab that asked, or a new one.
+  `Senses.kt` gathers what the rule reads and `CallService` acts on it leg by leg: Telecom only on a leg that opens the AirPods mic (Lark: `usb_device`, 48 kHz stereo, left channel, 48->16 kHz in `lark.rs`, the path motoparty proved). The notification shows the tab, the answer's last line (`ToPhone::Line`) and Mute, posted only when its text changes. `SenseFeed` is a debug receiver that fakes the Lark, the AirPods and music for the emulator.
+  Pictures and files: the tray in the words box (`tabs/Tray.kt`, `tabs/Files.kt`), filled by attach or by the "Jarvis" share target (`tabs/TabShareActivity.kt`, the wall is its picker), goes up with `Ask::Put` and out with the next Send.
+  Pixel is a second launcher icon on `LaptopActivity`, with its own `taskAffinity` so it has its own place in recents. The old Laptop share tile (`ShareActivity`) stays.
   What thread #123 and #125 built stays on that path: the route button through Telecom, the transcript, the shared timer, the once-posted notification, the mic ring after the AirPods boost; on Bluetooth our handles disable AEC and NS, the log goes up on leaving a headset and before an update, and the phone mic never stands in silently for the AirPods.
 
 ## The move from the old name (thread #190)
