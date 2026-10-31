@@ -371,13 +371,16 @@ private fun TileSlot(
             .graphicsLayer {
                 scaleX = lift
                 scaleY = lift
+                // Same fill as its neighbours, so without a shadow it melts into them.
+                shape = RoundedCornerShape(cornerFor(type))
+                shadowElevation = (lift - 1f) / 0.04f * 16.dp.toPx()
                 if (up) {
                     translationX = finger().x - slot.value.center.x * map.size.width
                     translationY = finger().y - slot.value.center.y * map.size.height
                 }
             },
     ) {
-        TileCell(tile, type, biggest, active, onOpen, onClose, onStep)
+        TileCell(tile, type, biggest, active, up, onOpen, onClose, onStep)
         DropdownMenu(menu, { onMenu(false) }, containerColor = look.raised) {
             DropdownMenuItem(
                 text = { Text("Close tab", color = look.ink, style = Words.label) },
@@ -396,6 +399,7 @@ private fun TileCell(
     size: TileSize,
     biggest: TextUnit,
     active: Boolean,
+    up: Boolean,
     onOpen: () -> Unit,
     onClose: () -> Unit,
     onMove: (Int) -> Unit,
@@ -414,7 +418,7 @@ private fun TileCell(
         }
         wasNeeds = tile.needs
     }
-    val fill = if (tile.needs) look.urgent else look.surface
+    val fill = if (tile.needs) look.urgent else if (up) look.raised else look.surface
     Box(
         Modifier
             .fillMaxSize()
