@@ -186,6 +186,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Hands a file from a tab to whatever opens it, one grant at a time. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <provider
             android:name=".MoveProvider"
             android:authorities="${applicationId}.move"

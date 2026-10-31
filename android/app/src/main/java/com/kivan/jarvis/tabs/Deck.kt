@@ -93,6 +93,8 @@ data class DeckState(
     val muted: Boolean = false,
     /** The box's words per tab, so a typed line survives a swipe or a restart. */
     val typed: Map<String, String> = emptyMap(),
+    /** Files fetched so far, "tab/name" to a path; an empty path means the server doesn't have it. */
+    val files: Map<String, String> = emptyMap(),
     val drafts: Map<String, ReplyDraft> = emptyMap(),
     /** The tab just opened from words at the wall, for the screen to zoom into, once. */
     val opened: String? = null,
@@ -114,5 +116,7 @@ interface Deck {
     fun reopen(id: String)
     fun move(id: String, to: Int)
     fun mute(on: Boolean)
+    /** Asks for a file beside the record; it lands in [DeckState.files]. */
+    fun file(id: String, name: String)
     fun openedDone()
 }

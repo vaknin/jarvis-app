@@ -21,6 +21,8 @@ bindgen = ["uniffi/cli"]
 jarvis-core = { path = "../core" }
 jarvis-voice = { path = "../voice" }
 jarvis-tabs-wire = { path = "../tabs-wire", features = ["async"] }
+# A file in a tab frame is base64 (src/tabs.rs).
+base64 = "0.22"
 uniffi = "0.32.2"
 tokio.workspace = true
 anyhow.workspace = true

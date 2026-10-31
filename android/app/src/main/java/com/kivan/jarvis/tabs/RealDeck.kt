@@ -12,6 +12,7 @@ import com.kivan.jarvis.core.TileRec
 import com.kivan.jarvis.core.tabsAttach
 import com.kivan.jarvis.core.tabsClose
 import com.kivan.jarvis.core.tabsDetach
+import com.kivan.jarvis.core.tabsFile
 import com.kivan.jarvis.core.tabsMove
 import com.kivan.jarvis.core.tabsReopen
 import com.kivan.jarvis.core.tabsSay
@@ -30,21 +31,23 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.File
 
 /**
  * The tabs on the server, through the Rust client (crates/ffi tabs.rs). Everything that decides lives
  * there; this keeps only what is the phone's own: his unsent words, his drafts, the mute, and the last
  * wall, so the screen opens full and a restart loses no typing. Calls arrive on Rust's threads.
  */
-class RealDeck private constructor(private val prefs: SharedPreferences) : Deck, TabsListener {
+class RealDeck private constructor(private val prefs: SharedPreferences, private val files: File) : Deck, TabsListener {
     private val flow = MutableStateFlow(Saved.read(prefs))
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     override val state: StateFlow<DeckState> = flow
 
     init {
         @OptIn(FlowPreview::class)
-        flow.map(Saved::of).distinctUntilChanged().debounce(400).onEach { it.write(prefs) }
-            .launchIn(CoroutineScope(Dispatchers.IO + SupervisorJob()))
+        flow.map(Saved::of).distinctUntilChanged().debounce(400).onEach { it.write(prefs) }.launchIn(scope)
     }
 
     fun up() = tabsAttach(this)
@@ -100,15 +103,31 @@ class RealDeck private constructor(private val prefs: SharedPreferences) : Deck,
     // The mic is step 5: until then the mute is only the button's state.
     override fun mute(on: Boolean) = flow.update { it.copy(muted = on) }
 
+    override fun file(id: String, name: String) = tabsFile(id, name)
+
+    override fun file(id: String, name: String, data: ByteArray) {
+        scope.launch {
+            val path = if (data.isEmpty()) "" else fileAt(files, id, name).also { it.parentFile?.mkdirs(); it.writeBytes(data) }.path
+            flow.update { it.copy(files = it.files + ("$id/$name" to path)) }
+        }
+    }
+
     override fun openedDone() = flow.update { it.copy(opened = null) }
 
     companion object {
         @Volatile private var one: RealDeck? = null
 
         fun get(context: Context): RealDeck = one ?: synchronized(this) {
-            one ?: RealDeck(context.applicationContext.getSharedPreferences("tabs", Context.MODE_PRIVATE)).also { one = it }
+            val app = context.applicationContext
+            one ?: RealDeck(app.getSharedPreferences("tabs", Context.MODE_PRIVATE), File(app.cacheDir, TAB_FILES)).also { one = it }
         }
     }
+}
+
+/** Where a file from the server lands: its name is the server's, so it can't climb out of [dir]. */
+internal fun fileAt(dir: File, id: String, name: String): File {
+    val safe = name.replace('/', '_').replace('\\', '_').takeUnless { it.isBlank() || it == "." || it == ".." } ?: "file"
+    return File(File(dir, "%08x".format("$id/$name".hashCode())), safe)
 }
 
 internal fun DeckState.walled(tiles: List<TileRec>, closed: List<ClosedRec>, online: Boolean): DeckState {

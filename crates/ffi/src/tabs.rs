@@ -17,6 +17,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use jarvis_tabs_wire::{
     frame::{read_async, write_async},
     Ask, Body, Event, FileRef, Info, Reply, Tell, Tile, Via, WorkEnd, WorkState, Who, WALL,
@@ -101,6 +102,8 @@ pub trait TabsListener: Send + Sync {
     fn opened(&self, id: String);
     /// Words that didn't land, for the box they came from: `id` is empty for the wall's.
     fn back(&self, id: String, text: String);
+    /// A file asked for by `tabs_file`. Empty if it's gone from the server.
+    fn file(&self, id: String, name: String, data: Vec<u8>);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,6 +112,7 @@ enum Told {
     Tab(TabRec),
     Opened(String),
     Back(String, String),
+    File(String, String, Vec<u8>),
 }
 
 struct Pending {
@@ -367,6 +371,7 @@ impl Desk {
                 self.relist = true;
             }
             Tell::Refused { id, why } => self.refused(id, why),
+            Tell::File { id, name, data } => self.told.push(Told::File(id, name, STANDARD.decode(data).unwrap_or_default())),
             _ => {}
         }
     }
@@ -598,6 +603,7 @@ fn deliver() {
             Told::Tab(tab) => listener.tab(tab),
             Told::Opened(id) => listener.opened(id),
             Told::Back(id, text) => listener.back(id, text),
+            Told::File(id, name, data) => listener.file(id, name, data),
         }
     }
 }
@@ -760,6 +766,12 @@ pub fn tabs_reopen(id: String) {
     with_desk(|d| d.reopen(id));
 }
 
+/// Asks for a file beside the record, by the name in its entry. `TabsListener::file` answers.
+#[uniffi::export]
+pub fn tabs_file(id: String, name: String) {
+    with_desk(|d| d.out.push(Ask::File { id, name }));
+}
+
 #[uniffi::export]
 pub fn tabs_move(id: String, to: u32) {
     with_desk(|d| d.out.push(Ask::Move { id, to: to as usize }));
@@ -906,6 +918,17 @@ mod tests {
     }
 
     #[test]
+    fn a_file_comes_whole_and_a_missing_one_comes_empty() {
+        let mut d = up(&[("t1", 0)]);
+        d.take();
+        d.tell(Tell::File { id: "t1".into(), name: "a.png".into(), data: "aGk=".into() });
+        d.tell(Tell::File { id: "t1".into(), name: "b.png".into(), data: String::new() });
+        let told = d.take();
+        assert!(told.contains(&Told::File("t1".into(), "a.png".into(), b"hi".to_vec())));
+        assert!(told.contains(&Told::File("t1".into(), "b.png".into(), vec![])));
+    }
+
+    #[test]
     fn a_refusal_shows_and_the_next_send_clears_it() {
         let mut d = up(&[("t1", 0)]);
         d.show(vec!["t1".into()]);
@@ -988,12 +1011,15 @@ mod road {
     struct Heard {
         wall: Mutex<Option<(Vec<TileRec>, bool)>>,
         tabs: Mutex<HashMap<String, Vec<EntryRec>>>,
+        closed: Mutex<Vec<ClosedRec>>,
         opened: Mutex<Option<String>>,
+        file: Mutex<Option<(String, Vec<u8>)>>,
         crossings: Mutex<u32>,
     }
 
     impl TabsListener for Heard {
-        fn wall(&self, tiles: Vec<TileRec>, _closed: Vec<ClosedRec>, online: bool) {
+        fn wall(&self, tiles: Vec<TileRec>, closed: Vec<ClosedRec>, online: bool) {
+            *self.closed.lock().unwrap() = closed;
             *self.wall.lock().unwrap() = Some((tiles, online));
         }
         fn tab(&self, tab: TabRec) {
@@ -1002,6 +1028,9 @@ mod road {
             let e = tabs.entry(tab.tile.id).or_default();
             e.truncate(tab.from as usize);
             e.extend(tab.entries);
+        }
+        fn file(&self, _id: String, name: String, data: Vec<u8>) {
+            *self.file.lock().unwrap() = Some((name, data));
         }
         fn opened(&self, id: String) {
             *self.opened.lock().unwrap() = Some(id);
@@ -1049,11 +1078,21 @@ mod road {
             let wall = heard.wall.lock().unwrap().clone()?;
             wall.0.iter().find(|t| t.id == id && !t.unread).cloned()
         });
+        tabs_file(id.clone(), "nothing-here.png".into());
+        let (name, data) = until("a file's answer", || heard.file.lock().unwrap().clone());
+        assert_eq!((name.as_str(), data.len()), ("nothing-here.png", 0));
         tabs_close(id.clone());
         until("the tile to go", || {
             let wall = heard.wall.lock().unwrap().clone()?;
             wall.0.iter().all(|t| t.id != id).then_some(())
         });
+        until("the tab in the closed list", || heard.closed.lock().unwrap().iter().any(|c| c.id == id).then_some(()));
+        tabs_reopen(id.clone());
+        until("the tile back", || {
+            let wall = heard.wall.lock().unwrap().clone()?;
+            wall.0.iter().find(|t| t.id == id).cloned()
+        });
+        tabs_close(id.clone());
         // The link goes and comes back, and reads on.
         tabs_detach();
         let again = Arc::new(Heard::default());

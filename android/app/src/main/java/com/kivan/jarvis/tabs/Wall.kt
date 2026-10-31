@@ -137,7 +137,7 @@ fun Wall(
         AnimatedVisibility(!state.online) { OfflineBar() }
         if (state.tiles.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Space.margin, vertical = 24.dp), Alignment.BottomStart) {
-                Text("Nothing open", color = look.faint, style = Words.tile(TileSize.Big))
+                Text("Type to start your first tab", color = look.faint, style = Words.tile(TileSize.Large))
             }
         } else {
             Tiles(

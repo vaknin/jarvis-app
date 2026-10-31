@@ -86,6 +86,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     }
     val zoom = remember { Animatable(if (opening.tab != null) opening.zoom else 0f) }
     var closedTab by remember { mutableStateOf<String?>(null) }
+    var reopening by remember { mutableStateOf<String?>(null) }
     var replying by remember {
         val answer = state.tabs[opening.tab]?.entries?.firstOrNull { it.key == opening.reply } as? Entry.Answer
         mutableStateOf(answer?.let { Replying(opening.tab.orEmpty(), it) })
@@ -116,6 +117,16 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
             deck.openedDone()
         }
     }
+    // Reopened from its page, a tab stays on screen until the server has it and then is simply open.
+    LaunchedEffect(reopening, state.tiles) {
+        val id = reopening
+        if (id != null && state.tiles.any { it.id == id }) {
+            reopening = null
+            closedTab = null
+            closedPage = false
+            openTab(id)
+        }
+    }
     LaunchedEffect(undo) {
         if (undo != null) {
             delay(6000)
@@ -129,7 +140,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
 
     val covered = replying != null || closedPage || closedTab != null
 
-    CompositionLocalProvider(LocalGlide provides glide) {
+    CompositionLocalProvider(LocalGlide provides glide, LocalDeck provides deck) {
         Box(Modifier.fillMaxSize().background(look.canvas)) {
             Wall(
                 state = state,
@@ -200,8 +211,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                         onType = {}, onSend = {}, onReply = {}, onClose = {},
                         onReopen = {
                             deck.reopen(id)
-                            closedTab = null
-                            closedPage = false
+                            reopening = id
                         },
                         onMute = deck::mute,
                     )

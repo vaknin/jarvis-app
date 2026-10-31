@@ -59,5 +59,16 @@ class RealDeckTest {
     }
 
     @Test
+    fun aFileNameCannotClimbOutOfItsFolder() {
+        val dir = java.io.File("/cache/tabfiles")
+        for (name in listOf("../../shared_prefs/tabs.xml", "..", ".", "/etc/passwd", "a\\..\\b", "")) {
+            val at = fileAt(dir, "t1", name)
+            assertEquals(name, dir.path, at.parentFile!!.parent)
+            assertEquals(name, at.path, at.normalize().path)
+        }
+        assertEquals("plot.png", fileAt(dir, "t1", "plot.png").name)
+    }
+
+    @Test
     fun aBrokenSaveIsIgnored() = assertNull(Saved.parse("{nope"))
 }

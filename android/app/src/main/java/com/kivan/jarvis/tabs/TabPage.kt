@@ -143,6 +143,7 @@ fun TabPage(
                     }
                     items(rows, key = { it.key }, contentType = { it::class }) { entry ->
                         EntryView(
+                            tab.tile.id,
                             entry,
                             canReply = !tab.closed && !tab.tile.readOnly && !(question != null && entry.key == lastAnswer),
                             newest = entry.key == lastAnswer,
@@ -260,6 +261,7 @@ private fun Strip(text: String, onClick: () -> Unit) {
 
 @Composable
 private fun EntryView(
+    tab: String,
     entry: Entry,
     canReply: Boolean,
     newest: Boolean,
@@ -267,8 +269,8 @@ private fun EntryView(
     onReply: (Entry.Answer) -> Unit,
 ) {
     when (entry) {
-        is Entry.Yours -> YoursView(entry)
-        is Entry.Answer -> AnswerView(entry, canReply, newest, drafted, onReply)
+        is Entry.Yours -> YoursView(tab, entry)
+        is Entry.Answer -> AnswerView(tab, entry, canReply, newest, drafted, onReply)
         is Entry.Report -> ReportView(entry)
         is Entry.Question -> QuestionView(entry)
         is Entry.Quiet -> Text(entry.text, color = look.faint, style = Words.small)
@@ -277,7 +279,7 @@ private fun EntryView(
 
 /** Aviv's words sit on a panel to the right; Jarvis's are open prose on the page. */
 @Composable
-private fun YoursView(entry: Entry.Yours) {
+private fun YoursView(tab: String, entry: Entry.Yours) {
     val ink = if (entry.state == Sending.Sending) look.soft else look.ink
     Box(Modifier.fillMaxWidth(), Alignment.CenterEnd) {
         Column(Modifier.padding(start = 36.dp), horizontalAlignment = Alignment.End) {
@@ -310,6 +312,7 @@ private fun YoursView(entry: Entry.Yours) {
 
 @Composable
 private fun AnswerView(
+    tab: String,
     entry: Entry.Answer,
     canReply: Boolean,
     newest: Boolean,
@@ -319,7 +322,7 @@ private fun AnswerView(
     val blocks = remember(entry.text) { Prose.parse(entry.text) }
     Column {
         SelectionContainer { ProseView(blocks) }
-        for (f in entry.files) FileCard(f, Modifier.padding(top = 12.dp))
+        for (f in entry.files) FileCard(tab, f, Modifier.padding(top = 12.dp))
         if (canReply && entry.offset != null) {
             Row(
                 Modifier
@@ -343,21 +346,6 @@ private fun AnswerView(
 
 /** Pulls a text button's padding back, so its words line up with the prose above. */
 private fun Modifier.offsetStart(): Modifier = offset(x = (-10).dp)
-
-@Composable
-fun FileCard(name: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .background(look.surface, RoundedCornerShape(14.dp))
-            .heightIn(min = Space.target)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Glyph(R.drawable.lucide_file, look.soft, 18.dp)
-        Text(name, color = look.ink, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
 
 /** A report is one soft line that opens. */
 @Composable

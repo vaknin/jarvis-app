@@ -115,6 +115,8 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun show(ids: List<String>) {}
 
+    override fun file(id: String, name: String) {}
+
     override fun start(text: String) {
         val id = "t${++counter}"
         val tile = TileView(id, (flow.value.tiles.maxOfOrNull { it.n } ?: 0) + 1, text.take(24), working = true)

@@ -61,3 +61,11 @@ fun MacrobenchmarkScope.scrollTab() {
     device.pressBack()
     Thread.sleep(600)
 }
+
+/** The keyboard comes up over 14 tiles and goes: the wall squeezes without moving a tile. */
+fun MacrobenchmarkScope.keyboardSqueeze() {
+    device.wait(Until.findObject(By.clazz("android.widget.EditText")), 3_000).click()
+    Thread.sleep(900)
+    device.pressBack()
+    Thread.sleep(900)
+}
