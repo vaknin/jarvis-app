@@ -132,7 +132,11 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun say(id: String, text: String, quotes: List<Quoted>) {
         val key = "y${++counter}"
-        edit(id) { it.copy(entries = it.entries + Entry.Yours(key, text, quotes = quotes, state = Sending.Sending)) }
+        edit(id) { t ->
+            val asked = t.entries.map { if (it is Entry.Question) it.copy(closed = true) else it }
+            t.copy(tile = t.tile.copy(needs = false), entries = asked + Entry.Yours(key, text, quotes = quotes, state = Sending.Sending))
+        }
+        flow.update { s -> s.copy(tiles = s.tiles.map { if (it.id == id) it.copy(needs = false) else it }) }
         scope.launch {
             delay(300)
             edit(id) { t ->
