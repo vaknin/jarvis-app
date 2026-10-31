@@ -291,8 +291,10 @@ struct Desk {
 }
 
 impl Desk {
+    /// The pipe is open, which says nothing yet: the gate opens it before it knows the server is
+    /// there. Online comes with the first frame.
     fn connected(&mut self) {
-        (self.online, self.fresh, self.wall_touched) = (true, true, true);
+        (self.fresh, self.wall_touched) = (true, true);
         self.out.extend([Ask::List, Ask::Closed, Ask::Follow { id: WALL.into(), after: self.wall_end }]);
     }
 
@@ -323,6 +325,8 @@ impl Desk {
     }
 
     fn tell(&mut self, tell: Tell) {
+        self.wall_touched |= !self.online;
+        self.online = true;
         match tell {
             Tell::Tabs { tabs } => self.listed(tabs),
             Tell::Closed { tabs } => {
@@ -631,11 +635,19 @@ async fn serve(stream: forum::Stream) -> Result<()> {
     SHARED.desk.lock().unwrap().connected();
     let mut tick = tokio::time::interval(FRAME);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut dirty = true;
+    // The screens hear nothing until a frame or the grace, as on the dial.
+    let grace = tokio::time::sleep(GRACE);
+    tokio::pin!(grace);
+    let (mut dirty, mut heard, mut waited) = (false, false, false);
     loop {
+        let out = std::mem::take(&mut SHARED.desk.lock().unwrap().out);
+        for ask in out {
+            write_async(&mut send, &ask).await.context("write")?;
+        }
         tokio::select! {
             t = rx.recv() => {
                 let Some(t) = t else { break };
+                heard = true;
                 let mut desk = SHARED.desk.lock().unwrap();
                 desk.tell(t);
                 while let Ok(t) = rx.try_recv() {
@@ -645,14 +657,11 @@ async fn serve(stream: forum::Stream) -> Result<()> {
                 dirty = true;
             }
             _ = SHARED.nudge.notified() => dirty = true,
-            _ = tick.tick(), if dirty => {
+            () = &mut grace, if !waited => (waited, dirty) = (true, true),
+            _ = tick.tick(), if dirty && (heard || waited) => {
                 deliver();
                 dirty = false;
             }
-        }
-        let out = std::mem::take(&mut SHARED.desk.lock().unwrap().out);
-        for ask in out {
-            write_async(&mut send, &ask).await.context("write")?;
         }
     }
     anyhow::bail!("the link dropped")
@@ -685,9 +694,15 @@ async fn keep_linked() {
         };
         let why = match linked {
             Ok(stream) => {
-                (wait, failed) = (RETRY.0, 0);
                 let end = serve(stream).await;
-                SHARED.desk.lock().unwrap().disconnected();
+                let mut desk = SHARED.desk.lock().unwrap();
+                // A gate with no server behind it opens the pipe and shuts it at once. Only a frame
+                // proves the link, or the dial would hammer the gate five times a second.
+                if desk.online {
+                    (wait, failed) = (RETRY.0, 0);
+                }
+                desk.disconnected();
+                drop(desk);
                 end.err().map(|e| format!("{e:#}"))
             }
             Err(e) => {
@@ -789,6 +804,17 @@ mod tests {
         let mut tile = Tile::default();
         (tile.name, tile.end) = (id.into(), end);
         Info { n, id: id.into(), mirrored: false, tile }
+    }
+
+    #[test]
+    fn a_pipe_that_says_nothing_is_not_online() {
+        let mut d = Desk::default();
+        d.connected();
+        assert!(!d.online);
+        d.tell(Tell::Tabs { tabs: vec![] });
+        assert!(d.online);
+        d.disconnected();
+        assert!(!d.online);
     }
 
     fn up(tabs: &[(&str, u64)]) -> Desk {
