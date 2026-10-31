@@ -300,6 +300,7 @@ private fun YoursView(tab: String, entry: Entry.Yours) {
                     if (entry.text.isNotEmpty()) Text(entry.text, color = ink, style = Words.yours)
                 }
             }
+            for (f in entry.files) FileCard(tab, f, Modifier.padding(top = 8.dp))
             if (entry.voice) {
                 Glyph(R.drawable.lucide_mic, look.faint, 13.dp, Modifier.padding(top = 6.dp, end = 6.dp))
             }

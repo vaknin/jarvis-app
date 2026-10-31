@@ -13,7 +13,10 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -72,11 +75,13 @@ private class Replying(val tab: String, val answer: Entry.Answer)
  * that same number, which is why this isn't a navigation library. Back and a pinch can stop halfway
  * and follow the finger, and a cancelled one returns to where it was.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Stage(deck: Deck, opening: Opening = Opening()) {
     // Immediate, so what's typed is back in the field before the next key: the field reads from here.
     val state by deck.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val scope = rememberCoroutineScope()
+    val typing = WindowInsets.isImeVisible
     val map = remember { WallMap() }
     val buzz = rememberBuzz()
     val still = LocalStill.current
@@ -257,11 +262,11 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                     onMute = deck::mute,
                 )
             }
-            if (replying != null) PredictiveBackHandler { flow ->
+            if (replying != null) PredictiveBackHandler(!typing) { flow ->
                 flow.collect {}
                 replying = null
             }
-            if (closedPage || closedTab != null) PredictiveBackHandler { flow ->
+            if (closedPage || closedTab != null) PredictiveBackHandler(!typing) { flow ->
                 flow.collect {}
                 if (closedTab != null) closedTab = null else closedPage = false
             }
@@ -269,6 +274,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TabLayer(
     state: DeckState,
@@ -300,7 +306,8 @@ private fun TabLayer(
     val unread = settled?.let { state.tabs[it]?.tile?.unread } == true
     LaunchedEffect(settled, unread) { if (settled != null) deck.seen(settled) }
 
-    PredictiveBackHandler { flow ->
+    // With the keyboard up, back is the keyboard's, even when it was up before this page came.
+    PredictiveBackHandler(!WindowInsets.isImeVisible) { flow ->
         try {
             flow.collect { e -> zoom.snapTo(1f - e.progress * 0.45f) }
             onWall()
