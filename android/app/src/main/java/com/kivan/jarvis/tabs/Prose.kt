@@ -182,12 +182,20 @@ private fun Marked(spans: List<Span>, mark: String, color: Color, style: TextSty
     Text(
         annotated(spans),
         if (at < 0) modifier else modifier.drawBehind {
-            val words = laid?.getPathForRange(at, at + mark.length) ?: return@drawBehind
+            val text = laid ?: return@drawBehind
             val paint = Paint().apply {
                 this.color = lit
                 pathEffect = PathEffect.cornerPathEffect(soft)
             }
-            drawIntoCanvas { it.drawPath(words, paint) }
+            val end = at + mark.length
+            drawIntoCanvas { canvas ->
+                // Line by line, up to the last visible letter: a wrap's trailing space would draw its own blob.
+                for (line in text.getLineForOffset(at)..text.getLineForOffset(end - 1)) {
+                    val from = maxOf(at, text.getLineStart(line))
+                    val to = minOf(end, text.getLineEnd(line, visibleEnd = true))
+                    if (from < to) canvas.drawPath(text.getPathForRange(from, to), paint)
+                }
+            }
         },
         color,
         style = style,
