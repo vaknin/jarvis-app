@@ -499,11 +499,14 @@ class CallService : Service() {
             awaitHeadset(am)
         }
         // On the call's own device: the AirPods' mic while they carry the call, else the phone's.
-        // The headset's input can show up a moment after the call moved to it.
+        // The headset's input can show up a moment after the call moved to it. Until it does, nothing
+        // opens: the phone's mic never stands in for a headset's (thread #125).
         var device = am.communicationDevice
         var want = headsetMic(am, device)
-        for (i in 1..5) {
-            if (want != null || !headset(device)) break
+        var tries = 0
+        while (want == null && headset(device)) {
+            if (!running) return MicEnd.OVER
+            if (++tries == 6) micNote("the call is on ${name(device)}, whose mic hasn't shown up: waiting for it")
             Thread.sleep(200)
             device = am.communicationDevice
             want = headsetMic(am, device)

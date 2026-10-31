@@ -86,7 +86,8 @@ class TabsActivity : ComponentActivity() {
     @Deprecated("plain permission callback")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == MIC && CallService.micGranted(this)) deck.dictate()
+        // His own tap on the mic, never the notifications question AppOpen asks on every open.
+        if (requestCode == MIC && Manifest.permission.RECORD_AUDIO in permissions && CallService.micGranted(this)) deck.dictate()
     }
 
     @Deprecated("plain activity result")
@@ -104,8 +105,8 @@ class TabsActivity : ComponentActivity() {
 
     companion object {
         private const val TAB = "tab"
-        private const val MIC = 1
-        private const val PICK = 2
+        internal const val MIC = 10
+        private const val PICK = 11
 
         /** The wall, or tab [tab] on it. */
         fun opening(context: Context, tab: String? = null) =

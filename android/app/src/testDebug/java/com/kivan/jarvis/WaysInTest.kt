@@ -1,11 +1,13 @@
 package com.kivan.jarvis
 
+import android.Manifest
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
+import com.kivan.jarvis.tabs.Deck
 import com.kivan.jarvis.tabs.TabShareActivity
 import com.kivan.jarvis.tabs.TabsActivity
 import org.junit.Assert.assertEquals
@@ -18,6 +20,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
 
 /** Every way into the app lands on the wall or in the right tab, and opening it leaves the mic alone. */
 @RunWith(RobolectricTestRunner::class)
@@ -102,5 +105,20 @@ class WaysInTest {
         assertFalse(Dictation.on.value)
         assertNull(Dictation.call)
         assertFalse(Voice.ui.value.live)
+    }
+
+    @Test fun theMicAnswersOnlyItsOwnQuestion() {
+        // AppOpen asks about notifications on every open: with the mic already allowed, that answer
+        // once opened the mic by itself, on the emulator's first real run.
+        shadowOf(ApplicationProvider.getApplicationContext<Application>()).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        val tabs = Robolectric.buildActivity(TabsActivity::class.java, Intent().putExtra("tabs", 3)).create().start().resume().get()
+        val deck = ReflectionHelpers.getField<Deck>(tabs, "deck")
+        val granted = intArrayOf(PackageManager.PERMISSION_GRANTED)
+        @Suppress("DEPRECATION")
+        tabs.onRequestPermissionsResult(1, arrayOf(Manifest.permission.POST_NOTIFICATIONS), granted)
+        assertFalse("the notifications answer opened the mic", deck.state.value.dictating)
+        @Suppress("DEPRECATION")
+        tabs.onRequestPermissionsResult(TabsActivity.MIC, arrayOf(Manifest.permission.RECORD_AUDIO), granted)
+        assertTrue("his tap's answer", deck.state.value.dictating)
     }
 }

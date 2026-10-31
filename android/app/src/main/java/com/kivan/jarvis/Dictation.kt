@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 object Dictation {
     private const val TAG = "JarvisDictation"
     private const val TRIES = 3
+    private const val CLOSE_WAIT_MS = 10_000L
 
     val on = MutableStateFlow(false)
 
@@ -41,6 +42,7 @@ object Dictation {
     private var senses: Senses? = null
     private var scope: CoroutineScope? = null
     private var after: (() -> Unit)? = null
+    private var app: Context? = null
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var route = Route(MicPick.PHONE, false, false, "")
     @Volatile private var running = false
@@ -56,7 +58,10 @@ object Dictation {
             return
         }
         if (Move.off() || !CallService.micGranted(app)) return
-        val c = VoiceCall.dictate(BuildConfig.VOICE_URL, Listener(app), Voice.place.value.tab ?: Voice.NEW_TAB)
+        val listener = Listener(app)
+        val c = VoiceCall.dictate(BuildConfig.VOICE_URL, listener, Voice.place.value.tab ?: Voice.NEW_TAB)
+        listener.line = c
+        this.app = app
         runCatching { Forum.start() }
         call = c
         on.value = true
@@ -86,6 +91,8 @@ object Dictation {
             senses?.stop()
             c.hangup()
         }
+        // A line that never says it closed can't hold up what's next.
+        main.postDelayed({ app?.let { closed(it, c) } }, CLOSE_WAIT_MS)
     }
 
     private fun then(next: () -> Unit) {
@@ -121,7 +128,8 @@ object Dictation {
     }
 
     /** The server closed the line, or never will: what he said is a draft now. */
-    private fun closed(app: Context) {
+    private fun closed(app: Context, c: VoiceCall) {
+        if (call !== c) return
         call = null
         on.value = false
         running = false
@@ -138,8 +146,10 @@ object Dictation {
     }
 
     private class Listener(private val app: Context) : VoiceListener {
+        @Volatile var line: VoiceCall? = null
+
         override fun onState(state: CallState) {
-            if (state is CallState.Ended) main.post { closed(app) }
+            if (state is CallState.Ended) main.post { line?.let { closed(app, it) } }
         }
         override fun onWords(text: String) {
             Voice.heard.value = text
