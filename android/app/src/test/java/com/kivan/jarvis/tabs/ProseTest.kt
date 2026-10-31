@@ -23,6 +23,11 @@ class ProseTest {
     }
 
     @Test
+    fun whatAScreenShowsHasNoMarks() {
+        assertEquals("Keep this word.", Prose.parse("Keep **this** word.")[0].shown)
+    }
+
+    @Test
     fun numbersKeepTheirMarkAndIndentGivesDepth() {
         val b = Prose.parse("3. third\n  - under")
         assertEquals("3.", (b[0] as Block.Item).mark)

@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "jarvis-link"
 include(":app")
+// Only with -Pbench: startup and frame measurements, and the baseline profile, on the emulator.
+if (providers.gradleProperty("bench").isPresent) include(":bench")

@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroidSize
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -125,8 +127,10 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     val anyLoading = open != null && state.tabs.values.any { it.loading }
     val glide = rememberGlide((anyWork || anyLoading) && state.online)
 
+    val covered = replying != null || closedPage || closedTab != null
+
     CompositionLocalProvider(LocalGlide provides glide) {
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(look.canvas)) {
             Wall(
                 state = state,
                 map = map,
@@ -159,7 +163,8 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                         val p = zoom.value.coerceIn(0f, 1f)
                         alpha = 1f - (p / 0.7f).coerceAtMost(1f)
                     }
-                    .drawWithContent { if (zoom.value < 1f) drawContent() },
+                    .drawWithContent { if (zoom.value < 1f) drawContent() }
+                    .hiddenWhen(open != null || covered),
             )
             open?.let { o ->
                 key(o) {
@@ -167,6 +172,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                     TabLayer(
                         state, o, pager, map, zoom,
                         deck = deck,
+                        modifier = Modifier.hiddenWhen(covered),
                         onPinched = { wall ->
                             if (wall) {
                                 buzz.step()
@@ -265,6 +271,7 @@ private fun TabLayer(
     onWall: () -> Unit,
     onReply: (String, Entry.Answer) -> Unit,
     onClose: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -294,7 +301,7 @@ private fun TabLayer(
     }
 
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 awaitEachGesture {
@@ -385,6 +392,9 @@ private fun TabLayer(
         }
     }
 }
+
+/** A page under another page isn't there for a screen reader. */
+private fun Modifier.hiddenWhen(hidden: Boolean) = if (hidden) clearAndSetSemantics {} else this
 
 /** The corners stay a tile's for most of the way and square off only near the end. */
 private fun cornerLeft(p: Float) = 1f - p * p * p

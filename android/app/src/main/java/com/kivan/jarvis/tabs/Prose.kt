@@ -49,6 +49,15 @@ sealed interface Block {
     data class Code(override val plain: String) : Block
 }
 
+/** The words as they read on screen, which is what a selection gives: no stars, no backticks. */
+val Block.shown: String get() = when (this) {
+    is Block.Para -> spans.joinToString("") { it.text }
+    is Block.Head -> spans.joinToString("") { it.text }
+    is Block.Item -> spans.joinToString("") { it.text }
+    is Block.Lifted -> spans.joinToString("") { it.text }
+    is Block.Code -> plain
+}
+
 enum class Kind { Plain, Bold, Italic, Mono, Link }
 
 @Immutable
@@ -151,7 +160,7 @@ fun annotated(spans: List<Span>, ink: Color = look.ink, mark: String = ""): Anno
                 LinkAnnotation.Url(s.url, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))),
             ) { append(s.text) }
         }
-        val at = if (mark.isEmpty()) -1 else toString().indexOf(mark)
+        val at = if (mark.isEmpty()) -1 else spans.joinToString("") { it.text }.indexOf(mark)
         if (at >= 0) addStyle(SpanStyle(background = lit), at, at + mark.length)
     }
 }

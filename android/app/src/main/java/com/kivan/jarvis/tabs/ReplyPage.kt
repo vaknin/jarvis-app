@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,13 +27,13 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.Text
 import androidx.compose.foundation.text.contextmenu.builder.item
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
 import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
 import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -39,17 +41,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -60,6 +66,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kivan.jarvis.R
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 /** The hint under a paragraph, and what the box says inside. */
 private const val WRITE_HERE = "Answer this paragraph"
@@ -213,7 +221,7 @@ private fun Paragraph(
             .then(if (note == null) Modifier.clickable(tap, null, onClickLabel = WRITE_HERE, onClick = onWrite) else Modifier),
     ) {
         // Words he picked light up where they stand; only what can't be lit there is repeated under it.
-        val lit = note != null && block !is Block.Code && block.plain.contains(note.quote)
+        val lit = note != null && block !is Block.Code && block.shown.contains(note.quote)
         Quotable(onQuote) { BlockView(block, mark = if (lit) note?.quote.orEmpty() else "") }
         if (note == null) {
             // A list stays a list: its items are tappable too, without a mark on every line.
@@ -253,12 +261,26 @@ private fun NoteField(
     val ink = look.ink
     val see = remember { BringIntoViewRequester() }
     var had by remember { mutableStateOf(false) }
+    var high by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    // The whole box clears the bar once the keyboard has settled, not only the cursor.
+    LaunchedEffect(had) {
+        if (had) {
+            snapshotFlow { ime.getBottom(density) }.collectLatest {
+                delay(80)
+                val margin = with(density) { 40.dp.toPx() }
+                see.bringIntoView(Rect(0f, 0f, 1f, high + margin))
+            }
+        }
+    }
     BasicTextField(
         value = text,
         onValueChange = onText,
         modifier = modifier
             .fillMaxWidth()
             .bringIntoViewRequester(see)
+            .onSizeChanged { high = it.height }
             .then(if (focus != null) Modifier.focusRequester(focus) else Modifier)
             .onFocusChanged {
                 if (had && !it.isFocused) onBlur?.invoke()

@@ -26,7 +26,7 @@ val cargoNdk = tasks.register<CargoNdkTask>("cargoNdk") {
     ndkHome.set(providers.environmentVariable("ANDROID_HOME").get() + "/ndk/" + ndkVersionPinned)
     workspace.set(workspaceDir)
     outDir.set(layout.buildDirectory.dir("rust/jniLibs"))
-    targets.set(if (project.hasProperty("emuRelease")) listOf("x86_64") else listOf("arm64-v8a", "x86_64"))
+    targets.set(if (project.hasProperty("emuRelease") || project.hasProperty("bench")) listOf("x86_64") else listOf("arm64-v8a", "x86_64"))
 }
 
 val uniffiBindgen = tasks.register<UniffiBindgenTask>("uniffiBindgen") {
@@ -41,6 +41,11 @@ val home = System.getProperty("user.home")
 // (never the phone's), and `-PforumTicket=...` points it at a private gate, so a test can publish and
 // fail without the phone's store or the live voice service seeing it.
 val emuRelease = project.hasProperty("emuRelease")
+// `-Pbench` adds a build type for the emulator only: a release build with fake tabs and the emulator's
+// key, which the :bench module measures. `-Pbench=plain` leaves it unshrunk, which is what the baseline
+// profile is taken from. Normal builds never see it.
+val bench = project.hasProperty("bench")
+val benchPlain = project.findProperty("bench") == "plain"
 val forumTicket = (project.findProperty("forumTicket") as String?).orEmpty()
 
 // Every commit is a higher versionCode, so the phone can tell a newer build from Jarvis's server
@@ -135,7 +140,20 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
         }
+        if (bench) {
+            create("bench") {
+                initWith(getByName("release"))
+                applicationIdSuffix = ".bench"
+                matchingFallbacks += "release"
+                ndk { abiFilters.clear(); abiFilters += "x86_64" }
+                buildConfigField("String", "FORUM_SECRET", "\"$forumEmuSecret\"")
+                isMinifyEnabled = !benchPlain
+                isShrinkResources = !benchPlain
+            }
+        }
     }
+
+    if (bench) sourceSets.getByName("bench").kotlin.directories += "src/debug/java/com/kivan/jarvis/tabs"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -180,6 +198,7 @@ dependencies {
     implementation(libs.code.scanner)
     implementation(libs.firebase.messaging)
     implementation(libs.androidx.core.telecom)
+    implementation(libs.androidx.profileinstaller)
     testImplementation("junit:junit:4.13.2")
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)
