@@ -127,7 +127,6 @@ fun Wall(
     onMove: (String, Int) -> Unit,
     onClosedTabs: () -> Unit,
     onHeard: () -> Unit,
-    onMute: (Boolean) -> Unit,
     undo: ClosedTab?,
     onUndo: () -> Unit,
     modifier: Modifier = Modifier,
@@ -158,14 +157,33 @@ fun Wall(
             text = text,
             onText = onText,
             onSend = onStart,
-            muted = state.muted,
-            onMute = onMute,
             heard = state.heard,
             onHeard = onHeard,
-            leading = if (state.closed.isEmpty()) null else {
-                { Round(R.drawable.lucide_search, "Search closed tabs", onClosedTabs, fill = look.surface, size = 48.dp) }
-            },
+            leading = { WallMenu(if (state.closed.isEmpty()) null else onClosedTabs) },
         )
+    }
+}
+
+/** The way to everything that isn't a tab: closed tabs, the old home, the forum. */
+@Composable
+private fun WallMenu(onClosedTabs: (() -> Unit)?) {
+    val deck = LocalDeck.current
+    var menu by remember { mutableStateOf(false) }
+    @Composable
+    fun item(words: String, go: () -> Unit) = DropdownMenuItem(
+        text = { Text(words, color = look.ink, style = Words.label) },
+        onClick = {
+            menu = false
+            go()
+        },
+    )
+    Box {
+        Round(R.drawable.lucide_ellipsis_vertical, "More", { menu = true }, fill = look.surface, size = 48.dp)
+        DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
+            if (onClosedTabs != null) item("Search closed tabs", onClosedTabs)
+            item("Home") { deck?.home() }
+            item("Forum") { deck?.forum() }
+        }
     }
 }
 

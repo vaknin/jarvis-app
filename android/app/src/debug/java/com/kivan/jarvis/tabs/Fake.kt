@@ -71,7 +71,7 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
         ),
     )
 
-    fun deck(n: Int = 9, online: Boolean = true, muted: Boolean = false, drafts: Map<String, ReplyDraft> = emptyMap()): DeckState {
+    fun deck(n: Int = 9, online: Boolean = true, drafts: Map<String, ReplyDraft> = emptyMap()): DeckState {
         val tiles = tiles(n)
         val tabs = tiles.associate { t ->
             t.id to when (t.id) {
@@ -100,7 +100,6 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                 ClosedTab("c5", "Router firmware", "Updated"),
             ),
             online = online,
-            muted = muted,
             drafts = drafts,
         )
     }
@@ -123,7 +122,12 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun file(id: String, name: String) {}
 
-    override fun start(text: String) {
+    override fun send(id: String?, text: String) {
+        flow.update { it.copy(attached = emptyList()) }
+        if (id != null) say(id, text) else start(text)
+    }
+
+    private fun start(text: String) {
         val id = "t${++counter}"
         val tile = TileView(id, (flow.value.tiles.maxOfOrNull { it.n } ?: 0) + 1, text.take(24), working = true)
         flow.update {
@@ -200,7 +204,24 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
         s.copy(tiles = rest.take(to) + t + rest.drop(to))
     }
 
-    override fun mute(on: Boolean) = flow.update { it.copy(muted = on) }
-
     override fun openedDone() = flow.update { it.copy(opened = null) }
+
+    override fun dictate() = flow.update { it.copy(dictating = !it.dictating) }
+
+    /** The tab each press of Call asked for, null for a new one. */
+    val calls = mutableListOf<String?>()
+
+    override fun call(id: String?) {
+        calls += id
+    }
+
+    override fun openCall() {}
+
+    override fun pick() {}
+
+    override fun detach(path: String) = flow.update { s -> s.copy(attached = s.attached.filterNot { it.path == path }) }
+
+    override fun home() {}
+
+    override fun forum() {}
 }

@@ -115,7 +115,7 @@ fun HomeScreen() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Jarvis", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    IconButton(onClick = { ctx.startActivity(android.content.Intent(ctx, com.kivan.jarvis.tabs.TabsActivity::class.java)) }) {
+                    IconButton(onClick = { ctx.startActivity(com.kivan.jarvis.tabs.TabsActivity.opening(ctx)) }) {
                         Icon(painterResource(R.drawable.lucide_layout_grid), "Tabs", tint = Accent)
                     }
                     IconButton(onClick = { ctx.startActivity(TasksActivity.intent(ctx)) }) {
@@ -124,7 +124,7 @@ fun HomeScreen() {
                     IconButton(onClick = { Forum.open(ctx) }) {
                         Icon(painterResource(R.drawable.lucide_messages_square), "Forum", tint = Accent)
                     }
-                    IconButton(onClick = { ctx.startActivity(android.content.Intent(ctx, LaptopActivity::class.java)) }) {
+                    IconButton(onClick = { ctx.startActivity(android.content.Intent(ctx, LaptopActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
                         Icon(painterResource(R.drawable.lucide_laptop), "Laptop", tint = Accent)
                     }
                     Box {

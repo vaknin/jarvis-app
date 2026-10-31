@@ -20,7 +20,7 @@ class ShareActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Move.forward(this)) return
-        val uris = sharedUris(intent)
+        val uris = sharedUris(this)
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
         if (uris.isEmpty() && text == null) return finish()
         val app = applicationContext
@@ -47,14 +47,16 @@ class ShareActivity : Activity() {
             withContext(Dispatchers.Main) { Toast.makeText(app, msg, Toast.LENGTH_SHORT).show() }
         }
     }
-
-    // Only other apps' content URIs: Jarvis reads them with its own rights, so a file: URI or one of
-    // Jarvis's own would let any app have Jarvis's private files (the paired key) sent off.
-    private fun sharedUris(intent: Intent): List<Uri> = when (intent.action) {
-        Intent.ACTION_SEND ->
-            listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
-        Intent.ACTION_SEND_MULTIPLE ->
-            IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
-        else -> emptyList()
-    }.filter { it.scheme == "content" && it.authority?.startsWith(packageName) != true }
 }
+
+/**
+ * What was shared. Only other apps' content URIs: Jarvis reads them with its own rights, so a file: URI
+ * or one of Jarvis's own would let any app have Jarvis's private files (the paired key) sent off.
+ */
+internal fun sharedUris(activity: Activity): List<Uri> = when (activity.intent.action) {
+    Intent.ACTION_SEND ->
+        listOfNotNull(IntentCompat.getParcelableExtra(activity.intent, Intent.EXTRA_STREAM, Uri::class.java))
+    Intent.ACTION_SEND_MULTIPLE ->
+        IntentCompat.getParcelableArrayListExtra(activity.intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+    else -> emptyList()
+}.filter { it.scheme == "content" && it.authority?.startsWith(activity.packageName) != true }

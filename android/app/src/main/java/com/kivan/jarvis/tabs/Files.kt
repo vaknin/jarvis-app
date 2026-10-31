@@ -51,7 +51,7 @@ const val TAB_FILES = "tabfiles"
 /** The deck, for what's far from it: a card in a tab's record. */
 val LocalDeck = staticCompositionLocalOf<Deck?> { null }
 
-private val PICTURES = setOf("png", "jpg", "jpeg", "webp", "gif", "heic")
+internal val PICTURES = setOf("png", "jpg", "jpeg", "webp", "gif", "heic")
 
 /**
  * A file beside the record. A picture comes by itself and shows whole, never cropped; anything else
@@ -137,7 +137,17 @@ private fun smallBitmap(path: String): ImageBitmap? {
     return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
 }
 
+/** Small, for the tray. */
+internal fun thumb(path: String): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= THUMB) sample *= 2
+    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+}
+
 private const val LONGEST = 1200
+private const val THUMB = 120
 
 private fun open(context: Context, file: File) {
     val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)

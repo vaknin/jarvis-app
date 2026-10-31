@@ -50,12 +50,34 @@ class RealDeckTest {
     fun savedWordsSurviveARestart() {
         val tile = TileView("t1", 3, "Piano \"app\"", needs = true, working = true)
         val draft = ReplyDraft(41, mapOf(2 to Note("some words", "mine\nand more")), "the end")
-        val saved = Saved(listOf(tile), mapOf("" to "wall words", "t1" to "tab words"), mapOf("t1" to draft), muted = true)
+        val saved = Saved(listOf(tile), mapOf("" to "wall words", "t1" to "tab words"), mapOf("t1" to draft), listOf(Attached("/cache/a/plot.png", "plot.png", true)))
         val back = Saved.parse(saved.json())!!
         assertEquals(listOf(tile.copy(working = false)), back.tiles)
         assertEquals(saved.typed, back.typed)
         assertEquals(saved.drafts, back.drafts)
-        assertEquals(true, back.muted)
+        assertEquals(saved.attached, back.attached)
+    }
+
+    @Test
+    fun aValueFromBeforeTheTrayStillReads() {
+        val old = """{"tiles":[],"typed":{"t1":"tab words"},"drafts":{},"muted":true}"""
+        val back = Saved.parse(old)!!
+        assertEquals("tab words", back.typed["t1"])
+        assertEquals(emptyList<Attached>(), back.attached)
+    }
+
+    @Test
+    fun anOlderBuildCanStillReadWhatThisOneSaves() {
+        // Build 281 refuses a value with no "muted": the way back must not cost him his words.
+        assertEquals(false, org.json.JSONObject(Saved(emptyList(), emptyMap(), emptyMap(), emptyList()).json()).getBoolean("muted"))
+    }
+
+    @Test
+    fun sendTakesWhatHeTypedAndWhatHeSaidAsOneMessage() {
+        assertEquals("typed said", said(" typed ", "said"))
+        assertEquals("said", said("", "said"))
+        assertEquals("typed", said("typed", " "))
+        assertEquals("", said(" ", ""))
     }
 
     @Test

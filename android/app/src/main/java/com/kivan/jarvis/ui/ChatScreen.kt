@@ -210,7 +210,6 @@ private fun Chat(peer: String, queued: ULong) {
             IconButton(onClick = { ctx.startActivity(CallActivity.intent(ctx, start = false)) }) {
                 Icon(painterResource(R.drawable.lucide_phone), "Talk to Jarvis", tint = Accent)
             }
-            TextButton(onClick = { Forum.open(ctx) }) { Text("Forum") }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.lucide_ellipsis_vertical), "More") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

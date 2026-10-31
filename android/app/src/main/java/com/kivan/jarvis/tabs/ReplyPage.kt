@@ -92,13 +92,11 @@ fun ReplyPage(
     name: String,
     answer: Entry.Answer,
     draft: ReplyDraft,
-    muted: Boolean,
     heard: String = "",
     onTaken: () -> Unit = {},
     onDraft: (ReplyDraft) -> Unit,
     onSend: (ReplyDraft, List<Quoted>, String) -> Unit,
     onBack: () -> Unit,
-    onMute: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val blocks = remember(answer.text) { Prose.parse(answer.text) }
@@ -177,8 +175,10 @@ fun ReplyPage(
                     .background(Brush.verticalGradient(listOf(look.canvas.copy(alpha = 0f), look.canvas))),
             )
         }
+        Column(Modifier.overKeyboard().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
+        CallStrip()
         Row(
-            Modifier.overKeyboard().padding(start = Space.margin, end = 10.dp, top = 6.dp, bottom = 8.dp),
+            Modifier.padding(start = Space.margin - 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -190,7 +190,8 @@ fun ReplyPage(
                 maxLines = 2,
             )
             SendPill(draft.count, send)
-            MuteButton(muted, onMute)
+            if (LocalTalk.current.call == null) MicButton(rest = look.surface, size = 48.dp)
+        }
         }
     }
 }

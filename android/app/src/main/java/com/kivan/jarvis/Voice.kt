@@ -19,6 +19,9 @@ object Voice {
     /** The forum tunnel's second port: its pipe opens with `voice`, which the gate sends to jarvis-voice. */
     const val PORT: UShort = 8791u
 
+    /** The tab of a call that opens its own: the server makes it at his first words. */
+    const val NEW_TAB = ""
+
     data class Ui(
         /** Null when there's no call. */
         val state: CallState? = null,
@@ -58,45 +61,10 @@ object Voice {
     val heard = MutableStateFlow("")
     /** The last line of the last written answer: the notification's. */
     val line = MutableStateFlow("")
-    /** The conversation screen is up ([Senses]). */
-    val conversation = MutableStateFlow(false)
-    /** Tabs is on screen. */
-    @Volatile var tabsUp = false
-    /** He opened the conversation screen in this conversation: back from Tabs goes to it. */
-    @Volatile var spoke = false
-    /** The mute he left: it stays through a restart, and Tabs doesn't open the mic on it. */
-    val saved = MutableStateFlow(false)
-    /** The conversation that's up, for what isn't the service. */
+    /** The call that's up, for what isn't the service. */
     @Volatile var call: VoiceCall? = null
     /** Words moved him to a tab; Tabs follows when it's up, or when he comes back. */
     val movedTo = MutableStateFlow<String?>(null)
-
-    private fun prefs(context: Context) = context.getSharedPreferences("voice", Context.MODE_PRIVATE)
-
-    fun loadMute(context: Context) {
-        saved.value = prefs(context).getBoolean("muted", false)
-    }
-
-    internal fun saveMute(context: Context, on: Boolean) {
-        if (saved.value == on) return
-        saved.value = on
-        prefs(context).edit().putBoolean("muted", on).apply()
-    }
-
-    /** The mute button in Tabs, with or without a conversation up. */
-    fun mute(context: Context, on: Boolean) {
-        if (_ui.value.live) {
-            if (_ui.value.micOff != on) toggleMute(context)
-            return
-        }
-        saveMute(context, on)
-        if (!on) listen(context)
-    }
-
-    /** Tabs is up and he isn't muted: the mic is on, and his words go where he is. */
-    fun listen(context: Context) {
-        if (!_ui.value.live && !saved.value && tabsUp && CallService.micGranted(context) && !Move.off()) start(context)
-    }
 
     internal fun moved(id: String, n: Int) {
         place.value = Place(id, "Tab $n", stay = false)
@@ -111,23 +79,29 @@ object Voice {
         }
     }
 
-    /** Starts a conversation (the mic permission must be granted already), or continues the dropped call
-     *  `rejoin`. Does nothing while one is up. */
-    fun start(context: Context, rejoin: String? = null, task: String? = null) {
+    /**
+     * Starts a call (the mic permission must be granted already), or continues the dropped call
+     * `rejoin`. `tab`: the tab it's in, [NEW_TAB] for one of its own, null to let the server say (a ring
+     * being answered). With a call up, a tab's Call button brings the call to that tab.
+     */
+    fun start(context: Context, rejoin: String? = null, task: String? = null, tab: String? = null, name: String = "") {
         if (_ui.value.live) {
-            if (task != null) android.widget.Toast.makeText(context, "Jarvis is listening: just say the task's name", android.widget.Toast.LENGTH_LONG).show()
+            if (task != null) toast(context, "Jarvis is listening: just say the task's name")
+            else if (!tab.isNullOrEmpty() && place.value.tab != tab) place.value = Place(tab, name, stay = false)
             return
         }
         if (Move.off()) {
-            android.widget.Toast.makeText(context, "One moment: Jarvis is moving here", android.widget.Toast.LENGTH_LONG).show()
+            toast(context, "One moment: Jarvis is moving here")
             return
         }
-        // Started away from Tabs he's wherever he last was, for the server to say.
-        if (!tabsUp) place.value = Place()
-        spoke = false
+        place.value = if (tab.isNullOrEmpty()) Place() else Place(tab, name, stay = false)
         update(context) { Ui(state = CallState.Connecting) }
-        context.startForegroundService(Intent(context, CallService::class.java).putExtra(CallService.REJOIN, rejoin).putExtra(CallService.TASK, task))
+        val service = Intent(context, CallService::class.java).putExtra(CallService.REJOIN, rejoin).putExtra(CallService.TASK, task).putExtra(CallService.TAB, tab)
+        // The server never sees two: dictation's last words land first, in a moment at most.
+        Dictation.stop { context.startForegroundService(service) }
     }
+
+    private fun toast(context: Context, words: String) = android.widget.Toast.makeText(context, words, android.widget.Toast.LENGTH_LONG).show()
 
     /**
      * The process died in a call (an update, the system): the app's next start rejoins it at once,
@@ -156,12 +130,12 @@ object Voice {
     @Volatile internal var voiceAt = 0L
 
     /**
-     * A pause an app update may fall in (its restart drops the line for a moment): no call, or Jarvis
-     * listening with nothing left to play and Aviv quiet for [QUIET_MS].
+     * A pause an app update may fall in (its restart drops the line for a moment): no call and no
+     * dictation, or Jarvis listening with nothing left to play and Aviv quiet for [QUIET_MS].
      */
     fun quiet(): Boolean {
         val ui = _ui.value
-        if (!ui.live) return true
+        if (!ui.live) return !Dictation.on.value
         if (ui.state !is CallState.Listening && ui.state !is CallState.Reconnecting) return false
         val now = android.os.SystemClock.elapsedRealtime()
         return now - soundAt >= QUIET_MS && now - voiceAt >= QUIET_MS

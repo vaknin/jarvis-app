@@ -34,10 +34,8 @@ import com.kivan.jarvis.R
 @Composable
 fun ClosedPage(
     closed: List<ClosedTab>,
-    muted: Boolean,
     onOpen: (ClosedTab) -> Unit,
     onBack: () -> Unit,
-    onMute: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by remember { mutableStateOf("") }
@@ -73,7 +71,7 @@ fun ClosedPage(
                 }
             }
         }
-        Dock("Search by name", query, { query = it }, {}, muted, onMute, focus = focus, showSend = false)
+        Dock("Search by name", query, { query = it }, {}, focus = focus, showSend = false, talk = false)
     }
 }
 

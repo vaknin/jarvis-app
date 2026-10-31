@@ -93,6 +93,13 @@ pub struct TabRec {
     pub loading: bool,
 }
 
+/// A file he attached: where the app keeps it, and what he calls it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct OutFile {
+    pub name: String,
+    pub path: String,
+}
+
 #[uniffi::export(with_foreign)]
 pub trait TabsListener: Send + Sync {
     fn wall(&self, tiles: Vec<TileRec>, closed: Vec<ClosedRec>, online: bool);
@@ -103,6 +110,8 @@ pub trait TabsListener: Send + Sync {
     fn back(&self, id: String, text: String);
     /// A file asked for by `tabs_file`. Empty if it's gone from the server.
     fn file(&self, id: String, name: String, data: Vec<u8>);
+    /// Files that didn't go after all: they go back to where he attaches.
+    fn unsent(&self, files: Vec<OutFile>);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,14 +121,36 @@ enum Told {
     Opened(String),
     Back(String, String),
     File(String, String, Vec<u8>),
+    Unsent(Vec<OutFile>),
 }
 
+/// A file on its way: read, as the frame carries it.
+#[derive(Debug, Clone, PartialEq)]
+struct Upload {
+    file: OutFile,
+    data: String,
+}
+
+/// Words and their files, until they've landed.
+#[derive(Default)]
 struct Pending {
     key: String,
     text: String,
     replies: Vec<Reply>,
     landed: bool,
     failed: Option<String>,
+    /// What he attached, whole: the `Say` goes once the server has kept them all.
+    files: Vec<OutFile>,
+    /// Files the server hasn't said it kept yet.
+    going: Vec<String>,
+    kept: Vec<FileRef>,
+}
+
+impl Pending {
+    /// Its `Say` is on the wire: only such a one can land or be refused as words.
+    fn said(&self) -> bool {
+        self.going.is_empty() && !self.landed && self.failed.is_none()
+    }
 }
 
 #[derive(Default)]
@@ -241,7 +272,7 @@ impl Hold {
             text: p.text.clone(),
             voice: false,
             quotes: p.replies.iter().map(|r| QuoteRec { to: r.to, quote: r.quote.clone(), text: r.text.clone() }).collect(),
-            files: vec![],
+            files: p.files.iter().map(|f| f.name.clone()).collect(),
             state: if p.failed.is_some() { Landing::Refused } else { Landing::Sending },
             why: p.failed.clone().unwrap_or_default(),
         });
@@ -282,8 +313,8 @@ struct Desk {
     relist: bool,
     /// Records in memory, the most recently shown last.
     recent: VecDeque<String>,
-    /// What each `Open` or `Reopen` on its way carries: the words to say in it, if any.
-    opening: VecDeque<Option<String>>,
+    /// What each `Open` or `Reopen` on its way carries: the words and files to say in it, if any.
+    opening: VecDeque<Option<(String, Vec<Upload>)>>,
     keys: u64,
     out: Vec<Ask>,
     told: Vec<Told>,
@@ -303,23 +334,29 @@ impl Desk {
         self.online = false;
         self.wall_touched = true;
         self.out.clear();
-        for words in std::mem::take(&mut self.opening).into_iter().flatten() {
-            self.told.push(Told::Back(String::new(), words));
+        for (words, files) in std::mem::take(&mut self.opening).into_iter().flatten() {
+            self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
         }
+        let mut lost = vec![];
         for (id, t) in &mut self.tabs {
-            let mut back = vec![];
-            t.pending.retain(|p| {
+            let (mut back, mut files) = (vec![], vec![]);
+            t.pending.retain_mut(|p| {
                 if p.landed {
                     return true;
                 }
-                back.push(as_typed(p));
+                let words = as_typed(p);
+                if !words.is_empty() {
+                    back.push(words);
+                }
+                files.append(&mut p.files);
                 false
             });
             t.live = None;
-            if !back.is_empty() {
-                self.told.push(Told::Back(id.clone(), back.join("\n\n")));
-            }
+            lost.push((id.clone(), back.join("\n\n"), files));
             t.tail();
+        }
+        for (id, words, files) in lost {
+            self.back(id, words, files);
         }
     }
 
@@ -334,10 +371,11 @@ impl Desk {
             }
             Tell::Opened { tab } => self.opened(tab),
             Tell::Landed { id, .. } => {
-                if let Some(p) = self.tabs.get_mut(&id).and_then(|t| t.pending.iter_mut().find(|p| !p.landed && p.failed.is_none())) {
+                if let Some(p) = self.tabs.get_mut(&id).and_then(|t| t.pending.iter_mut().find(|p| p.said())) {
                     p.landed = true;
                 }
             }
+            Tell::Put { id, name, file } => self.kept(id, &name, file),
             Tell::Event { id, event } => self.event(&id, &event),
             Tell::Text { id, block, from, text } => {
                 if let Some(t) = self.tabs.get_mut(&id).filter(|t| t.loaded) {
@@ -433,7 +471,7 @@ impl Desk {
 
     fn opened(&mut self, info: Info) {
         let id = info.id.clone();
-        let words = self.opening.pop_front().flatten();
+        let carried = self.opening.pop_front().flatten();
         self.relist = true;
         let t = self.tabs.entry(id.clone()).or_default();
         (t.n, t.closed, t.tile) = (info.n, false, info.tile);
@@ -441,21 +479,65 @@ impl Desk {
             self.order.push(id.clone());
         }
         self.show(vec![id.clone()]);
-        if let Some(words) = words {
-            self.say(id.clone(), words, vec![]);
+        if let Some((words, files)) = carried {
+            self.say(id.clone(), words, vec![], files);
             self.told.push(Told::Opened(id));
         }
     }
 
+    /// A file is on the server: once they all are, the words go with them.
+    fn kept(&mut self, id: String, name: &str, file: FileRef) {
+        let Some(t) = self.tabs.get_mut(&id) else { return };
+        let Some(p) = t.pending.iter_mut().find(|p| p.going.iter().any(|g| g == name)) else { return };
+        if let Some(i) = p.going.iter().position(|g| g == name) {
+            p.going.remove(i);
+        }
+        p.kept.push(file);
+        if p.going.is_empty() && p.failed.is_none() {
+            let ask = Ask::Say { id, text: p.text.clone(), via: Some(Via::Typed), replies: p.replies.clone(), files: p.kept.clone() };
+            self.out.push(ask);
+        }
+    }
+
+    /// Words and files that won't go: back to him, whatever is left of them.
+    fn back(&mut self, id: String, words: String, files: Vec<OutFile>) {
+        if !words.is_empty() {
+            self.told.push(Told::Back(id, words));
+        }
+        if !files.is_empty() {
+            self.told.push(Told::Unsent(files));
+        }
+    }
+
+    /// The first send still handing its files over failed: its words and files go back.
+    fn uploads_failed(&mut self, id: &str, why: &str) -> bool {
+        let Some(t) = self.tabs.get_mut(id) else { return false };
+        let Some(p) = t.pending.iter_mut().find(|p| !p.going.is_empty() && p.failed.is_none()) else { return false };
+        p.failed = Some(why.to_string());
+        p.going.clear();
+        let (words, files) = (as_typed(p), std::mem::take(&mut p.files));
+        t.tail();
+        self.back(id.to_string(), words, files);
+        true
+    }
+
     fn refused(&mut self, id: String, why: String) {
-        // An older server than this app: what it doesn't know, the app does without.
+        // An older server than this app: what it doesn't know, the app does without. Except a file,
+        // which it can't be seen to swallow: it's the one ask with no id it could answer on.
         if why == "I don't know that ask" {
+            let up = self.tabs.iter().find(|(_, t)| t.pending.iter().any(|p| !p.going.is_empty())).map(|(id, _)| id.clone());
+            if let Some(id) = up {
+                self.uploads_failed(&id, "The server can't take files yet");
+            }
             return;
         }
         if id.is_empty() {
-            if let Some(words) = self.opening.pop_front().flatten() {
-                self.told.push(Told::Back(String::new(), words));
+            if let Some((words, files)) = self.opening.pop_front().flatten() {
+                self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
             }
+            return;
+        }
+        if self.uploads_failed(&id, &why) {
             return;
         }
         if let Some(at) = self.opening.iter().position(Option::is_none) {
@@ -463,14 +545,14 @@ impl Desk {
         }
         let mut back = None;
         if let Some(t) = self.tabs.get_mut(&id) {
-            if let Some(p) = t.pending.iter_mut().find(|p| !p.landed && p.failed.is_none()) {
+            if let Some(p) = t.pending.iter_mut().find(|p| p.said()) {
                 p.failed = Some(why);
-                back = Some(as_typed(p));
+                back = Some((as_typed(p), std::mem::take(&mut p.files)));
                 t.tail();
             }
         }
-        if let Some(words) = back {
-            self.told.push(Told::Back(id, words));
+        if let Some((words, files)) = back {
+            self.back(id, words, files);
         }
     }
 
@@ -502,20 +584,40 @@ impl Desk {
         }
     }
 
-    fn say(&mut self, id: String, text: String, quotes: Vec<QuoteRec>) {
-        let Some(t) = self.tabs.get_mut(&id) else { return };
+    fn say(&mut self, id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<Upload>) {
+        let Some(t) = self.tabs.get_mut(&id) else {
+            let words = text;
+            self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
+            return;
+        };
         // What failed is back in the box, and this may well be it.
         t.pending.retain(|p| p.failed.is_none());
         let replies: Vec<Reply> = quotes.into_iter().map(|q| Reply { to: q.to, quote: q.quote, text: q.text }).collect();
         self.keys += 1;
-        t.pending.push(Pending { key: format!("mine{}", self.keys), text: text.clone(), replies: replies.clone(), landed: false, failed: None });
+        let (up, going) = (files.is_empty(), files.iter().map(|u| u.file.name.clone()).collect());
+        let pending = Pending {
+            key: format!("mine{}", self.keys),
+            text: text.clone(),
+            replies: replies.clone(),
+            files: files.iter().map(|u| u.file.clone()).collect(),
+            going,
+            ..Pending::default()
+        };
+        t.pending.push(pending);
         t.tail();
-        self.out.push(Ask::Say { id, text, via: Some(Via::Typed), replies, files: vec![] });
+        if up {
+            self.out.push(Ask::Say { id, text, via: Some(Via::Typed), replies, files: vec![] });
+        } else {
+            for u in files {
+                self.out.push(Ask::Put { id: id.clone(), name: u.file.name, data: u.data });
+            }
+        }
     }
 
-    fn start(&mut self, text: String) {
-        let name = text.split_whitespace().take(3).collect::<Vec<_>>().join(" ").chars().take(24).collect();
-        self.opening.push_back(Some(text));
+    fn start(&mut self, text: String, files: Vec<Upload>) {
+        let from = if text.trim().is_empty() { files.first().map_or("", |u| u.file.name.as_str()) } else { &text };
+        let name = from.split_whitespace().take(3).collect::<Vec<_>>().join(" ").chars().take(24).collect();
+        self.opening.push_back(Some((text, files)));
         self.out.push(Ask::Open { want: None, name });
     }
 
@@ -608,6 +710,7 @@ fn deliver() {
             Told::Opened(id) => listener.opened(id),
             Told::Back(id, text) => listener.back(id, text),
             Told::File(id, name, data) => listener.file(id, name, data),
+            Told::Unsent(files) => listener.unsent(files),
         }
     }
 }
@@ -762,14 +865,30 @@ pub fn tabs_show(ids: Vec<String>) {
     with_desk(|d| d.show(ids));
 }
 
-#[uniffi::export]
-pub fn tabs_start(text: String) {
-    with_desk(|d| d.start(text));
+/// Reads what he attached, off the desk's lock: a file that's gone can't be sent, and his words still can.
+fn uploads(files: Vec<OutFile>) -> Vec<Upload> {
+    files
+        .into_iter()
+        .filter_map(|file| match std::fs::read(&file.path) {
+            Ok(bytes) => Some(Upload { data: STANDARD.encode(bytes), file }),
+            Err(e) => {
+                tracing::warn!("can't read {}: {e}", file.name);
+                None
+            }
+        })
+        .collect()
 }
 
 #[uniffi::export]
-pub fn tabs_say(id: String, text: String, quotes: Vec<QuoteRec>) {
-    with_desk(|d| d.say(id, text, quotes));
+pub fn tabs_start(text: String, files: Vec<OutFile>) {
+    let files = uploads(files);
+    with_desk(|d| d.start(text, files));
+}
+
+#[uniffi::export]
+pub fn tabs_say(id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<OutFile>) {
+    let files = uploads(files);
+    with_desk(|d| d.say(id, text, quotes, files));
 }
 
 #[uniffi::export]
@@ -912,7 +1031,7 @@ mod tests {
         let mut d = up(&[("t1", 0)]);
         d.show(vec!["t1".into()]);
         d.take();
-        d.say("t1".into(), "go".into(), vec![]);
+        d.say("t1".into(), "go".into(), vec![], vec![]);
         let EntryRec::Yours { key, state: Landing::Sending, .. } = tab(&d.take(), "t1").entries[0].clone() else { panic!() };
         d.tell(Tell::Landed { id: "t1".into(), offset: 10 });
         event(&mut d, "t1", said(10, Who::Aviv, "go"));
@@ -943,10 +1062,10 @@ mod tests {
     fn words_that_dont_land_go_back_and_landed_ones_stay() {
         let mut d = up(&[("t1", 0)]);
         d.show(vec!["t1".into()]);
-        d.say("t1".into(), "landed".into(), vec![]);
+        d.say("t1".into(), "landed".into(), vec![], vec![]);
         d.tell(Tell::Landed { id: "t1".into(), offset: 10 });
-        d.say("t1".into(), "lost".into(), vec![QuoteRec { to: 5, quote: "q".into(), text: "w".into() }]);
-        d.start("a new thing".into());
+        d.say("t1".into(), "lost".into(), vec![QuoteRec { to: 5, quote: "q".into(), text: "w".into() }], vec![]);
+        d.start("a new thing".into(), vec![]);
         d.take();
         d.disconnected();
         let told = d.take();
@@ -970,12 +1089,12 @@ mod tests {
     fn a_refusal_shows_and_the_next_send_clears_it() {
         let mut d = up(&[("t1", 0)]);
         d.show(vec!["t1".into()]);
-        d.say("t1".into(), "no".into(), vec![]);
+        d.say("t1".into(), "no".into(), vec![], vec![]);
         d.tell(Tell::Refused { id: "t1".into(), why: "read only".into() });
         let told = d.take();
         assert!(told.contains(&Told::Back("t1".into(), "no".into())));
         assert!(matches!(&tab(&told, "t1").entries[0], EntryRec::Yours { state: Landing::Refused, why, .. } if why == "read only"));
-        d.say("t1".into(), "again".into(), vec![]);
+        d.say("t1".into(), "again".into(), vec![], vec![]);
         assert_eq!(texts(&tab(&d.take(), "t1")), ["again"]);
     }
 
@@ -983,13 +1102,89 @@ mod tests {
     fn words_at_the_wall_open_a_tab_and_land_in_it() {
         let mut d = up(&[]);
         d.out.clear();
-        d.start("Plan the garden sensors please".into());
+        d.start("Plan the garden sensors please".into(), vec![]);
         assert_eq!(d.out, [Ask::Open { want: None, name: "Plan the garden".into() }]);
         d.out.clear();
         d.tell(Tell::Opened { tab: info("t9", 1, 0) });
         assert!(d.out.contains(&Ask::Follow { id: "t9".into(), after: 0 }));
         assert!(d.out.iter().any(|a| matches!(a, Ask::Say { id, text, .. } if id == "t9" && text.starts_with("Plan"))));
         assert!(d.take().contains(&Told::Opened("t9".into())));
+    }
+
+    fn up_file(name: &str) -> Upload {
+        Upload { file: OutFile { name: name.into(), path: format!("/x/{name}") }, data: "aGk=".into() }
+    }
+
+    fn kept(name: &str) -> FileRef {
+        FileRef { name: name.into(), alt: name.into() }
+    }
+
+    #[test]
+    fn files_go_up_first_and_the_words_follow_them() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        d.take();
+        d.out.clear();
+        d.say("t1".into(), "look".into(), vec![], vec![up_file("a.png"), up_file("b.pdf")]);
+        assert_eq!(d.out.len(), 2);
+        assert!(d.out.iter().all(|a| matches!(a, Ask::Put { id, .. } if id == "t1")));
+        let EntryRec::Yours { files, state: Landing::Sending, .. } = tab(&d.take(), "t1").entries[0].clone() else { panic!() };
+        assert_eq!(files, ["a.png", "b.pdf"]);
+        d.out.clear();
+        d.tell(Tell::Put { id: "t1".into(), name: "a.png".into(), file: kept("a.png") });
+        assert!(d.out.is_empty(), "the words wait for the last file");
+        d.tell(Tell::Put { id: "t1".into(), name: "b.pdf".into(), file: kept("b.pdf") });
+        assert_eq!(
+            d.out,
+            [Ask::Say { id: "t1".into(), text: "look".into(), via: Some(Via::Typed), replies: vec![], files: vec![kept("a.png"), kept("b.pdf")] }]
+        );
+    }
+
+    #[test]
+    fn a_file_with_no_words_opens_a_tab_named_after_it() {
+        let mut d = up(&[]);
+        d.out.clear();
+        d.start("  ".into(), vec![up_file("garden plan.png")]);
+        assert_eq!(d.out, [Ask::Open { want: None, name: "garden plan.png".into() }]);
+        d.out.clear();
+        d.tell(Tell::Opened { tab: info("t9", 1, 0) });
+        assert!(d.out.iter().any(|a| matches!(a, Ask::Put { id, name, .. } if id == "t9" && name == "garden plan.png")));
+    }
+
+    #[test]
+    fn a_file_the_server_refuses_comes_back_with_the_words() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        d.say("t1".into(), "look".into(), vec![], vec![up_file("a.png")]);
+        d.tell(Tell::Refused { id: "t1".into(), why: "a.png is too big to send".into() });
+        let told = d.take();
+        assert!(told.contains(&Told::Back("t1".into(), "look".into())));
+        assert!(told.contains(&Told::Unsent(vec![up_file("a.png").file])));
+        assert!(matches!(&tab(&told, "t1").entries[0], EntryRec::Yours { state: Landing::Refused, why, .. } if why == "a.png is too big to send"));
+    }
+
+    #[test]
+    fn an_older_server_never_swallows_a_file() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        d.say("t1".into(), "".into(), vec![], vec![up_file("a.png")]);
+        d.tell(Tell::Refused { id: String::new(), why: "I don't know that ask".into() });
+        assert!(d.take().contains(&Told::Unsent(vec![up_file("a.png").file])));
+    }
+
+    #[test]
+    fn a_link_lost_mid_upload_gives_the_file_back() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        d.say("t1".into(), "look".into(), vec![], vec![up_file("a.png")]);
+        d.tell(Tell::Put { id: "t1".into(), name: "a.png".into(), file: kept("a.png") });
+        d.disconnected();
+        let told = d.take();
+        assert!(told.contains(&Told::Back("t1".into(), "look".into())));
+        assert!(told.contains(&Told::Unsent(vec![up_file("a.png").file])));
+        d.start("new".into(), vec![up_file("b.png")]);
+        d.disconnected();
+        assert!(d.take().contains(&Told::Unsent(vec![up_file("b.png").file])));
     }
 
     #[test]
@@ -1070,6 +1265,7 @@ mod road {
         fn file(&self, _id: String, name: String, data: Vec<u8>) {
             *self.file.lock().unwrap() = Some((name, data));
         }
+        fn unsent(&self, _files: Vec<OutFile>) {}
         fn opened(&self, id: String) {
             *self.opened.lock().unwrap() = Some(id);
         }
@@ -1098,7 +1294,7 @@ mod road {
         tabs_attach(heard.clone());
         until("the wall", || heard.wall.lock().unwrap().clone().filter(|w| w.1));
         println!("wall up in {} ms", t0.elapsed().as_millis());
-        tabs_start("Hello from the road test".into());
+        tabs_start("Hello from the road test".into(), vec![]);
         let id = until("the tab", || heard.opened.lock().unwrap().clone());
         println!("tab {id} in {} ms", t0.elapsed().as_millis());
         until("the words on the record", || {

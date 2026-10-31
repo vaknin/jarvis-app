@@ -1,12 +1,19 @@
 package com.kivan.jarvis.tabs
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
+import com.kivan.jarvis.CallActivity
+import com.kivan.jarvis.CallService
+import com.kivan.jarvis.Dictation
 import com.kivan.jarvis.Forum
+import com.kivan.jarvis.MainActivity
 import com.kivan.jarvis.Voice
 import com.kivan.jarvis.core.ClosedRec
 import com.kivan.jarvis.core.EntryRec
 import com.kivan.jarvis.core.Landing
+import com.kivan.jarvis.core.OutFile
 import com.kivan.jarvis.core.QuoteRec
 import com.kivan.jarvis.core.TabRec
 import com.kivan.jarvis.core.TabsListener
@@ -26,7 +33,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -42,25 +51,37 @@ import java.io.File
 
 /**
  * The tabs on the server, through the Rust client (crates/ffi tabs.rs). Everything that decides lives
- * there; this keeps only what is the phone's own: his unsent words, his drafts, the mute, and the last
- * wall, so the screen opens full and a restart loses no typing. Calls arrive on Rust's threads.
+ * there; this keeps only what is the phone's own: his unsent words, his drafts, what he attached, and
+ * the last wall, so the screen opens full and a restart loses no typing. Calls arrive on Rust's threads.
  */
 class RealDeck private constructor(
     private val app: Context,
     private val prefs: SharedPreferences,
     private val files: File,
 ) : Deck, TabsListener {
-    private val flow = MutableStateFlow(Saved.read(prefs))
+    private val flow = MutableStateFlow(Saved.read(prefs).let { s -> s.copy(attached = s.attached.filter { File(it.path).exists() }) })
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     override val state: StateFlow<DeckState> = flow
+
+    /** What only the screen can ask Android for. */
+    enum class Ask { MIC, PICK }
+
+    private val asking = MutableSharedFlow<Ask>(extraBufferCapacity = 1)
+    val asks: SharedFlow<Ask> = asking
+
+    /** The tab on screen; null at the wall. */
+    private var looking: String? = null
+    /** Shared words waiting in the wall's box: they go with him to the tab he picks. */
+    private var shared: String? = null
+    /** What went with the words that are opening a new tab. */
+    @Volatile private var opening: List<Attached> = emptyList()
 
     init {
         @OptIn(FlowPreview::class)
         flow.map(Saved::of).distinctUntilChanged().debounce(400).onEach { it.write(prefs) }.launchIn(scope)
-        // The mute shows whatever set it: this button, the notification, his voice.
-        Voice.loadMute(app)
-        Voice.ui.combine(Voice.saved) { ui, saved -> if (ui.live) ui.micOff else saved }
-            .distinctUntilChanged().onEach { on -> flow.update { it.copy(muted = on) } }.launchIn(scope)
+        Voice.ui.combine(Voice.place) { ui, at -> OnCall(at.tab, at.name, Voice.line(ui)).takeIf { ui.live } }
+            .distinctUntilChanged().onEach { call -> flow.update { it.copy(call = call) } }.launchIn(scope)
+        Dictation.on.onEach { on -> flow.update { it.copy(dictating = on) } }.launchIn(scope)
         Voice.heard.onEach { words -> flow.update { it.copy(heard = words) } }.launchIn(scope)
         Voice.movedTo.filterNotNull().onEach {
             landed(it)
@@ -69,9 +90,10 @@ class RealDeck private constructor(
     }
 
     fun up() {
-        // Opened from a notification with nothing else running, muted or without the mic.
+        // Opened from a notification with nothing else running, or without the mic.
         runCatching { Forum.start() }
         tabsAttach(this)
+        scope.launch { Tray.prune(app, flow.value.attached) }
     }
 
     fun down() {
@@ -83,16 +105,38 @@ class RealDeck private constructor(
 
     override fun tab(tab: TabRec) = flow.update { it.with(tab) }
 
-    override fun opened(id: String) = flow.update { it.copy(opened = id) }
+    override fun opened(id: String) {
+        val going = opening
+        opening = emptyList()
+        flow.update { it.copy(opened = id, files = it.files + going.associate { f -> "$id/${f.name}" to f.path }) }
+    }
 
     override fun back(id: String, text: String) = flow.update { it.typedBack(id, text) }
 
     override fun show(ids: List<String>) = tabsShow(ids)
 
-    override fun start(text: String) = tabsStart(text)
+    override fun unsent(files: List<OutFile>) = flow.update { s ->
+        s.copy(attached = s.attached + files.filter { f -> s.attached.none { it.path == f.path } }.map { Attached(it.path, it.name, Tray.picture(it.name)) })
+    }
+
+    override fun send(id: String?, text: String) {
+        val going = flow.value.attached
+        val out = going.map { OutFile(it.name, it.path) }
+        if (going.isEmpty()) {
+            if (id == null) tabsStart(text, out) else tabsSay(id, text, emptyList(), out)
+            return
+        }
+        // The waiting card shows the phone's own copy until the record has it.
+        flow.update { s ->
+            s.copy(attached = emptyList(), files = if (id == null) s.files else s.files + going.associate { "$id/${it.name}" to it.path })
+        }
+        if (id == null) opening = going
+        // The files are read here, so off the main thread.
+        scope.launch { if (id == null) tabsStart(text, out) else tabsSay(id, text, emptyList(), out) }
+    }
 
     override fun say(id: String, text: String, quotes: List<Quoted>) =
-        tabsSay(id, text, quotes.map { QuoteRec(it.to.toULong(), it.quote, it.text) })
+        tabsSay(id, text, quotes.map { QuoteRec(it.to.toULong(), it.quote, it.text) }, emptyList())
 
     override fun type(id: String, text: String) = flow.update { it.copy(typed = if (text.isEmpty()) it.typed - id else it.typed + (id to text)) }
 
@@ -122,9 +166,9 @@ class RealDeck private constructor(
         tabsMove(id, to.toUInt())
     }
 
-    override fun mute(on: Boolean) = Voice.mute(app, on)
-
     override fun here(id: String?) {
+        looking = id
+        if (id != null) carryShared(id)
         val at = Voice.place.value
         val tile = flow.value.tiles.firstOrNull { it.id == id }
         val name = tile?.let { it.name.ifBlank { "Tab ${it.n}" } }.orEmpty()
@@ -133,14 +177,75 @@ class RealDeck private constructor(
             if (name.isNotEmpty() && name != at.name) Voice.place.value = at.copy(name = name)
             return
         }
+        // A call stays in its tab while he looks around.
+        if (Voice.ui.value.live) return
         // They go to the tab they were said on, ahead of the jump.
         if (Voice.heard.value.isNotEmpty()) words(true)
         Voice.place.value = Voice.Place(id, name, stay = false)
     }
 
-    override fun words(send: Boolean) {
-        Voice.call?.sendWords(send)
+    private fun carryShared(id: String) {
+        val words = shared ?: return
+        shared = null
+        if (flow.value.typed[WALL] != words) return
+        type(WALL, "")
+        kept(id, words)
     }
+
+    override fun words(send: Boolean) {
+        (Dictation.call ?: Voice.call)?.sendWords(send)
+        if (Dictation.call != null) Voice.heard.value = ""
+    }
+
+    /** Words that didn't go stay in that box. */
+    fun kept(id: String, words: String) = flow.update {
+        val was = it.typed[id].orEmpty()
+        it.copy(typed = it.typed + (id to if (was.isBlank()) words else "$was $words"))
+    }
+
+    /** Copies these in while the grant lasts; they go with his next words. */
+    suspend fun attach(uris: List<Uri>) {
+        val more = uris.mapNotNull { Tray.keep(app, it) }
+        flow.update { it.copy(attached = it.attached + more) }
+    }
+
+    /** Shared words: in the wall's box, and on to the tab he picks. */
+    fun share(text: String) {
+        val was = flow.value.typed[WALL].orEmpty()
+        val now = if (was.isBlank()) text else "$was $text"
+        type(WALL, now)
+        shared = now
+    }
+
+    override fun dictate() {
+        if (Voice.ui.value.live) return
+        if (!CallService.micGranted(app)) {
+            asking.tryEmit(Ask.MIC)
+            return
+        }
+        here(looking)
+        Dictation.toggle(app)
+    }
+
+    override fun call(id: String?) {
+        val name = flow.value.tiles.firstOrNull { it.id == id }?.let { it.name.ifBlank { "Tab ${it.n}" } }.orEmpty()
+        app.startActivity(CallActivity.intent(app, start = true, tab = id ?: Voice.NEW_TAB, name = name))
+    }
+
+    override fun openCall() = app.startActivity(CallActivity.intent(app, start = false))
+
+    override fun pick() {
+        asking.tryEmit(Ask.PICK)
+    }
+
+    override fun detach(path: String) {
+        flow.update { s -> s.copy(attached = s.attached.filterNot { it.path == path }) }
+        File(path).parentFile?.deleteRecursively()
+    }
+
+    override fun home() = app.startActivity(MainActivity.home(app))
+
+    override fun forum() = app.startActivity(Forum.view(app, "/").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
     override fun stop(id: String) = tabsStop(id)
 
@@ -152,7 +257,8 @@ class RealDeck private constructor(
     override fun file(id: String, name: String, data: ByteArray) {
         scope.launch {
             val path = if (data.isEmpty()) "" else fileAt(files, id, name).also { it.parentFile?.mkdirs(); it.writeBytes(data) }.path
-            flow.update { it.copy(files = it.files + ("$id/$name" to path)) }
+            // A file on its way up is on the phone, whatever the server says of it yet.
+            flow.update { it.copy(files = if (path.isEmpty() && !it.files["$id/$name"].isNullOrEmpty()) it.files else it.files + ("$id/$name" to path)) }
         }
     }
 
@@ -233,7 +339,7 @@ internal data class Saved(
     val tiles: List<TileView>,
     val typed: Map<String, String>,
     val drafts: Map<String, ReplyDraft>,
-    val muted: Boolean,
+    val attached: List<Attached>,
 ) {
     fun json(): String = JSONObject().apply {
         put("tiles", tiles.fold(org.json.JSONArray()) { a, t ->
@@ -248,7 +354,11 @@ internal data class Saved(
                 all.put(id, JSONObject().put("to", d.to).put("end", d.end).put("notes", notes))
             }
         })
-        put("muted", muted)
+        put("attached", attached.fold(org.json.JSONArray()) { a, f ->
+            a.put(JSONObject().put("path", f.path).put("name", f.name).put("picture", f.picture))
+        })
+        // Gone as a concept, but an older build refuses a value without it: rolling back keeps the words.
+        put("muted", false)
     }.toString()
 
     fun write(prefs: SharedPreferences) = prefs.edit().putString(KEY, json()).apply()
@@ -256,7 +366,7 @@ internal data class Saved(
     companion object {
         private const val KEY = "deck"
 
-        fun of(s: DeckState) = Saved(s.tiles, s.typed, s.drafts, s.muted)
+        fun of(s: DeckState) = Saved(s.tiles, s.typed, s.drafts, s.attached)
 
         fun read(prefs: SharedPreferences): DeckState = prefs.getString(KEY, null)?.let(::parse) ?: DeckState()
 
@@ -266,6 +376,7 @@ internal data class Saved(
             val tiles = o.getJSONArray("tiles")
             val typed = o.getJSONObject("typed")
             val drafts = o.getJSONObject("drafts")
+            val attached = o.optJSONArray("attached")
             DeckState(
                 tiles = (0 until tiles.length()).map { i ->
                     val t = tiles.getJSONObject(i)
@@ -285,7 +396,10 @@ internal data class Saved(
                         d.getString("end"),
                     )
                 },
-                muted = o.getBoolean("muted"),
+                attached = (0 until (attached?.length() ?: 0)).map { i ->
+                    val f = attached!!.getJSONObject(i)
+                    Attached(f.getString("path"), f.getString("name"), f.getBoolean("picture"))
+                },
             )
         }.getOrNull()
     }

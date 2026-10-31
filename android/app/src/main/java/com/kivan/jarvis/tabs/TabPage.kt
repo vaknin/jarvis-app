@@ -67,7 +67,6 @@ fun TabPage(
     tab: TabView,
     typed: String,
     draft: ReplyDraft?,
-    muted: Boolean,
     online: Boolean,
     active: Boolean,
     onWall: () -> Unit,
@@ -76,12 +75,12 @@ fun TabPage(
     onReply: (Entry.Answer) -> Unit,
     onClose: () -> Unit,
     onReopen: () -> Unit,
-    onMute: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     heard: String = "",
     onHeard: () -> Unit = {},
     onStop: () -> Unit = {},
 ) {
+    val attached = LocalTalk.current.attached.isNotEmpty()
     val rows = remember(tab.entries) { tab.entries.asReversed() }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -182,24 +181,23 @@ fun TabPage(
             }
         }
         when {
-            tab.closed -> ClosedBar(onReopen, muted, onMute)
+            tab.closed -> ClosedBar(tab.tile.id, onReopen)
             else -> Dock(
                 hint = if (question != null) "Type your answer to this" else "Message ${tab.tile.name}",
                 text = typed,
                 onText = onType,
                 onSend = {
-                    val words = typed.trim()
-                    if (words.isNotEmpty()) {
+                    val words = said(typed, heard)
+                    if (words.isNotEmpty() || attached) {
                         buzz.sent()
                         onSend(words)
                         scope.launch { list.animateScrollToItem(0) }
                     }
                 },
-                muted = muted,
-                onMute = onMute,
                 heard = heard,
                 onHeard = onHeard,
                 onStop = onStop.takeIf { tab.work != null },
+                tab = tab.tile.id,
             )
         }
     }
@@ -452,15 +450,16 @@ fun lasted(secs: Long): String = when {
 }
 
 @Composable
-private fun ClosedBar(onReopen: () -> Unit, muted: Boolean, onMute: (Boolean) -> Unit) {
+private fun ClosedBar(tab: String, onReopen: () -> Unit) {
+    Column(Modifier.overKeyboard().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
+    CallStrip(tab)
     Row(
-        Modifier.overKeyboard().padding(start = Space.margin, end = 10.dp, top = 6.dp, bottom = 8.dp),
+        Modifier.padding(start = Space.margin - 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("This tab is closed", Modifier.weight(1f), look.faint, style = Words.label)
         Box(
             Modifier
-                .padding(end = 6.dp)
                 .height(Space.target)
                 .clip(RoundedCornerShape(24.dp))
                 .background(look.surface)
@@ -468,6 +467,6 @@ private fun ClosedBar(onReopen: () -> Unit, muted: Boolean, onMute: (Boolean) ->
                 .padding(horizontal = 20.dp),
             Alignment.Center,
         ) { Text("Reopen", color = look.ink, style = Words.label) }
-        MuteButton(muted, onMute)
+    }
     }
 }

@@ -72,7 +72,17 @@ class ScreensTest {
         }
     }
 
-    @Test fun muted() = shot("wall-muted") { Stage(FakeDeck(Fake.deck(9, muted = true))) }
+    private val onCall = OnCall("t1", "Piano app", "Listening")
+    private val photo = Attached("/nowhere/kitchen.jpg", "kitchen.jpg", true)
+    private val paper = Attached("/nowhere/lease.pdf", "lease.pdf", false)
+    @Test fun dictating() = shot("tab-dictating") {
+        Stage(FakeDeck(Fake.deck(9).copy(dictating = true, heard = spoken)), Opening(tab = "t1"))
+    }
+    @Test fun callHere() = shot("tab-on-call") { Stage(FakeDeck(Fake.deck(9).copy(call = onCall)), Opening(tab = "t1")) }
+    @Test fun callElsewhere() = shot("tab-call-elsewhere") { Stage(FakeDeck(Fake.deck(9).copy(call = onCall)), Opening(tab = "t2")) }
+    @Test fun callWall() = shot("wall-on-call") { Stage(FakeDeck(Fake.deck(9).copy(call = onCall))) }
+    @Test fun trayWall() = shot("wall-tray") { Stage(FakeDeck(Fake.deck(9).copy(attached = listOf(photo, paper)))) }
+    @Test fun trayTab() = shot("tab-tray") { Stage(FakeDeck(Fake.deck(9).copy(attached = listOf(photo))), Opening(tab = "t1")) }
     private val spoken = "Make the piano louder when the room is noisy, and show me the level while it plays"
     @Test fun heardWall() = shot("wall-heard") { Stage(FakeDeck(Fake.deck(9).copy(heard = spoken))) }
     @Test fun heardTab() = shot("tab-heard") { Stage(FakeDeck(Fake.deck(9).copy(heard = spoken)), Opening(tab = "t1")) }

@@ -71,8 +71,18 @@
         <!-- The chat with the laptop, one tap from home. -->
         <activity
             android:name=".LaptopActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
+            android:exported="true"
+            android:label="@string/pixel_label"
+            android:icon="@mipmap/ic_pixel"
+            android:roundIcon="@mipmap/ic_pixel_round"
+            android:taskAffinity="com.kivan.jarvis.pixel"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Pixel, the laptop link's own app: a second icon from this install, its own entry in recents. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <!-- Aviv's tracked tasks, one tap from home. -->
         <activity
@@ -170,6 +180,27 @@
             android:name=".ShareActivity"
             android:exported="true"
             android:label="@string/share_label"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- "Jarvis" in the share sheet: into a tab he picks on the wall. -->
+        <activity
+            android:name=".tabs.TabShareActivity"
+            android:exported="true"
+            android:label="@string/app_name"
             android:taskAffinity=""
             android:excludeFromRecents="true"
             android:noHistory="true"

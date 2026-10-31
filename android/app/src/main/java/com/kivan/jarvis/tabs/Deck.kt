@@ -83,13 +83,25 @@ data class ReplyDraft(val to: Long, val notes: Map<Int, Note> = emptyMap(), val 
     val count get() = notes.values.count { it.text.isNotBlank() } + if (end.isBlank()) 0 else 1
 }
 
+/** The call going on, for the strip that leads back to it: its tab, that tab's name, the call's line. */
+@Immutable
+data class OnCall(val tab: String?, val name: String, val line: String)
+
+/** A picture or file waiting to go with the next words: a copy on the phone. */
+@Immutable
+data class Attached(val path: String, val name: String, val picture: Boolean)
+
 @Immutable
 data class DeckState(
     val tiles: List<TileView> = emptyList(),
     val tabs: Map<String, TabView> = emptyMap(),
     val closed: List<ClosedTab> = emptyList(),
     val online: Boolean = true,
-    val muted: Boolean = false,
+    /** The mic button is on: his words are collecting. */
+    val dictating: Boolean = false,
+    val call: OnCall? = null,
+    /** What goes with his next words, whichever tab he sends them from. */
+    val attached: List<Attached> = emptyList(),
     /** What he said that waits for a tap, a jump or Send; with the reply box open it goes into the box. */
     val heard: String = "",
     /** The box's words per tab, so a typed line survives a swipe or a restart. */
@@ -108,7 +120,9 @@ const val WALL = ""
 interface Deck {
     val state: StateFlow<DeckState>
     fun show(ids: List<String>)
-    fun start(text: String)
+    /** Words and what's attached: to tab [id], or to a new one (null). */
+    fun send(id: String?, text: String)
+    /** A reply, which carries no files. */
     fun say(id: String, text: String, quotes: List<Quoted> = emptyList())
     fun type(id: String, text: String)
     fun draft(id: String, draft: ReplyDraft?)
@@ -116,7 +130,6 @@ interface Deck {
     fun close(id: String)
     fun reopen(id: String)
     fun move(id: String, to: Int)
-    fun mute(on: Boolean)
     /** He's on this tab now, or at the wall (null). A jump sends what waits. */
     fun here(id: String?)
     /** What he said on screen: `send` sends it, otherwise it was taken into a box. */
@@ -126,4 +139,16 @@ interface Deck {
     /** Asks for a file beside the record; it lands in [DeckState.files]. */
     fun file(id: String, name: String)
     fun openedDone()
+    /** The mic button: starts or stops collecting his words. */
+    fun dictate()
+    /** The call button: a call in tab [id], or a new one (null). */
+    fun call(id: String?)
+    /** Back to the call going on. */
+    fun openCall()
+    /** The attach button: he picks pictures or files. */
+    fun pick()
+    fun detach(path: String)
+    /** The old home, from the wall's menu. */
+    fun home()
+    fun forum()
 }

@@ -144,7 +144,7 @@ object Notifier {
         // "/call": Jarvis wants to talk; the tap opens the call screen and calls, and Jarvis speaks first.
         val call = url == "/call"
         val callIntent = PendingIntent.getActivity(
-            context, tag, CallActivity.intent(context, start = true), PendingIntent.FLAG_IMMUTABLE,
+            context, tag, CallActivity.intent(context, start = true, tab = null), PendingIntent.FLAG_IMMUTABLE,
         )
         val open = when {
             call -> callIntent

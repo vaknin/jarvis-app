@@ -13,6 +13,7 @@ object CallStore {
     private const val TAG = "JarvisCall"
     private const val ACTIVE = "active"
     private const val OWED = "owed"
+    private const val MUTED = "muted"
 
     private fun prefs(context: Context) = context.getSharedPreferences("call", Context.MODE_PRIVATE)
 
@@ -24,7 +25,14 @@ object CallStore {
     }
 
     fun ended(context: Context) {
-        prefs(context).edit().remove(ACTIVE).commit()
+        prefs(context).edit().remove(ACTIVE).remove(MUTED).commit()
+    }
+
+    /** He muted this call: it stays muted through an update's restart. */
+    fun muted(context: Context) = prefs(context).getBoolean(MUTED, false)
+
+    fun mute(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(MUTED, on).apply()
     }
 
     fun owed(context: Context): Set<String> = prefs(context).getStringSet(OWED, emptySet())!!.toSet()
@@ -32,7 +40,7 @@ object CallStore {
     /** Aviv hung up and the line didn't carry it: the call is over for him; the server hears it later. */
     fun owe(context: Context, id: String) {
         val p = prefs(context)
-        p.edit().putStringSet(OWED, owed(context) + id).remove(ACTIVE).commit()
+        p.edit().putStringSet(OWED, owed(context) + id).remove(ACTIVE).remove(MUTED).commit()
     }
 
     private fun paid(context: Context, id: String) {

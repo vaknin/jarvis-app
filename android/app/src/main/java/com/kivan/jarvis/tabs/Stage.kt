@@ -146,7 +146,11 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     val covered = replying != null || closedPage || closedTab != null
     LaunchedEffect(open == null) { if (open == null) deck.here(null) }
 
-    CompositionLocalProvider(LocalGlide provides glide, LocalDeck provides deck) {
+    CompositionLocalProvider(
+        LocalGlide provides glide,
+        LocalDeck provides deck,
+        LocalTalk provides Talk(state.dictating, state.call, state.attached),
+    ) {
         Box(Modifier.fillMaxSize().background(look.canvas)) {
             Wall(
                 state = state,
@@ -155,10 +159,11 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 text = wallWords,
                 onText = { deck.type(WALL, it) },
                 onStart = {
-                    val w = wallWords.trim()
-                    if (w.isNotEmpty()) {
+                    val w = said(wallWords, state.heard)
+                    if (w.isNotEmpty() || state.attached.isNotEmpty()) {
                         buzz.sent()
-                        deck.start(w)
+                        if (state.heard.isNotBlank()) deck.words(false)
+                        deck.send(null, w)
                         deck.type(WALL, "")
                     }
                 },
@@ -170,7 +175,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 onMove = deck::move,
                 onClosedTabs = { closedPage = true },
                 onHeard = { deck.words(true) },
-                onMute = deck::mute,
                 undo = undo,
                 onUndo = {
                     undo?.let { deck.reopen(it.id) }
@@ -213,14 +217,13 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 val id = closedTab!!
                 state.tabs[id]?.let { tab ->
                     TabPage(
-                        tab, "", null, state.muted, state.online, true,
+                        tab, "", null, state.online, true,
                         onWall = { closedTab = null },
                         onType = {}, onSend = {}, onReply = {}, onClose = {},
                         onReopen = {
                             deck.reopen(id)
                             reopening = id
                         },
-                        onMute = deck::mute,
                     )
                 }
             }
@@ -231,13 +234,11 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
             ) {
                 ClosedPage(
                     state.closed,
-                    state.muted,
                     onOpen = {
                         closedTab = it.id
                         deck.show(listOf(it.id))
                     },
                     onBack = { closedPage = false },
-                    onMute = deck::mute,
                 )
             }
             AnimatedVisibility(
@@ -253,7 +254,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                     name = state.tabs[id]?.tile?.name.orEmpty(),
                     answer = answer,
                     draft = draft,
-                    muted = state.muted,
                     heard = state.heard,
                     onTaken = { deck.words(false) },
                     onDraft = { deck.draft(id, it) },
@@ -263,7 +263,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                         replying = null
                     },
                     onBack = { replying = null },
-                    onMute = deck::mute,
                 )
             }
             if (replying != null) PredictiveBackHandler(!typing) { flow ->
@@ -396,19 +395,18 @@ private fun TabLayer(
                     tab = tab,
                     typed = state.typed[tabId].orEmpty(),
                     draft = state.drafts[tabId],
-                    muted = state.muted,
                     online = state.online,
                     active = i == pager.currentPage,
                     onWall = onWall,
                     onType = { deck.type(tabId, it) },
                     onSend = {
-                        deck.say(tabId, it)
+                        if (state.heard.isNotBlank()) deck.words(false)
+                        deck.send(tabId, it)
                         deck.type(tabId, "")
                     },
                     onReply = { onReply(tabId, it) },
                     onClose = { onClose(tabId) },
                     onReopen = { deck.reopen(tabId) },
-                    onMute = deck::mute,
                     heard = state.heard,
                     onHeard = { deck.words(true) },
                     onStop = { deck.stop(tabId) },

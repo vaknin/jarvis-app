@@ -160,37 +160,3 @@ fun Round(
         ) { Glyph(icon, tint, 22.dp) }
     }
 }
-
-/**
- * Mute, in the same corner of every screen, under the thumb. The mic is on until it's pressed, so
- * listening is the quiet state and muted is the one that stands out: the button fills and squares
- * off, so it reads without colour and without a word.
- */
-@Composable
-fun MuteButton(muted: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
-    val buzz = rememberBuzz()
-    val press = remember { MutableInteractionSource() }
-    val down by press.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (down) 0.88f else 1f, Curves.press)
-    val fill by animateColorAsState(if (muted) look.ink else look.surface, tween(Curves.QUICK))
-    val tint by animateColorAsState(if (muted) look.canvas else look.soft, tween(Curves.QUICK))
-    val corner by animateDpAsState(if (muted) 14.dp else 24.dp, tween(Curves.PAGE, easing = Curves.out))
-    Box(
-        modifier
-            .size(Space.target)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(corner))
-            .background(fill)
-            .toggleable(muted, press, ripple(color = tint), role = Role.Switch) {
-                buzz.toggle(it)
-                onChange(it)
-            }
-            .semantics {
-                contentDescription = "Mute"
-                stateDescription = if (muted) "Muted, nothing is heard" else "Listening"
-            },
-        Alignment.Center,
-    ) {
-        Glyph(if (muted) R.drawable.lucide_mic_off else R.drawable.lucide_mic, tint, 22.dp)
-    }
-}
