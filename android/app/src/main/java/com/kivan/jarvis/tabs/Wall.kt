@@ -12,7 +12,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +52,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
@@ -194,6 +197,9 @@ private fun Tiles(
     // The order on screen follows the server, except under a finger.
     val order = remember { mutableStateListOf<String>() }
     var lifted by remember { mutableStateOf<String?>(null) }
+    var finger by remember { mutableStateOf(Offset.Zero) }
+    var menu by remember { mutableStateOf<String?>(null) }
+    val move by rememberUpdatedState(onMove)
     if (lifted == null && order.toList() != tiles.map { it.id }) {
         order.clear()
         order.addAll(tiles.map { it.id })
@@ -239,6 +245,7 @@ private fun Tiles(
             size.coerceAtLeast(floor).sp
         }
         val fractions = remember(grid) { grid.rects.map { Rect(it.left / w, it.top / h, it.right / w, it.bottom / h) } }
+        val rects by rememberUpdatedState(fractions)
         val ids = order.toList()
         map.slots.keys.retainAll(ids.toSet())
         Layout(
@@ -252,17 +259,9 @@ private fun Tiles(
                             TileSlot(
                                 tile, to, type, biggest, active, map,
                                 up = lifted == id,
-                                onLift = { lifted = if (it) id else null },
-                                onOver = { spot ->
-                                    val into = fractions.indexOfFirst { it.contains(spot) }
-                                    val from = order.indexOf(id)
-                                    if (into >= 0 && into != from) {
-                                        order.removeAt(from)
-                                        order.add(into, id)
-                                        buzz.tick()
-                                    }
-                                },
-                                onDrop = { onMove(id, order.indexOf(id)) },
+                                finger = { finger },
+                                menu = menu == id,
+                                onMenu = { menu = if (it) id else null },
                                 onOpen = { onOpen(id) },
                                 onClose = { onClose(id) },
                                 onStep = { by ->
@@ -274,7 +273,54 @@ private fun Tiles(
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            // On the wall, not the tile. A lifted tile rides under the finger, so to the tile the finger
+            // doesn't move and Compose sends it no moves. And on the first pass: the tile is clickable and
+            // takes the press, so a hold has to be seen before it does; consuming from there cancels the click.
+            modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                fun at(p: Offset) = Offset(p.x / size.width, p.y / size.height)
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val held = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                        var still = true
+                        while (still) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val now = event.changes.firstOrNull { it.id == down.id }
+                            still = now != null && now.pressed && event.changes.size == 1 &&
+                                (now.position - down.position).getDistance() <= viewConfiguration.touchSlop
+                        }
+                        false
+                    } ?: true
+                    val id = if (held) order.getOrNull(rects.indexOfFirst { it.contains(at(down.position)) }) else null
+                    val slot = id?.let { map.slots[it] }
+                    if (id == null || slot == null) return@awaitEachGesture
+                    finger = Offset(slot.value.center.x * size.width, slot.value.center.y * size.height)
+                    lifted = id
+                    buzz.lift()
+                    var travel = 0f
+                    try {
+                        while (true) {
+                            val now = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                            now.consume()
+                            if (!now.pressed) {
+                                if (travel > viewConfiguration.touchSlop) move(id, order.indexOf(id)) else menu = id
+                                break
+                            }
+                            val by = now.position - now.previousPosition
+                            finger += by
+                            travel += by.getDistance()
+                            val into = rects.indexOfFirst { it.contains(at(finger)) }
+                            val from = order.indexOf(id)
+                            if (into >= 0 && into != from) {
+                                order.removeAt(from)
+                                order.add(into, id)
+                                buzz.tick()
+                            }
+                        }
+                    } finally {
+                        lifted = null
+                    }
+                }
+            },
         ) { ms, c ->
             val fullW = c.maxWidth
             val fullH = c.maxHeight
@@ -295,8 +341,7 @@ private fun Tiles(
 }
 
 /**
- * One tile in its place. It glides when the grid changes. Held down it lifts: a drag moves it, and
- * letting go without moving offers to close it.
+ * One tile in its place. It glides when the grid changes, and rides on the finger while [up].
  */
 @Composable
 private fun TileSlot(
@@ -307,23 +352,19 @@ private fun TileSlot(
     active: Boolean,
     map: WallMap,
     up: Boolean,
-    onLift: (Boolean) -> Unit,
-    onOver: (Offset) -> Unit,
-    onDrop: () -> Unit,
+    finger: () -> Offset,
+    menu: Boolean,
+    onMenu: (Boolean) -> Unit,
     onOpen: () -> Unit,
     onClose: () -> Unit,
     onStep: (Int) -> Unit,
 ) {
-    val buzz = rememberBuzz()
     val slot = remember { map.slots.getOrPut(tile.id) { Animatable(to, Rect.VectorConverter) } }
     if (map.slots[tile.id] == null) map.slots[tile.id] = slot
     LaunchedEffect(to) {
         if (slot.targetValue != to) slot.animateTo(to, spring(Spring.DampingRatioNoBouncy, Curves.settle))
     }
-    var menu by remember { mutableStateOf(false) }
-    var finger by remember { mutableStateOf(Offset.Zero) }
     val lift by animateFloatAsState(if (up) 1.04f else 1f, Curves.press)
-    val slop = with(LocalDensity.current) { 10.dp.toPx() }
     Box(
         Modifier
             .layoutId(tile.id)
@@ -331,40 +372,17 @@ private fun TileSlot(
                 scaleX = lift
                 scaleY = lift
                 if (up) {
-                    translationX = finger.x - slot.value.center.x * map.size.width
-                    translationY = finger.y - slot.value.center.y * map.size.height
+                    translationX = finger().x - slot.value.center.x * map.size.width
+                    translationY = finger().y - slot.value.center.y * map.size.height
                 }
-            }
-            .pointerInput(tile.id) {
-                var travel = 0f
-                detectDragGesturesAfterLongPress(
-                    onDragStart = {
-                        val s = slot.value
-                        finger = Offset(s.center.x * map.size.width, s.center.y * map.size.height)
-                        travel = 0f
-                        onLift(true)
-                        buzz.lift()
-                    },
-                    onDrag = { change, by ->
-                        change.consume()
-                        finger += by
-                        travel += by.getDistance()
-                        onOver(Offset(finger.x / map.size.width, finger.y / map.size.height))
-                    },
-                    onDragEnd = {
-                        onLift(false)
-                        if (travel > slop) onDrop() else menu = true
-                    },
-                    onDragCancel = { onLift(false) },
-                )
             },
     ) {
         TileCell(tile, type, biggest, active, onOpen, onClose, onStep)
-        DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
+        DropdownMenu(menu, { onMenu(false) }, containerColor = look.raised) {
             DropdownMenuItem(
                 text = { Text("Close tab", color = look.ink, style = Words.label) },
                 onClick = {
-                    menu = false
+                    onMenu(false)
                     onClose()
                 },
             )
