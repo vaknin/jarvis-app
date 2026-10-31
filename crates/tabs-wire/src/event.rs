@@ -152,6 +152,9 @@ pub enum WorkEnd {
     Failed,
     /// Its session died under it.
     Lost,
+    /// He stopped it, or it went with a turn he stopped. What was written stays, and his words count
+    /// as answered.
+    Stopped,
     #[serde(other)]
     Other,
 }
@@ -170,6 +173,21 @@ pub struct TurnTokens {
     pub context: u64,
     /// When the last call went out, ms since the epoch: the prompt cache's clock.
     pub last_call: u64,
+    /// Calls to the advisor.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub advisor: u64,
+    /// Tokens on models other than the tab's, which `input` and the rest don't count: the advisor's,
+    /// and those of a helper on another model. Cache reads and writes are in `other_input`.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub other_input: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub other_output: u64,
+    /// What those cost, in millionths of a dollar. Claude Code reports it by model, not by caller.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub other_micro_usd: u64,
+    /// What the whole turn cost, in millionths of a dollar.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub micro_usd: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

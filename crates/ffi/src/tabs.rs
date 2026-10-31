@@ -202,6 +202,7 @@ impl Hold {
                 let word = match how {
                     Some(WorkEnd::Failed) => "failed",
                     Some(WorkEnd::Lost) => "was cut off",
+                    Some(WorkEnd::Stopped) => "was stopped",
                     _ => "",
                 };
                 (!word.is_empty() && !what.is_empty()).then(|| EntryRec::Quiet { key: key(), text: format!("{what} {word}") })
@@ -590,6 +591,13 @@ struct Shared {
     attached: Mutex<Option<Attached>>,
 }
 
+impl Shared {
+    /// A panic elsewhere must not take every later call with it: this runs in the process of a call.
+    fn desk(&self) -> std::sync::MutexGuard<'_, Desk> {
+        self.desk.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
 struct Attached {
     listener: Arc<dyn TabsListener>,
     task: tokio::task::JoinHandle<()>,
@@ -599,7 +607,7 @@ static SHARED: LazyLock<Shared> = LazyLock::new(Shared::default);
 
 /// The screen hears what's new, without the desk's lock held.
 fn deliver() {
-    let told = SHARED.desk.lock().unwrap().take();
+    let told = SHARED.desk().take();
     let Some(listener) = SHARED.attached.lock().unwrap().as_ref().map(|a| a.listener.clone()) else { return };
     for t in told {
         match t {
@@ -632,7 +640,7 @@ async fn serve(stream: forum::Stream) -> Result<()> {
     });
     let aborted = reader.abort_handle();
     let _reader = scopeguard(move || aborted.abort());
-    SHARED.desk.lock().unwrap().connected();
+    SHARED.desk().connected();
     let mut tick = tokio::time::interval(FRAME);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // The screens hear nothing until a frame or the grace, as on the dial.
@@ -640,7 +648,7 @@ async fn serve(stream: forum::Stream) -> Result<()> {
     tokio::pin!(grace);
     let (mut dirty, mut heard, mut waited) = (false, false, false);
     loop {
-        let out = std::mem::take(&mut SHARED.desk.lock().unwrap().out);
+        let out = std::mem::take(&mut SHARED.desk().out);
         for ask in out {
             write_async(&mut send, &ask).await.context("write")?;
         }
@@ -648,7 +656,7 @@ async fn serve(stream: forum::Stream) -> Result<()> {
             t = rx.recv() => {
                 let Some(t) = t else { break };
                 heard = true;
-                let mut desk = SHARED.desk.lock().unwrap();
+                let mut desk = SHARED.desk();
                 desk.tell(t);
                 while let Ok(t) = rx.try_recv() {
                     desk.tell(t);
@@ -694,12 +702,13 @@ async fn keep_linked() {
         };
         let why = match linked {
             Ok(stream) => {
+                failed = 0;
                 let end = serve(stream).await;
-                let mut desk = SHARED.desk.lock().unwrap();
+                let mut desk = SHARED.desk();
                 // A gate with no server behind it opens the pipe and shuts it at once. Only a frame
                 // proves the link, or the dial would hammer the gate five times a second.
                 if desk.online {
-                    (wait, failed) = (RETRY.0, 0);
+                    wait = RETRY.0;
                 }
                 desk.disconnected();
                 drop(desk);
@@ -712,7 +721,9 @@ async fn keep_linked() {
         };
         tracing::info!("tabs: link down: {why:?}");
         tokio::time::sleep(wait.min(GRACE)).await;
-        deliver();
+        if wait >= GRACE {
+            deliver();
+        }
         tokio::time::sleep(wait.saturating_sub(GRACE)).await;
         wait = (wait * 2).min(RETRY.1);
     }
@@ -723,12 +734,15 @@ async fn keep_linked() {
 #[uniffi::export]
 pub fn tabs_attach(listener: Arc<dyn TabsListener>) {
     let mut attached = SHARED.attached.lock().unwrap();
-    if let Some(old) = attached.take() {
-        old.task.abort();
-    }
+    let old = attached.take();
     *attached = Some(Attached { listener, task: RT.spawn(keep_linked()) });
     drop(attached);
-    let mut desk = SHARED.desk.lock().unwrap();
+    let mut desk = SHARED.desk();
+    // The screens came back without the link going down: what it carried goes back as on a drop.
+    if let Some(old) = old {
+        old.task.abort();
+        desk.disconnected();
+    }
     desk.wall_touched = true;
     for t in desk.tabs.values_mut() {
         if t.loaded {
@@ -743,11 +757,11 @@ pub fn tabs_detach() {
     if let Some(old) = SHARED.attached.lock().unwrap().take() {
         old.task.abort();
     }
-    SHARED.desk.lock().unwrap().disconnected();
+    SHARED.desk().disconnected();
 }
 
 fn with_desk(f: impl FnOnce(&mut Desk)) {
-    f(&mut SHARED.desk.lock().unwrap());
+    f(&mut SHARED.desk());
     SHARED.nudge.notify_one();
 }
 

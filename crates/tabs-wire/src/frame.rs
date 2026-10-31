@@ -53,6 +53,10 @@ pub enum Ask {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<FileRef>,
     },
+    /// Stop the turn being written: what's written stays on the record. Claude Code stops the tab's
+    /// helpers with it, and the record says so, while a background command goes on. Answered by
+    /// `Done`, also when there was nothing to stop.
+    Stop { id: String },
     /// Every event after `after`, then each new one as it lands, and the live text. 0 is the start.
     Follow {
         id: String,

@@ -462,7 +462,8 @@ pub(crate) async fn open_stream(handshake: &[u8; 5], stale: bool) -> Result<Stre
     match linked {
         Ok((conn, send, recv)) => Ok(Stream { send, recv, _conn: conn, _busy: busy }),
         Err(e) => {
-            if stale && lazy.pipes.lock().unwrap().is_empty() {
+            // `open` counts a call from before it reaches `pipes`, and this dial itself.
+            if stale && lazy.open.load(Ordering::SeqCst) <= 1 {
                 lazy.broken(PIPES.fetch_add(1, Ordering::Relaxed), which, &format!("tabs: {e:#}")).await;
             }
             Err(e)
