@@ -32,7 +32,7 @@ class TabShareActivity : Activity() {
             }
             withContext(Dispatchers.Main) {
                 text?.let(deck::share)
-                startActivity(TabsActivity.opening(this@TabShareActivity))
+                startActivity(TabsActivity.opening(this@TabShareActivity, WALL))
                 finish()
             }
         }

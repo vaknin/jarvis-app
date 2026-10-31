@@ -206,6 +206,8 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun openedDone() = flow.update { it.copy(opened = null) }
 
+    fun landed(id: String) = flow.update { it.copy(opened = id) }
+
     override fun dictate() = flow.update { it.copy(dictating = !it.dictating) }
 
     /** The tab each press of Call asked for, null for a new one. */

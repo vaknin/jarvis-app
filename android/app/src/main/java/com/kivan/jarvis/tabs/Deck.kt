@@ -109,7 +109,7 @@ data class DeckState(
     /** Files fetched so far, "tab/name" to a path; an empty path means the server doesn't have it. */
     val files: Map<String, String> = emptyMap(),
     val drafts: Map<String, ReplyDraft> = emptyMap(),
-    /** The tab just opened from words at the wall, for the screen to zoom into, once. */
+    /** The tab just opened from words at the wall, for the screen to zoom into, once; [WALL] zooms out to it. */
     val opened: String? = null,
 )
 

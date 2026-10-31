@@ -183,7 +183,7 @@ fun TabPage(
         when {
             tab.closed -> ClosedBar(tab.tile.id, onReopen)
             else -> Dock(
-                hint = if (question != null) "Type your answer to this" else "Message ${tab.tile.name}",
+                hint = if (question != null) "Type your answer to this" else "Message ${tab.tile.name}".trim(),
                 text = typed,
                 onText = onType,
                 onSend = {

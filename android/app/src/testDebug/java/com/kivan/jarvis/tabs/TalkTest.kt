@@ -54,6 +54,17 @@ class TalkTest {
         assertEquals(listOf<String?>("t1"), deck.calls)
     }
 
+    @Test fun aShareGoesOutToTheWallToPick() {
+        // On the emulator's first share the app stayed in the tab he'd left it on, with no choice of tab.
+        val deck = FakeDeck(Fake.deck(3))
+        stage(deck, Opening(tab = "t1"))
+        assertTrue(rule.onAllNodesWithContentDescription("Back to the wall").fetchSemanticsNodes().isNotEmpty())
+        deck.landed(WALL)
+        rule.mainClock.advanceTimeBy(1200)
+        assertEquals(0, rule.onAllNodesWithContentDescription("Back to the wall").fetchSemanticsNodes().size)
+        assertEquals(null, deck.state.value.opened)
+    }
+
     @Test fun theMicStartsAndStops() {
         val deck = FakeDeck(Fake.deck(3))
         stage(deck, Opening(tab = "t1"))

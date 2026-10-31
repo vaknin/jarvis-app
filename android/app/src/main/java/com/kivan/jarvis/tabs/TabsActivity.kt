@@ -108,7 +108,7 @@ class TabsActivity : ComponentActivity() {
         internal const val MIC = 10
         private const val PICK = 11
 
-        /** The wall, or tab [tab] on it. */
+        /** The app as he left it, or tab [tab]; [WALL] goes back out to the wall. */
         fun opening(context: Context, tab: String? = null) =
             Intent(context, TabsActivity::class.java).putExtra(TAB, tab)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)

@@ -119,7 +119,11 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     // A tab his words just opened can land here before the wall has its tile.
     LaunchedEffect(state.opened, state.tiles) {
         val id = state.opened ?: return@LaunchedEffect
-        if (state.tiles.none { it.id == id }) delay(10_000) else openTab(id)
+        if (id == WALL) {
+            replying = null
+            closedPage = false
+            toWall()
+        } else if (state.tiles.none { it.id == id }) delay(10_000) else openTab(id)
         deck.openedDone()
     }
     // Reopened from its page, a tab stays on screen until the server has it and then is simply open.
