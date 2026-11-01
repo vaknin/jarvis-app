@@ -959,6 +959,25 @@ mod tests {
         d
     }
 
+    /// A tab's number is its place in the row, on the server, and whatever says the row changed, a new
+    /// event an installed app doesn't know included, order and numbers come in the list it asks for.
+    #[test]
+    fn the_row_and_its_numbers_are_the_servers_whatever_the_event() {
+        let mut d = up(&[("t1", 10), ("t2", 10), ("t3", 10)]);
+        for (i, kind) in [r#""kind":"closed","n":1,"id":"t1""#, r#""kind":"row","ids":["t3","t2"]"#].iter().enumerate() {
+            let e: Event = serde_json::from_str(&format!(r#"{{"offset":{},"at":1,{kind}}}"#, i + 1)).unwrap();
+            d.out.clear();
+            event(&mut d, WALL, e);
+            d.settle();
+            assert_eq!(d.out, [Ask::List, Ask::Closed], "{kind}");
+        }
+        d.tell(Tell::Tabs { tabs: vec![info("t3", 1, 10), info("t2", 2, 10)] });
+        let told = d.take();
+        let tiles = told.iter().find_map(|t| if let Told::Wall(tiles, ..) = t { Some(tiles) } else { None }).expect("the wall");
+        let row: Vec<(&str, u32)> = tiles.iter().map(|t| (t.id.as_str(), t.n)).collect();
+        assert_eq!(row, [("t3", 1), ("t2", 2)]);
+    }
+
     fn event(d: &mut Desk, id: &str, e: Event) {
         d.tell(Tell::Event { id: id.into(), event: e });
     }

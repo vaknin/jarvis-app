@@ -118,7 +118,7 @@ impl Tile {
             Body::Jobs { jobs } => self.jobs = jobs.clone(),
             Body::Line { text } => self.line = text.clone(),
             Body::Named { name } => self.name = name.clone(),
-            Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Other => {}
+            Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Other => {}
         }
     }
 

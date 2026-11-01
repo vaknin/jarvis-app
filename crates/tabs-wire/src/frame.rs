@@ -26,7 +26,8 @@ pub const WALL: &str = "wall";
 pub enum Ask {
     /// Every tab, in his order: answered by `Tabs`.
     List,
-    /// A new tab, on the number he named or the lowest free one: answered by `Opened`.
+    /// A new tab, at the end of the row: answered by `Opened`. `want` comes from an old client and
+    /// means nothing now, since a number is a place.
     Open {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         want: Option<u32>,
@@ -34,8 +35,7 @@ pub enum Ask {
         name: String,
     },
     Close { id: String },
-    /// A closed tab opens again with its whole record, on its old number if that's free or the
-    /// lowest free one: answered by `Opened`.
+    /// A closed tab opens again with its whole record, at the end of the row: answered by `Opened`.
     Reopen { id: String },
     /// Every closed tab, newest first: answered by `Closed`. Their records stay, so they can be
     /// found by name and followed; a follow of one sends the record, then `Ended`.

@@ -93,12 +93,20 @@ pub enum Body {
     /// The jobs this tab started that are still running, a title each, whole every time it changes.
     /// A job outlives its tab's sessions, so a session's start or end leaves this alone.
     Jobs { jobs: Vec<String> },
-    /// In the wall's own record: a tab got number `n`.
+    /// In the wall's own record: a tab came onto the wall, at the end of the row, at place `n`.
     Opened { n: u32, id: String },
-    /// In the wall's own record: tab `n` closed. Its record stays and the number is free.
-    Closed { n: u32 },
-    /// In the wall's own record: his tile order, whole. Written only when he moves a tile.
+    /// In the wall's own record: a tab left the wall, from place `n`, and the tabs after it moved down.
+    /// Its record stays. A record from before `Row` has no `id`, and `n` was a number that never moved.
+    Closed {
+        n: u32,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        id: String,
+    },
+    /// In the wall's own record, from before `Row`: his tile order, whole, by the old numbers.
     Moved { order: Vec<u32> },
+    /// In the wall's own record: the whole row, left to right. A tab's number is its place in it. The
+    /// first one settles a wall that still has old numbers; after it, only his moving a tile writes one.
+    Row { ids: Vec<String> },
     /// A kind this code doesn't know yet.
     #[serde(other)]
     Other,
