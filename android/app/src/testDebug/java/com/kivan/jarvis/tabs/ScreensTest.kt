@@ -73,6 +73,13 @@ class ScreensTest {
         }
     }
 
+    @Test fun quotedSent() = shot("tab-quoted") {
+        val deck = Fake.deck(9)
+        val t3 = deck.tabs.getValue("t3")
+        val sent = Entry.Yours("y2", "", quotes = listOf(Quoted(6, "Both are running side by side. I'll check them and tell you.", "same")))
+        Stage(FakeDeck(deck.copy(tabs = deck.tabs + ("t3" to t3.copy(entries = t3.entries + sent)))), Opening(tab = "t3"))
+    }
+
     private val onCall = OnCall("t1", "Piano app", "Listening")
     private val photo = Attached("/nowhere/kitchen.jpg", "kitchen.jpg", true)
     private val paper = Attached("/nowhere/lease.pdf", "lease.pdf", false)

@@ -222,7 +222,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 val id = closedTab!!
                 state.tabs[id]?.let { tab ->
                     TabPage(
-                        tab, "", null, state.online, true,
+                        tab, "", emptyMap(), state.online, true,
                         onWall = { closedTab = null },
                         onType = {}, onSend = {}, onReply = {}, onClose = {},
                         onReopen = {
@@ -254,17 +254,18 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 val reply = replying ?: return@AnimatedVisibility
                 val id = reply.tab
                 val answer = reply.answer
-                val draft = state.drafts[id]?.takeIf { it.to == answer.offset } ?: ReplyDraft(answer.offset ?: 0)
+                val to = answer.offset ?: 0
+                val draft = state.drafts[draftKey(id, to)] ?: ReplyDraft(to)
                 ReplyPage(
                     name = state.tabs[id]?.tile?.name.orEmpty(),
                     answer = answer,
                     draft = draft,
                     heard = state.heard,
                     onTaken = { deck.words(false) },
-                    onDraft = { deck.draft(id, it) },
+                    onDraft = { deck.draft(id, to, it) },
                     onSend = { _, quotes, end ->
                         deck.say(id, end, quotes)
-                        deck.draft(id, null)
+                        deck.draft(id, to, null)
                         replying = null
                     },
                     onBack = { replying = null },
@@ -399,7 +400,7 @@ private fun TabLayer(
                 TabPage(
                     tab = tab,
                     typed = state.typed[tabId].orEmpty(),
-                    draft = state.drafts[tabId],
+                    drafts = state.drafts,
                     online = state.online,
                     active = i == pager.currentPage,
                     onWall = onWall,

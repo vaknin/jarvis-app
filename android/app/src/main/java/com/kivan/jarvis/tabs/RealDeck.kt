@@ -140,8 +140,9 @@ class RealDeck private constructor(
 
     override fun type(id: String, text: String) = flow.update { it.copy(typed = if (text.isEmpty()) it.typed - id else it.typed + (id to text)) }
 
-    override fun draft(id: String, draft: ReplyDraft?) = flow.update {
-        it.copy(drafts = if (draft == null || draft.empty && draft.notes.isEmpty()) it.drafts - id else it.drafts + (id to draft))
+    override fun draft(id: String, to: Long, draft: ReplyDraft?) = flow.update {
+        val key = draftKey(id, to)
+        it.copy(drafts = if (draft == null || draft.empty && draft.notes.isEmpty()) it.drafts - key else it.drafts + (key to draft))
     }
 
     // Seen, close and move show at once and go to the server behind; its next wall has the last word.
@@ -384,10 +385,11 @@ internal data class Saved(
                     TileView(t.getString("id"), t.getInt("n"), t.getString("name"), t.getBoolean("needs"), t.getBoolean("unread"), false)
                 },
                 typed = typed.keys().asSequence().associateWith { typed.getString(it) },
-                drafts = drafts.keys().asSequence().associateWith { id ->
-                    val d = drafts.getJSONObject(id)
+                drafts = drafts.keys().asSequence().associate { key ->
+                    val d = drafts.getJSONObject(key)
                     val notes = d.getJSONObject("notes")
-                    ReplyDraft(
+                    // Older builds kept one draft a tab, under the tab's id alone.
+                    (if ('/' in key) key else draftKey(key, d.getLong("to"))) to ReplyDraft(
                         d.getLong("to"),
                         notes.keys().asSequence().associate { i ->
                             val n = notes.getJSONObject(i)

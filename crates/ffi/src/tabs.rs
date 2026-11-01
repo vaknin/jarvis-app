@@ -588,7 +588,8 @@ impl Desk {
 
     fn say(&mut self, id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<Upload>) {
         let Some(t) = self.tabs.get_mut(&id) else {
-            let words = text;
+            let replies = quotes.into_iter().map(|q| Reply { to: q.to, quote: q.quote, text: q.text }).collect();
+            let words = as_typed(&Pending { text, replies, ..Pending::default() });
             self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
             return;
         };
@@ -1059,6 +1060,14 @@ mod tests {
         assert_eq!(r.entries.len(), 1);
         let EntryRec::Answer { key: landed, offset: Some(10), .. } = &r.entries[0] else { panic!() };
         assert_eq!(&key, landed);
+    }
+
+    #[test]
+    fn words_for_a_tab_it_doesnt_know_go_back_with_their_quote() {
+        let mut d = up(&[("t1", 0)]);
+        d.take();
+        d.say("gone".into(), "same".into(), vec![QuoteRec { to: 5, quote: "q".into(), text: "w".into() }], vec![]);
+        assert!(d.take().contains(&Told::Back(String::new(), "> q\nw\n\nsame".into())));
     }
 
     #[test]

@@ -78,7 +78,10 @@ data class ClosedTab(val id: String, val name: String, val line: String = "")
 @Immutable
 data class Note(val quote: String, val text: String)
 
-/** A reply being written. Kept per tab until it's sent, whatever else happens. */
+/** Where a reply to the answer at offset [to] is kept: each answer has its own, so starting one never costs another. */
+fun draftKey(id: String, to: Long) = "$id/$to"
+
+/** A reply being written. Kept per answer until it's sent, whatever else happens. */
 @Immutable
 data class ReplyDraft(val to: Long, val notes: Map<Int, Note> = emptyMap(), val end: String = "") {
     val empty get() = end.isBlank() && notes.values.all { it.text.isBlank() }
@@ -127,7 +130,7 @@ interface Deck {
     /** A reply, which carries no files. */
     fun say(id: String, text: String, quotes: List<Quoted> = emptyList())
     fun type(id: String, text: String)
-    fun draft(id: String, draft: ReplyDraft?)
+    fun draft(id: String, to: Long, draft: ReplyDraft?)
     fun seen(id: String)
     fun close(id: String)
     fun reopen(id: String)

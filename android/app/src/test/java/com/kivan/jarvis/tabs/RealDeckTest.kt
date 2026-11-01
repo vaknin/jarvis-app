@@ -50,12 +50,18 @@ class RealDeckTest {
     fun savedWordsSurviveARestart() {
         val tile = TileView("t1", 3, "Piano \"app\"", needs = true, working = true)
         val draft = ReplyDraft(41, mapOf(2 to Note("some words", "mine\nand more")), "the end")
-        val saved = Saved(listOf(tile), mapOf("" to "wall words", "t1" to "tab words"), mapOf("t1" to draft), listOf(Attached("/cache/a/plot.png", "plot.png", true)))
+        val saved = Saved(listOf(tile), mapOf("" to "wall words", "t1" to "tab words"), mapOf(draftKey("t1", 41) to draft, draftKey("t1", 57) to ReplyDraft(57, end = "another")), listOf(Attached("/cache/a/plot.png", "plot.png", true)))
         val back = Saved.parse(saved.json())!!
         assertEquals(listOf(tile.copy(working = false)), back.tiles)
         assertEquals(saved.typed, back.typed)
         assertEquals(saved.drafts, back.drafts)
         assertEquals(saved.attached, back.attached)
+    }
+
+    @Test
+    fun aDraftSavedPerTabIsKeptUnderItsAnswer() {
+        val old = """{"tiles":[],"typed":{},"drafts":{"t1":{"to":41,"end":"mine","notes":{}}}}"""
+        assertEquals(mapOf(draftKey("t1", 41) to ReplyDraft(41, end = "mine")), Saved.parse(old)!!.drafts)
     }
 
     @Test

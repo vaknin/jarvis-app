@@ -66,7 +66,7 @@ import kotlinx.coroutines.launch
 fun TabPage(
     tab: TabView,
     typed: String,
-    draft: ReplyDraft?,
+    drafts: Map<String, ReplyDraft>,
     online: Boolean,
     active: Boolean,
     onWall: () -> Unit,
@@ -154,7 +154,7 @@ fun TabPage(
                             entry,
                             canReply = !tab.closed && !(question != null && entry.key == lastAnswer),
                             newest = entry.key == lastAnswer,
-                            drafted = draft != null && entry is Entry.Answer && draft.to == entry.offset && !draft.empty,
+                            drafted = entry is Entry.Answer && entry.offset?.let { drafts[draftKey(tab.tile.id, it)] }?.empty == false,
                             onReply = onReply,
                         )
                     }
@@ -303,7 +303,7 @@ private fun YoursView(tab: String, entry: Entry.Yours) {
                             Box(Modifier.width(2.dp).fillMaxHeight().background(look.line, RoundedCornerShape(1.dp)))
                             Text(q.quote, Modifier.padding(start = 10.dp), look.soft, style = Words.small, maxLines = 4, overflow = TextOverflow.Ellipsis)
                         }
-                        Text(q.text, color = ink, style = Words.yours)
+                        if (q.text.isNotEmpty()) Text(q.text, color = ink, style = Words.yours)
                     }
                     if (entry.text.isNotEmpty()) Text(entry.text, color = ink, style = Words.yours)
                 }

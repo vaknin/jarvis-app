@@ -105,7 +105,7 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                 ClosedTab("c5", "Router firmware", "Updated"),
             ),
             online = online,
-            drafts = drafts,
+            drafts = drafts.entries.associate { (id, d) -> draftKey(id, d.to) to d },
         )
     }
 }
@@ -182,8 +182,9 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun type(id: String, text: String) = flow.update { it.copy(typed = it.typed + (id to text)) }
 
-    override fun draft(id: String, draft: ReplyDraft?) = flow.update {
-        it.copy(drafts = if (draft == null || draft.empty && draft.notes.isEmpty()) it.drafts - id else it.drafts + (id to draft))
+    override fun draft(id: String, to: Long, draft: ReplyDraft?) = flow.update {
+        val key = draftKey(id, to)
+        it.copy(drafts = if (draft == null || draft.empty && draft.notes.isEmpty()) it.drafts - key else it.drafts + (key to draft))
     }
 
     override fun seen(id: String) = flow.update { s ->

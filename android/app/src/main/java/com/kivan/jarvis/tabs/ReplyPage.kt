@@ -81,11 +81,36 @@ import kotlinx.coroutines.flow.collectLatest
 private const val WRITE_HERE = "Answer this paragraph"
 private const val TYPE_HERE = "Type your answer to this"
 
+/** How much of a whole answer travels as its quote: enough to say which one, the session has the rest. */
+private const val WHOLE_ANSWER = 280
+
+/**
+ * What a reply sends: the quotes, and the words that follow them. A paragraph he wrote under quotes
+ * that paragraph, and words he picked go even with nothing written under them, ahead of what else he
+ * says. Words with no quote at all still answer this page's answer, so they quote it: nothing typed
+ * here leaves bare.
+ */
+internal fun replyPieces(to: Long, blocks: List<Block>, draft: ReplyDraft): Pair<List<Quoted>, String> {
+    val end = draft.end.trim()
+    val quotes = draft.notes.toSortedMap().filterValues { it.text.isNotBlank() || it.quote.isNotEmpty() }.map { (i, n) ->
+        Quoted(to, n.quote.ifEmpty { blocks.getOrNull(i)?.plain.orEmpty() }, n.text.trim())
+    }
+    val whole = blocks.joinToString(" ") { it.plain }
+    return when {
+        quotes.isEmpty() && end.isNotEmpty() && whole.isNotEmpty() -> {
+            val quote = if (whole.length > WHOLE_ANSWER) whole.take(WHOLE_ANSWER).trimEnd() + "…" else whole
+            listOf(Quoted(to, quote, end)) to ""
+        }
+        else -> quotes to end
+    }
+}
+
 /**
  * The reply box, the forum's successor. Jarvis's answer opens as a page and he writes under the
  * paragraphs he has something to say about, in any order. Skipped ones aren't sent; each answered one
- * goes as a quote with his words under it. Selecting words quotes only those. The draft stays until
- * it's sent, whatever else happens.
+ * goes as a quote with his words under it. Selecting words quotes only those. Words under no
+ * paragraph quote the answer, so a reply always says what it answers. The draft stays until it's
+ * sent, whatever else happens.
  */
 @Composable
 fun ReplyPage(
@@ -116,13 +141,10 @@ fun ReplyPage(
         onDraft(if (at != null && note != null) draft.copy(notes = draft.notes + (at to note.copy(text = more(note.text)))) else draft.copy(end = more(draft.end)))
         onTaken()
     }
-    val quoteFor = { i: Int, n: Note -> n.quote.ifEmpty { blocks.getOrNull(i)?.plain.orEmpty() } }
     val send = {
-        val quotes = draft.notes.toSortedMap().filterValues { it.text.isNotBlank() }.map { (i, n) ->
-            Quoted(answer.offset ?: 0, quoteFor(i, n), n.text.trim())
-        }
+        val (quotes, end) = replyPieces(answer.offset ?: 0, blocks, draft)
         buzz.sent()
-        onSend(draft, quotes, draft.end.trim())
+        onSend(draft, quotes, end)
     }
     Page(modifier) {
         Row(
@@ -149,7 +171,8 @@ fun ReplyPage(
                         onNote = { onDraft(draft.copy(notes = draft.notes + (i to it))) },
                         onDone = {
                             if (writing == i) writing = null
-                            if (draft.notes[i]?.text.isNullOrBlank()) onDraft(draft.copy(notes = draft.notes - i))
+                            // An empty box goes; words he picked stay picked, or a tap elsewhere would lose his quote.
+                            if (draft.notes[i]?.let { it.text.isBlank() && it.quote.isEmpty() } == true) onDraft(draft.copy(notes = draft.notes - i))
                         },
                         onQuote = { words ->
                             onDraft(draft.copy(notes = draft.notes + (i to (draft.notes[i] ?: Note("", "")).copy(quote = words))))
