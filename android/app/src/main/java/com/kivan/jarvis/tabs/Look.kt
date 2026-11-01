@@ -48,6 +48,10 @@ data class Look(
     val urgentText: Color,
     val onUrgent: Color,
     val new: Color,
+    val working: Color,
+    /** A tile's fill while Jarvis is on it, and when it has something new: the wall reads by colour. */
+    val workingFill: Color,
+    val newFill: Color,
 )
 
 private val Dark = Look(
@@ -63,6 +67,9 @@ private val Dark = Look(
     urgentText = Color(0xFFF2B33D),
     onUrgent = Color(0xFF241A00),
     new = Color(0xFF6DB3F8),
+    working = Color(0xFF6FD08C),
+    workingFill = Color(0xFF263F32),
+    newFill = Color(0xFF26384B),
 )
 
 private val Light = Look(
@@ -78,6 +85,9 @@ private val Light = Look(
     urgentText = Color(0xFF8F5A00),
     onUrgent = Color(0xFF241A00),
     new = Color(0xFF0A63CE),
+    working = Color(0xFF1F7A3D),
+    workingFill = Color(0xFFCBDFD0),
+    newFill = Color(0xFFC6DAF0),
 )
 
 val LocalLook = staticCompositionLocalOf { Dark }

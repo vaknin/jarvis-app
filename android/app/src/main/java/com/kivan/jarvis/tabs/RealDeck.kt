@@ -249,8 +249,7 @@ class RealDeck private constructor(
 
     override fun stop(id: String) = tabsStop(id)
 
-    /** Opens this tab, now or when Tabs next comes up. */
-    fun landed(id: String) = flow.update { it.copy(opened = id) }
+    override fun landed(id: String) = flow.update { it.copy(opened = id) }
 
     override fun file(id: String, name: String) = tabsFile(id, name)
 

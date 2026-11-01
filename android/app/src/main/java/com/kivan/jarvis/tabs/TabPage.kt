@@ -433,7 +433,7 @@ private fun WorkRow(work: WorkView, active: Boolean) {
     // A turn with no step named yet is him writing, the first thing after a message lands.
     val said = work.what.ifEmpty { "Jarvis is writing" }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (!still) Box(Modifier.fillMaxWidth().height(2.dp).workLine(look.soft, LocalGlide.current, segment = 0.18f))
+        if (!still) Box(Modifier.fillMaxWidth().height(2.dp).workLine(look.working, LocalGlide.current, segment = 0.18f))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 said,

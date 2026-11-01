@@ -141,6 +141,8 @@ interface Deck {
     /** Asks for a file beside the record; it lands in [DeckState.files]. */
     fun file(id: String, name: String)
     fun openedDone()
+    /** Opens this tab, or goes out to the wall with [WALL], now or when the screen next comes up. */
+    fun landed(id: String)
     /** The mic button: starts or stops collecting his words. */
     fun dictate()
     /** The call button: a call in tab [id], or a new one (null). */

@@ -440,7 +440,7 @@ private fun TileCell(
         }
         wasNeeds = tile.needs
     }
-    val fill = if (tile.needs) look.urgent else if (up) look.raised else look.surface
+    val fill = look.fill(tile, up)
     Box(
         Modifier
             .fillMaxSize()
@@ -463,6 +463,15 @@ private fun TileCell(
     }
 }
 
+/** Grey at rest, then the tab's state: amber beats working, working beats new, as the marks do. */
+fun Look.fill(tile: TileView, up: Boolean = false): Color = when {
+    tile.needs -> urgent
+    tile.working -> workingFill
+    tile.unread -> newFill
+    up -> raised
+    else -> surface
+}
+
 fun describe(tile: TileView): String = buildList {
     add("Tab ${tile.n}, ${tile.name}")
     if (tile.needs) add("needs you")
@@ -475,7 +484,12 @@ fun describe(tile: TileView): String = buildList {
 fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier = Modifier, biggest: TextUnit = Words.tile(size).fontSize) {
     val pad = padFor(size)
     val ink = if (tile.needs) look.onUrgent else look.ink
-    val number = if (tile.needs) look.onUrgent.copy(alpha = 0.72f) else look.faint
+    // Faint falls under its 4.5:1 on a coloured tile.
+    val number = when {
+        tile.needs -> look.onUrgent.copy(alpha = 0.72f)
+        tile.working || tile.unread -> look.soft
+        else -> look.faint
+    }
     val style = Words.tile(size)
     Box(modifier.fillMaxSize().padding(start = pad, end = pad, top = pad - 2.dp, bottom = pad - 2.dp)) {
         // At huge font sizes the name grows and the number stops, or the number outweighs it.
@@ -499,7 +513,7 @@ fun TileFace(tile: TileView, size: TileSize, active: Boolean, modifier: Modifier
             )
             if (tile.working) {
                 val glide = LocalGlide.current
-                val line = if (tile.needs) look.onUrgent else look.soft
+                val line = if (tile.needs) look.onUrgent else look.working
                 if (LocalStill.current) {
                     Text("Working", color = number, style = Words.small, maxLines = 1)
                 } else {

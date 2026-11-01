@@ -21,9 +21,12 @@ import kotlinx.coroutines.launch
 /**
  * The wall of tabs, the app's front door. The link to the server lives only while this is on screen.
  * It opens silent: the mic is on only while he dictates, and leaving stops that, keeping the words.
+ * It opens on the wall, also when it was only left in the background for a while: a short trip to
+ * another app comes back to the same tab.
  */
 class TabsActivity : ComponentActivity() {
     private lateinit var deck: Deck
+    private var left = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -44,13 +47,18 @@ class TabsActivity : ComponentActivity() {
     }
 
     private fun opening(intent: Intent) {
-        intent.getStringExtra(TAB)?.let { (deck as? RealDeck)?.landed(it) }
+        intent.getStringExtra(TAB)?.let {
+            left = 0
+            deck.landed(it)
+        }
         intent.removeExtra(TAB)
     }
 
     override fun onStart() {
         super.onStart()
         (deck as? RealDeck)?.up()
+        // A tab asked for by name wins, whichever of this and onNewIntent comes first: see opening.
+        if (left > 0 && System.currentTimeMillis() - left >= AWAY_MS) deck.landed(WALL)
     }
 
     override fun onResume() {
@@ -68,6 +76,7 @@ class TabsActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        left = System.currentTimeMillis()
         val real = deck as? RealDeck ?: return
         if (isChangingConfigurations) return
         Dictation.stop()
@@ -107,6 +116,7 @@ class TabsActivity : ComponentActivity() {
         private const val TAB = "tab"
         internal const val MIC = 10
         private const val PICK = 11
+        private const val AWAY_MS = 10 * 60 * 1000L
 
         /** The app as he left it, or tab [tab]; [WALL] goes back out to the wall. */
         fun opening(context: Context, tab: String? = null) =

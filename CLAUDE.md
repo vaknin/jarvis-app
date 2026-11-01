@@ -212,7 +212,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   after a network change is retried instead of leaving the laptop link's socket dead (`vendor/netwatch/PATCHED.md`).
 - Tabs, the app's home (threads #167, #195): `android/.../tabs`. The look is the jarvis repo's `design/jarvis-app/LOOK.md`, "On the phone"; `docs/DESIGN.md` doesn't apply here.
   `Stage.kt` holds the one zoom (tap, pinch, predictive back) between the wall (`Wall.kt`, `Grid.kt`) and a tab
-  (`TabPage.kt`); `ReplyPage.kt` is the reply page. The screens only draw `Deck`: `RealDeck.kt` keeps what's stored and
+  (`TabPage.kt`); the wall exists only here, the laptop has none. A tile's fill is its state (`Look.fill`): grey idle, green working, amber waiting on him, blue something new. `TabsActivity` goes back to the wall after 10 minutes out of sight unless a tab was named; `ReplyPage.kt` is the reply page. The screens only draw `Deck`: `RealDeck.kt` keeps what's stored and
   shows it at once, and carries frames through `crates/ffi/src/tabs.rs` on the tunnel's handshake `tabs1`, which the gate
   pipes to the tab server's socket. `crates/tabs-wire` is a copy of the jarvis repo's `tabs/wire` (that repo is private),
   held to the same goldens. Fake tabs (`src/debug/.../Fake.kt`) exist only in debug and bench builds: `am start -n

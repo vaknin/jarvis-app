@@ -1,6 +1,8 @@
 package com.kivan.jarvis.tabs
 
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.activity.BackEventCompat
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -20,7 +22,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [36], qualifiers = "w412dp-h915dp-xxhdpi", application = android.app.Application::class)
 class WallTouchTest {
-    @get:Rule val rule = createComposeRule()
+    @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
     private val deck = FakeDeck(Fake.deck(9))
 
@@ -80,5 +82,45 @@ class WallTouchTest {
         val tiles = deck.state.value.tiles
         assertEquals(6, tiles.indexOfFirst { it.n == 3 })
         assertEquals((1..9).toSet(), tiles.map { it.n }.toSet())
+    }
+
+    @Test
+    fun backFromATabReturnsToTheWall() {
+        wall()
+        tile(3).performClick()
+        rule.mainClock.advanceTimeBy(1000)
+        rule.activity.onBackPressedDispatcher.onBackPressed()
+        rule.mainClock.advanceTimeBy(1000)
+        assertEquals(false, inATab())
+        tile(3).assertExists()
+    }
+
+    @Test
+    fun aBackGestureLetGoStaysInTheTab() {
+        wall()
+        tile(3).performClick()
+        rule.mainClock.advanceTimeBy(1000)
+        val back = rule.activity.onBackPressedDispatcher
+        fun edge(progress: Float) = BackEventCompat(0f, 900f, progress, BackEventCompat.EDGE_LEFT)
+        rule.runOnUiThread {
+            back.dispatchOnBackStarted(edge(0f))
+            back.dispatchOnBackProgressed(edge(0.6f))
+        }
+        rule.mainClock.advanceTimeBy(200)
+        rule.runOnUiThread { back.dispatchOnBackCancelled() }
+        rule.mainClock.advanceTimeBy(1000)
+        assertEquals(true, inATab())
+    }
+
+    @Test
+    fun aTileShowsItsHeaviestStateInColour() {
+        lateinit var l: Look
+        rule.setContent { TabsTheme(dark = true) { l = look } }
+        rule.waitForIdle()
+        val tile = TileView("t", 1, "Tab")
+        assertEquals(l.surface, l.fill(tile))
+        assertEquals(l.newFill, l.fill(tile.copy(unread = true)))
+        assertEquals(l.workingFill, l.fill(tile.copy(unread = true, working = true)))
+        assertEquals(l.urgent, l.fill(tile.copy(unread = true, working = true, needs = true)))
     }
 }

@@ -122,6 +122,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
         if (id == WALL) {
             replying = null
             closedPage = false
+            closedTab = null
             toWall()
         } else if (state.tiles.none { it.id == id }) delay(10_000) else openTab(id)
         deck.openedDone()
