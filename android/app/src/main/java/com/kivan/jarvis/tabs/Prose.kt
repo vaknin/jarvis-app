@@ -26,9 +26,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextLinkStyles
@@ -42,6 +44,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import com.kivan.jarvis.Forum
 
 /**
  * Jarvis's words as blocks: a paragraph, a bullet or a block of code is one thing to read and one
@@ -77,7 +80,7 @@ object Prose {
     private val BULLET = Regex("""^(\s*)[-*•]\s+(.*)$""")
     private val NUMBER = Regex("""^(\s*)(\d{1,3}[.)])\s+(.*)$""")
     private val HEAD = Regex("""^#{1,4}\s+(.*)$""")
-    private val INLINE = Regex("""\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)]\((https?://[^)\s]+)\)|(?<![\w*])\*([^*\s][^*]*?)\*(?![\w*])|(https?://[^\s)]+)""")
+    private val INLINE = Regex("""\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)]\((https?://[^)\s]+)\)|(?<![\w*])\*([^*\s][^*]*?)\*(?![\w*])|(https?://[^\s)]*[^\s).,;:!?])""")
 
     fun parse(text: String): List<Block> {
         val out = ArrayList<Block>()
@@ -155,10 +158,14 @@ object Prose {
     }
 }
 
-/** Bold is ink at any tone of text; a link is underlined, since blue here means new. */
+/**
+ * Bold is ink at any tone of text; a link is underlined, since blue here means new. A link to Jarvis's
+ * own host opens in the app: only its tunnel reaches that host, so the phone's browser can't.
+ */
 @Composable
 fun annotated(spans: List<Span>, ink: Color = look.ink): AnnotatedString {
     val mono = Words.code.fontFamily ?: FontFamily.Monospace
+    val context = LocalContext.current
     return buildAnnotatedString {
         for (s in spans) when (s.kind) {
             Kind.Plain -> append(s.text)
@@ -166,7 +173,11 @@ fun annotated(spans: List<Span>, ink: Color = look.ink): AnnotatedString {
             Kind.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(s.text) }
             Kind.Mono -> withStyle(SpanStyle(fontFamily = mono, fontSize = 0.92.em)) { append(s.text) }
             Kind.Link -> withLink(
-                LinkAnnotation.Url(s.url, TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))),
+                LinkAnnotation.Url(
+                    s.url,
+                    TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline)),
+                    Forum.path(s.url)?.let { path -> LinkInteractionListener { context.startActivity(Forum.view(context, path)) } },
+                ),
             ) { append(s.text) }
         }
     }

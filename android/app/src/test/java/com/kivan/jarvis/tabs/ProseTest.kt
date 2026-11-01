@@ -43,6 +43,16 @@ class ProseTest {
     }
 
     @Test
+    fun aSentencesLastMarkStaysOutOfABareLink() {
+        val s = Prose.spans("It's at http://jarvis.localhost:8080/p/a.html. Or https://example.com/b?c=1, there.")
+        assertEquals(
+            listOf("http://jarvis.localhost:8080/p/a.html", "https://example.com/b?c=1"),
+            s.filter { it.kind == Kind.Link }.map { it.url },
+        )
+        assertEquals("It's at http://jarvis.localhost:8080/p/a.html. Or https://example.com/b?c=1, there.", s.joinToString("") { it.text })
+    }
+
+    @Test
     fun anOpenCodeFenceStillShowsWhatArrived() {
         val b = Prose.parse("Here:\n```\nhalf a blo")
         assertEquals("half a blo", (b[1] as Block.Code).plain)

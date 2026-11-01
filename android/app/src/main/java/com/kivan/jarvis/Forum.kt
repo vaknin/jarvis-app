@@ -35,6 +35,18 @@ object Forum {
     /** Opens the forum in the app (ForumActivity, the WebView). */
     fun open(context: Context) = context.startActivity(view(context, "/"))
 
+    /** Where [url] goes on this host, query and fragment kept (`/t/42?u=1#p3`); null for a link off it. */
+    fun path(url: String): String? {
+        if (!url.startsWith(URL)) return null
+        val rest = url.substring(URL.length)
+        return when (rest.firstOrNull()) {
+            null -> "/"
+            '/' -> rest
+            '?', '#' -> "/$rest"
+            else -> null // jarvis.localhost:80801, jarvis.localhost:8080.example.com
+        }
+    }
+
     /** The intent that opens the forum at [path] (`/t/42`) in the app. */
     fun view(context: Context, path: String): Intent =
         Intent(Intent.ACTION_VIEW, Uri.parse(URL + path), context, ForumActivity::class.java)
