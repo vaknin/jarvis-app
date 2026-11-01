@@ -1,0 +1,7 @@
+# The Android app's UX lock: what Aviv agreed to lose from the phone app, in his words, so it isn't
+# brought back or taken for a mistake. It follows tabs/tui/ux.lock in the jarvis repo; there's no
+# contract test behind this one yet. An entry he agreed to lose stays here with that line.
+
+removed flow android-reply-button
+  what: Each answer had a Reply button that opened a page for that one answer, to write under its paragraphs. A swipe on a paragraph, a hold to mark and held replies do that job now.
+  approved: 2026-11-01 "No, the reply button can go. I will never use it, as I already can."

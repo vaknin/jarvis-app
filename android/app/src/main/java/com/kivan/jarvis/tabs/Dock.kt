@@ -79,6 +79,7 @@ internal fun said(typed: String, heard: String) = listOf(typed, heard).map { it.
 /**
  * The bottom of every screen: the words box with attach and the mic in it, and Call beside it, all
  * under the thumb. [hint] says where the words go; [tab] is where Call calls, a new tab when null.
+ * [above] sits on the box; [ready] says there's something to send even with no words.
  * Enter is a new line and Send is a button, since a thought runs over lines. [talk] false: a box for
  * searching, with none of that.
  */
@@ -97,6 +98,8 @@ fun Dock(
     onStop: (() -> Unit)? = null,
     talk: Boolean = true,
     tab: String? = null,
+    ready: Boolean = false,
+    above: (@Composable () -> Unit)? = null,
 ) {
     val on = LocalTalk.current
     Column(modifier.overKeyboard().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
@@ -104,12 +107,13 @@ fun Dock(
             CallStrip(tab)
             Tray(on.attached, tab == null)
         }
+        above?.invoke()
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             leading?.invoke(this)
-            WordsBox(hint, text, onText, onSend, Modifier.weight(1f), focus, showSend, heard, onHeard, onStop, talk)
+            WordsBox(hint, text, onText, onSend, Modifier.weight(1f), focus, showSend, heard, onHeard, onStop, talk, ready)
             if (talk) CallButton(tab)
         }
     }
@@ -213,12 +217,13 @@ private fun WordsBox(
     onHeard: () -> Unit,
     onStop: (() -> Unit)?,
     talk: Boolean,
+    ready: Boolean,
 ) {
     val deck = LocalDeck.current
     val on = LocalTalk.current
     val ink = look.ink
     val hasWords = text.isNotBlank() || heard.isNotBlank()
-    val canSend = showSend && (hasWords || talk && on.attached.isNotEmpty())
+    val canSend = showSend && (hasWords || ready || talk && on.attached.isNotEmpty())
     Row(
         modifier
             .heightIn(min = Space.target)

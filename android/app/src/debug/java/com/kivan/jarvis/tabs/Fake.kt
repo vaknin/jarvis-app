@@ -62,16 +62,7 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
         Entry.Yours("y3", "Now make the keys light up as I play", voice = true),
     )
 
-    /** A reply half written on the piano answer. */
-    val draft = ReplyDraft(
-        41,
-        notes = mapOf(
-            1 to Note("", "So the sustain was the whole problem?"),
-            7 to Note("a slash chord played very softly", "How soft is very softly?"),
-        ),
-    )
-
-    fun deck(n: Int = 9, online: Boolean = true, drafts: Map<String, ReplyDraft> = emptyMap()): DeckState {
+    fun deck(n: Int = 9, online: Boolean = true): DeckState {
         val tiles = tiles(n)
         val tabs = tiles.associate { t ->
             t.id to when (t.id) {
@@ -105,7 +96,6 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                 ClosedTab("c5", "Router firmware", "Updated"),
             ),
             online = online,
-            drafts = drafts.entries.associate { (id, d) -> draftKey(id, d.to) to d },
         )
     }
 }
@@ -127,9 +117,9 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun file(id: String, name: String) {}
 
-    override fun send(id: String?, text: String) {
+    override fun send(id: String?, text: String, quotes: List<Quoted>) {
         flow.update { it.copy(attached = emptyList()) }
-        if (id != null) say(id, text) else start(text)
+        if (id != null) say(id, text, quotes) else start(text)
     }
 
     private fun start(text: String) {
@@ -145,7 +135,7 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
         say(id, text)
     }
 
-    override fun say(id: String, text: String, quotes: List<Quoted>) {
+    private fun say(id: String, text: String, quotes: List<Quoted> = emptyList()) {
         val key = "y${++counter}"
         edit(id) { t ->
             val asked = t.entries.map { if (it is Entry.Question) it.copy(closed = true) else it }
@@ -182,10 +172,7 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun type(id: String, text: String) = flow.update { it.copy(typed = it.typed + (id to text)) }
 
-    override fun draft(id: String, to: Long, draft: ReplyDraft?) = flow.update {
-        val key = draftKey(id, to)
-        it.copy(drafts = if (draft == null || draft.empty && draft.notes.isEmpty()) it.drafts - key else it.drafts + (key to draft))
-    }
+    override fun marks(id: String, marks: List<QuoteMark>) = flow.update { it.copy(marks = if (marks.isEmpty()) it.marks - id else it.marks + (id to marks)) }
 
     override fun seen(id: String) = flow.update { s ->
         val tile = s.tiles.firstOrNull { it.id == id } ?: return@update s

@@ -48,7 +48,7 @@ import com.kivan.jarvis.Forum
 
 /**
  * Jarvis's words as blocks: a paragraph, a bullet or a block of code is one thing to read and one
- * thing to answer, which is what the reply page walks. [plain] is the block's words as they stand in
+ * thing to answer. [plain] is the block's words as they stand in
  * the answer, since that's what a quote carries.
  */
 @Immutable
@@ -62,6 +62,9 @@ sealed interface Block {
     data class Code(override val plain: String) : Block
 }
 
+/** Where these words stand in an answer's blocks; past the end when nothing holds them. */
+internal fun List<Block>.place(words: String): Int = indexOfFirst { words in it.plain || words in it.shown }.let { if (it < 0) size else it }
+
 /** The words as they read on screen, which is what a selection gives: no stars, no backticks. */
 val Block.shown: String get() = when (this) {
     is Block.Para -> spans.joinToString("") { it.text }
@@ -70,6 +73,17 @@ val Block.shown: String get() = when (this) {
     is Block.Lifted -> spans.joinToString("") { it.text }
     is Block.Code -> plain
 }
+
+/** The words a quote of the whole block carries, as the laptop's does: a link's address goes with its words. */
+val Block.quoted: String get() = when (this) {
+    is Block.Para -> quoted(spans)
+    is Block.Head -> quoted(spans)
+    is Block.Item -> quoted(spans)
+    is Block.Lifted -> quoted(spans)
+    is Block.Code -> plain
+}
+
+private fun quoted(spans: List<Span>) = spans.joinToString("") { if (it.kind == Kind.Link && it.text != it.url) "${it.text} (${it.url})" else it.text }
 
 enum class Kind { Plain, Bold, Italic, Mono, Link }
 
@@ -235,11 +249,13 @@ fun BlockView(block: Block, color: Color = look.ink, modifier: Modifier = Modifi
 /** A long line of code scrolls sideways on its own; the prose around it never does. */
 @Composable
 private fun CodeView(code: String, modifier: Modifier = Modifier) {
+    // Only code that's wider than the page takes a sideways drag, so short code swipes like any paragraph.
+    val scroll = rememberScrollState()
     Box(
         modifier
             .fillMaxWidth()
             .background(look.surface, RoundedCornerShape(12.dp))
-            .horizontalScroll(rememberScrollState())
+            .horizontalScroll(scroll, enabled = scroll.maxValue > 0)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(code, color = look.soft, style = Words.code, softWrap = false)
@@ -247,17 +263,22 @@ private fun CodeView(code: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ProseView(blocks: List<Block>, modifier: Modifier = Modifier, color: Color = look.ink) {
+fun ProseView(
+    blocks: List<Block>,
+    modifier: Modifier = Modifier,
+    color: Color = look.ink,
+    each: @Composable (Int, Block, Modifier) -> Unit = { _, b, m -> BlockView(b, color, m) },
+) {
     Column(modifier) {
         var last: Block? = null
-        for (b in blocks) {
+        for ((i, b) in blocks.withIndex()) {
             // A list's items sit closer together than paragraphs do.
             val above = when {
                 last == null -> 0.dp
                 last is Block.Item && b is Block.Item -> 6.dp
                 else -> Space.para
             }
-            BlockView(b, color, Modifier.padding(top = above))
+            each(i, b, Modifier.padding(top = above))
             last = b
         }
     }

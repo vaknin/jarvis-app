@@ -74,19 +74,36 @@ data class TabView(
 @Immutable
 data class ClosedTab(val id: String, val name: String, val line: String = "")
 
-/** Words waiting under a paragraph: the whole paragraph, or only the [quote] he picked. */
+/** Words waiting under a paragraph in an old draft: the whole paragraph, or only the [quote] he picked. */
 @Immutable
 data class Note(val quote: String, val text: String)
 
-/** Where a reply to the answer at offset [to] is kept: each answer has its own, so starting one never costs another. */
+/** Where an old reply to the answer at offset [to] was kept. */
 fun draftKey(id: String, to: Long) = "$id/$to"
 
-/** A reply being written. Kept per answer until it's sent, whatever else happens. */
+/** A reply from the old reply page, kept only until [foldDrafts] turns it into held replies. */
 @Immutable
-data class ReplyDraft(val to: Long, val notes: Map<Int, Note> = emptyMap(), val end: String = "") {
-    val empty get() = end.isBlank() && notes.values.all { it.text.isBlank() }
-    val count get() = notes.values.count { it.text.isNotBlank() } + if (end.isBlank()) 0 else 1
+data class ReplyDraft(val to: Long, val notes: Map<Int, Note> = emptyMap(), val end: String = "")
+
+/**
+ * A paragraph or words of the answer at offset [to], waiting to go as a quote with his next message.
+ * With no [text] it's a mark; with [text] it's a held reply, words of its own under the quote. [block]
+ * keeps them in the order they were said. What it says is kept here, as the laptop keeps it, so it
+ * outlives the record it came from.
+ */
+@Immutable
+data class QuoteMark(val to: Long, val block: Int, val quote: String, val text: String = "") {
+    fun same(o: QuoteMark) = to == o.to && block == o.block && quote == o.quote
+    val held get() = text.isNotBlank()
 }
+
+/** Puts this one in, or swaps the one it's on. */
+internal fun List<QuoteMark>.with(mark: QuoteMark) = (without(mark) + mark).sortedWith(compareBy({ it.to }, { it.block }))
+
+internal fun List<QuoteMark>.without(mark: QuoteMark) = filterNot { it.same(mark) }
+
+/** Marks it, or takes the mark back. */
+internal fun List<QuoteMark>.toggled(mark: QuoteMark) = if (any { it.same(mark) }) without(mark) else with(mark)
 
 /** The call going on, for the strip that leads back to it: its tab, that tab's name, the call's line. */
 @Immutable
@@ -114,6 +131,8 @@ data class DeckState(
     /** Files fetched so far, "tab/name" to a path; an empty path means the server doesn't have it. */
     val files: Map<String, String> = emptyMap(),
     val drafts: Map<String, ReplyDraft> = emptyMap(),
+    /** What's marked and the replies held per tab, waiting to go with his next message. */
+    val marks: Map<String, List<QuoteMark>> = emptyMap(),
     /** The tab just opened from words at the wall, for the screen to zoom into, once; [WALL] zooms out to it. */
     val opened: String? = null,
 )
@@ -125,12 +144,11 @@ const val WALL = ""
 interface Deck {
     val state: StateFlow<DeckState>
     fun show(ids: List<String>)
-    /** Words and what's attached: to tab [id], or to a new one (null). */
-    fun send(id: String?, text: String)
-    /** A reply, which carries no files. */
-    fun say(id: String, text: String, quotes: List<Quoted> = emptyList())
+    /** Words, what's attached, and the [quotes] they follow: to tab [id], or to a new one (null). */
+    fun send(id: String?, text: String, quotes: List<Quoted> = emptyList())
     fun type(id: String, text: String)
-    fun draft(id: String, to: Long, draft: ReplyDraft?)
+    /** What's marked and held in tab [id] is now this. */
+    fun marks(id: String, marks: List<QuoteMark>)
     fun seen(id: String)
     fun close(id: String)
     fun reopen(id: String)

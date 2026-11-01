@@ -14,6 +14,11 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
@@ -63,15 +68,29 @@ class ScreensTest {
     @Test fun tabLight() = shot("tab-light", dark = false) { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1")) }
     @Test fun zoom() = shot("zoom-50") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1", zoom = 0.5f)) }
     @Test fun closed() = shot("closed") { Stage(FakeDeck(Fake.deck(9)), Opening(closed = true)) }
-    @Test fun reply() = shot("reply") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1", reply = "a1")) }
-    @Test fun replyDraft() = shot("reply-draft") {
-        Stage(FakeDeck(Fake.deck(9, drafts = mapOf("t1" to Fake.draft))), Opening(tab = "t1", reply = "a1"))
+
+    @Test fun marked() = shot("tab-marked") {
+        val deck = Fake.deck(9)
+        val blocks = Prose.parse(deck.tabs.getValue("t1").entries.filterIsInstance<Entry.Answer>().first().text)
+        val marks = listOf(1, 3).map { QuoteMark(41, it, blocks[it].quoted) }
+        Stage(FakeDeck(deck.copy(marks = mapOf("t1" to marks + QuoteMark(41, 5, blocks[5].quoted, "Yes, keep it")))), Opening(tab = "t1"))
     }
-    @Test fun replyWriting() {
-        shot("reply-quote", capture = { rule.onNodeWithTag("reply").performScrollToIndex(9); rule.mainClock.advanceTimeBy(600) }) {
-            Stage(FakeDeck(Fake.deck(9, drafts = mapOf("t1" to Fake.draft))), Opening(tab = "t1", reply = "a1"))
-        }
-    }
+    @Test fun replying() = shot(
+        "tab-replying",
+        capture = {
+            rule.onAllNodesWithTag("paragraph")[0].performTouchInput {
+                down(center)
+                repeat(6) {
+                    advanceEventTime(16)
+                    moveBy(Offset(70f, 0f))
+                }
+                up()
+            }
+            rule.mainClock.advanceTimeBy(400)
+            rule.onAllNodes(hasSetTextAction())[0].performTextInput("Yes, leave it for now")
+            rule.mainClock.advanceTimeBy(300)
+        },
+    ) { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1")) }
 
     @Test fun quotedSent() = shot("tab-quoted") {
         val deck = Fake.deck(9)
@@ -94,9 +113,6 @@ class ScreensTest {
     private val spoken = "Make the piano louder when the room is noisy, and show me the level while it plays"
     @Test fun heardWall() = shot("wall-heard") { Stage(FakeDeck(Fake.deck(9).copy(heard = spoken))) }
     @Test fun heardTab() = shot("tab-heard") { Stage(FakeDeck(Fake.deck(9).copy(heard = spoken)), Opening(tab = "t1")) }
-    @Test fun heardReply() = shot("reply-heard") {
-        Stage(FakeDeck(Fake.deck(9, drafts = mapOf("t1" to Fake.draft)).copy(heard = spoken)), Opening(tab = "t1", reply = "a1"))
-    }
     @Test fun offline() = shot("tab-offline") { Stage(FakeDeck(Fake.deck(9, online = false)), Opening(tab = "t1")) }
     @Test fun readNew() = shot("tab-new-long") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t4")) }
 

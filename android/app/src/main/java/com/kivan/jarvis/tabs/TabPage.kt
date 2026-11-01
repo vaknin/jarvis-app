@@ -2,6 +2,7 @@ package com.kivan.jarvis.tabs
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -9,6 +10,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,40 +29,67 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
+import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kivan.jarvis.R
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlinx.coroutines.launch
 
 /** One tab: the record, what's arriving, and the box. Nothing above the record but its name. */
@@ -66,19 +97,20 @@ import kotlinx.coroutines.launch
 fun TabPage(
     tab: TabView,
     typed: String,
-    drafts: Map<String, ReplyDraft>,
     online: Boolean,
     active: Boolean,
     onWall: () -> Unit,
     onType: (String) -> Unit,
-    onSend: (String) -> Unit,
-    onReply: (Entry.Answer) -> Unit,
+    onSend: (String, List<Quoted>) -> Unit,
     onClose: () -> Unit,
     onReopen: () -> Unit,
     modifier: Modifier = Modifier,
     heard: String = "",
     onHeard: () -> Unit = {},
     onStop: () -> Unit = {},
+    marks: List<QuoteMark> = emptyList(),
+    onMarks: (List<QuoteMark>) -> Unit = {},
+    onTaken: () -> Unit = {},
 ) {
     val attached = LocalTalk.current.attached.isNotEmpty()
     val rows = remember(tab.entries) { tab.entries.asReversed() }
@@ -86,7 +118,6 @@ fun TabPage(
     val scope = rememberCoroutineScope()
     val buzz = rememberBuzz()
     val question = remember(tab.entries) { tab.entries.lastOrNull { it is Entry.Question && !it.closed } as Entry.Question? }
-    val lastAnswer = remember(tab.entries) { tab.entries.lastOrNull { it is Entry.Answer && it.offset != null }?.key }
     val questionHidden by remember(question) {
         derivedStateOf {
             question != null && list.layoutInfo.visibleItemsInfo.none { it.key == question.key }
@@ -108,6 +139,51 @@ fun TabPage(
         val tall = info.visibleItemsInfo.firstOrNull { it.index == i }?.size ?: 0
         val room = info.viewportEndOffset - info.viewportStartOffset
         if (tall > room) list.scrollToItem(i, tall - room)
+    }
+
+    // The reply being written: the box writes into it until he sends, holds or drops it. It stays in
+    // [marks] as he types, so it's saved like the rest; [replyBefore] is what a cancel goes back to.
+    var reply by remember { mutableStateOf<QuoteMark?>(null) }
+    var replyBefore by remember { mutableStateOf<QuoteMark?>(null) }
+    val writing = reply?.let { r -> marks.firstOrNull { it.same(r) }?.text.orEmpty() }
+    val ask = remember { FocusRequester() }
+    val open = { m: QuoteMark ->
+        val was = marks.firstOrNull { it.same(m) }
+        // Another reply left open keeps its words, as the laptop's does.
+        reply = was ?: m
+        replyBefore = was
+        scope.launch { ask.requestFocus() }
+        Unit
+    }
+    fun write(words: String) {
+        val r = reply ?: return
+        onMarks(if (words.isBlank()) marks.without(r) else marks.with(r.copy(text = words)))
+    }
+    /** Leaves the box. Kept words stay held; a cancel, or nothing written, goes back to what was there. */
+    fun closed(keep: Boolean): List<QuoteMark> {
+        val r = reply ?: return marks
+        val before = replyBefore
+        reply = null
+        replyBefore = null
+        // Emptying a held reply and sending takes it back; only Cancel returns the words.
+        if (keep && (writing?.isNotBlank() == true || before?.held == true)) return marks
+        return if (before != null) marks.with(before) else marks.without(r)
+    }
+    val send = {
+        val words = said(typed, if (reply == null) heard else "")
+        val all = closed(keep = true)
+        if (words.isNotEmpty() || attached || all.isNotEmpty()) {
+            buzz.sent()
+            // As on the laptop: each goes as a quote with its own words, or none; his message after them.
+            onSend(words, all.map { Quoted(it.to, it.quote, it.text.trim()) })
+            scope.launch { list.animateScrollToItem(0) }
+        }
+    }
+    // With a reply open his spoken words write into it.
+    LaunchedEffect(heard, reply) {
+        if (heard.isBlank() || reply == null) return@LaunchedEffect
+        write(if (writing.isNullOrBlank()) heard else "$writing $heard")
+        onTaken()
     }
 
     Page(modifier) {
@@ -152,10 +228,11 @@ fun TabPage(
                         EntryView(
                             tab.tile.id,
                             entry,
-                            canReply = !tab.closed && !(question != null && entry.key == lastAnswer),
-                            newest = entry.key == lastAnswer,
-                            drafted = entry is Entry.Answer && entry.offset?.let { drafts[draftKey(tab.tile.id, it)] }?.empty == false,
-                            onReply = onReply,
+                            canMark = !tab.closed,
+                            marks = marks,
+                            replying = reply,
+                            onMarks = onMarks,
+                            onOpen = open,
                         )
                     }
                 }
@@ -188,21 +265,28 @@ fun TabPage(
         when {
             tab.closed -> ClosedBar(tab.tile.id, onReopen)
             else -> Dock(
-                hint = if (question != null) "Type your answer to this" else "Message ${tab.tile.name}".trim(),
-                text = typed,
-                onText = onType,
-                onSend = {
-                    val words = said(typed, heard)
-                    if (words.isNotEmpty() || attached) {
-                        buzz.sent()
-                        onSend(words)
-                        scope.launch { list.animateScrollToItem(0) }
-                    }
+                hint = when {
+                    reply != null -> REPLY_HERE
+                    question != null -> "Type your answer to this"
+                    else -> "Message ${tab.tile.name}".trim()
                 },
-                heard = heard,
-                onHeard = onHeard,
+                text = writing ?: typed,
+                onText = { if (reply != null) write(it) else onType(it) },
+                onSend = { send() },
+                focus = ask,
+                heard = if (reply != null) "" else heard,
+                // What he said joins what's marked in one message, as his typed words do.
+                onHeard = { if (marks.isEmpty()) onHeard() else send() },
                 onStop = onStop.takeIf { tab.work != null },
                 tab = tab.tile.id,
+                ready = reply != null || marks.isNotEmpty(),
+                above = {
+                    val r = reply
+                    MarkTray(marks.filterNot { r != null && it.same(r) }, onMarks, open)
+                    if (r != null) {
+                        ReplyStrip(r.quote, typed, canHold = !writing.isNullOrBlank(), onHold = { closed(keep = true) }, onCancel = { onMarks(closed(keep = false)) })
+                    }
+                },
             )
         }
     }
@@ -271,14 +355,15 @@ private fun Strip(text: String, onClick: () -> Unit) {
 private fun EntryView(
     tab: String,
     entry: Entry,
-    canReply: Boolean,
-    newest: Boolean,
-    drafted: Boolean,
-    onReply: (Entry.Answer) -> Unit,
+    canMark: Boolean,
+    marks: List<QuoteMark>,
+    replying: QuoteMark?,
+    onMarks: (List<QuoteMark>) -> Unit,
+    onOpen: (QuoteMark) -> Unit,
 ) {
     when (entry) {
         is Entry.Yours -> YoursView(tab, entry)
-        is Entry.Answer -> AnswerView(tab, entry, canReply, newest, drafted, onReply)
+        is Entry.Answer -> AnswerView(tab, entry, canMark, marks, replying, onMarks, onOpen)
         is Entry.Report -> ReportView(entry)
         is Entry.Question -> QuestionView(entry)
         is Entry.Quiet -> Text(entry.text, color = look.faint, style = Words.small)
@@ -323,38 +408,309 @@ private fun YoursView(tab: String, entry: Entry.Yours) {
 private fun AnswerView(
     tab: String,
     entry: Entry.Answer,
-    canReply: Boolean,
-    newest: Boolean,
-    drafted: Boolean,
-    onReply: (Entry.Answer) -> Unit,
+    canMark: Boolean,
+    marks: List<QuoteMark>,
+    replying: QuoteMark?,
+    onMarks: (List<QuoteMark>) -> Unit,
+    onOpen: (QuoteMark) -> Unit,
 ) {
     val blocks = remember(entry.text) { Prose.parse(entry.text) }
+    val buzz = rememberBuzz()
+    val to = entry.offset
+    // A hold that ends where it began is a mark, not the word Compose picked on the way: only a fresh
+    // container lets go of it, since a selection has no public way to be cleared.
+    var unselect by remember { mutableIntStateOf(0) }
     Column {
-        SelectionContainer { ProseView(blocks) }
+        key(unselect) {
+            if (!canMark || to == null) {
+                SelectionContainer { ProseView(blocks) }
+            } else {
+                Quotable({ words -> onOpen(QuoteMark(to, blocks.place(words), words)) }) {
+                    ProseView(blocks) { i, block, spaced ->
+                        val here = QuoteMark(to, i, block.quoted)
+                        val on = marks.firstOrNull { it.same(here) }
+                        val open = replying?.same(here) == true
+                        MarkableBlock(
+                            block,
+                            state = when {
+                                open -> Paragraph.Replying
+                                on == null -> Paragraph.Plain
+                                on.held -> Paragraph.Held
+                                else -> Paragraph.Marked
+                            },
+                            onSwipe = { onOpen(here) },
+                            onHold = {
+                                // Words of his are never lost to a hold: it opens them instead.
+                                if (on?.held == true) {
+                                    onOpen(on)
+                                } else {
+                                    buzz.toggle(on == null)
+                                    onMarks(marks.toggled(here))
+                                }
+                                unselect++
+                            },
+                            onTap = {
+                                if (on?.held == true) {
+                                    onOpen(on)
+                                } else if (on != null) {
+                                    buzz.toggle(false)
+                                    onMarks(marks.without(on))
+                                }
+                            },
+                            modifier = spaced,
+                        )
+                    }
+                }
+            }
+        }
         for (f in entry.files) FileCard(tab, f, Modifier.padding(top = 12.dp))
-        if (canReply && entry.offset != null) {
-            Row(
-                Modifier
-                    .padding(top = 2.dp)
-                    .offsetStart()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onReply(entry) }
-                    .semantics { role = Role.Button }
-                    .heightIn(min = Space.target)
-                    .padding(horizontal = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                val tone = if (newest || drafted) look.soft else look.faint
-                Glyph(if (drafted) R.drawable.lucide_pencil else R.drawable.lucide_corner_down_left, tone, 15.dp)
-                Text(if (drafted) "Continue reply" else "Reply", color = tone, style = Words.small)
+    }
+}
+
+private enum class Paragraph { Plain, Marked, Held, Replying }
+
+/** What the box says with a reply open. */
+private const val REPLY_HERE = "Reply to this paragraph"
+
+/** How far a paragraph travels before letting go of it replies. */
+private val SWIPE = 64.dp
+
+/**
+ * One paragraph of an answer. A swipe to the right replies to it; a hold marks it and another takes the
+ * mark back, as a tap on a marked one does; on a held reply either opens it again. A hold that goes on
+ * to drag is still a text selection, and a sideways drag begins only well clear of a vertical one, so
+ * only a swipe is ever consumed. Scrolling, links and selection are left be, and so is a swipe left to the
+ * next tab; a swipe right over an answer replies instead of going back a tab, which the header still does.
+ */
+@Composable
+private fun MarkableBlock(block: Block, state: Paragraph, onSwipe: () -> Unit, onHold: () -> Unit, onTap: () -> Unit, modifier: Modifier) {
+    val scope = rememberCoroutineScope()
+    val buzz = rememberBuzz()
+    var holding by remember { mutableStateOf(false) }
+    val lit = state != Paragraph.Plain
+    val wash by animateFloatAsState(if (lit || holding) 1f else 0f, tween(Curves.QUICK), label = "mark")
+    val washed = look.surface
+    val bar = look.ink
+    val pull = remember { Animatable(0f) }
+    val swipe by rememberUpdatedState(onSwipe)
+    val hold by rememberUpdatedState(onHold)
+    val tap by rememberUpdatedState(onTap)
+    val tappable by rememberUpdatedState(lit)
+    val reach = with(LocalDensity.current) { SWIPE.toPx() }
+    Box(
+        modifier
+            .fillMaxWidth()
+            .testTag("paragraph")
+            .semantics {
+                if (lit) stateDescription = if (state == Paragraph.Marked) "Marked to quote" else "Reply held"
+                customActions = listOf(
+                    CustomAccessibilityAction("Reply to this paragraph") {
+                        onSwipe()
+                        true
+                    },
+                    CustomAccessibilityAction(if (state == Paragraph.Marked) "Take the mark back" else "Mark to quote") {
+                        onHold()
+                        true
+                    },
+                )
+            }
+            .drawBehind {
+                if (wash > 0f) {
+                    val out = 8.dp.toPx()
+                    drawRoundRect(washed.copy(alpha = wash), Offset(-out, -out / 2), Size(size.width + out * 2, size.height + out), CornerRadius(12.dp.toPx()))
+                }
+                if (lit) drawRoundRect(bar, Offset(-8.dp.toPx(), 0f), Size(2.dp.toPx(), size.height), CornerRadius(1.dp.toPx()))
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val slop = viewConfiguration.touchSlop
+                    // Before the hold: a tap, a swipe, or something that isn't ours.
+                    var swiping = false
+                    val quick = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val c = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                            if (!c.pressed) return@withTimeoutOrNull !c.isConsumed
+                            if (event.changes.size > 1 || c.isConsumed) return@withTimeoutOrNull false
+                            val moved = c.position - down.position
+                            if (moved.getDistance() > slop) {
+                                if (moved.x > 0 && abs(moved.x) > abs(moved.y) * 2) {
+                                    c.consume()
+                                    swiping = true
+                                }
+                                return@withTimeoutOrNull false
+                            }
+                        }
+                        @Suppress("UNREACHABLE_CODE")
+                        false
+                    }
+                    if (swiping) {
+                        var felt = false
+                        var past = false
+                        while (true) {
+                            val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                            if (!c.pressed) break
+                            c.consume()
+                            // It follows the finger, then drags behind it.
+                            val x = (c.position.x - down.position.x).coerceAtLeast(0f)
+                            val shown = if (x < reach) x else reach + (x - reach) / 3
+                            scope.launch { pull.snapTo(shown) }
+                            past = x >= reach
+                            if (past && !felt) {
+                                felt = true
+                                buzz.tick()
+                            }
+                        }
+                        scope.launch { pull.animateTo(0f, tween(Curves.QUICK)) }
+                        // Back under the line before letting go is changing his mind.
+                        if (past) swipe()
+                        return@awaitEachGesture
+                    }
+                    if (quick != null) {
+                        if (quick && tappable) tap()
+                        return@awaitEachGesture
+                    }
+                    holding = true
+                    try {
+                        var still = true
+                        while (true) {
+                            val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                            if (!c.pressed) break
+                            if ((c.position - down.position).getDistance() > slop) {
+                                still = false
+                                holding = false
+                            }
+                        }
+                        if (still) hold()
+                    } finally {
+                        holding = false
+                    }
+                }
+            },
+    ) {
+        Glyph(
+            R.drawable.lucide_corner_down_left,
+            look.soft,
+            18.dp,
+            Modifier.graphicsLayer {
+                alpha = (pull.value / reach).coerceAtMost(1f)
+                translationX = pull.value / 2 - 9.dp.toPx()
+            },
+        )
+        Box(Modifier.graphicsLayer { translationX = pull.value }) { BlockView(block) }
+    }
+}
+
+/** What's waiting, on the box: how many of each, like the laptop's line, and each with a way out. */
+@Composable
+private fun MarkTray(marks: List<QuoteMark>, onMarks: (List<QuoteMark>) -> Unit, onOpen: (QuoteMark) -> Unit) {
+    if (marks.isEmpty()) return
+    val quiet = marks.count { it.held }
+    val line = listOfNotNull(
+        "● ${marks.size - quiet} marked".takeIf { quiet < marks.size },
+        "↩ $quiet".takeIf { quiet > 0 },
+    ).joinToString("  ")
+    Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(line, Modifier.padding(start = 8.dp).testTag("marked"), look.soft, style = Words.small, maxLines = 1)
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (m in marks) key(m.to, m.quote) {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(look.surface)
+                        .then(if (m.held) Modifier.clickable(onClickLabel = "Edit this reply") { onOpen(m) } else Modifier)
+                        .padding(start = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.widthIn(max = 180.dp)) {
+                        Text(m.quote, color = look.soft, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (m.held) Text(m.text, color = look.ink, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Round(R.drawable.lucide_x, "Remove the quote: ${m.quote.take(40)}", { onMarks(marks.without(m)) }, size = 38.dp)
+                }
             }
         }
     }
 }
 
-/** Pulls a text button's padding back, so its words line up with the prose above. */
-private fun Modifier.offsetStart(): Modifier = offset(x = (-10).dp)
+/** The reply open in the box: what it quotes, Hold to keep it for the next message, and the way out. */
+@Composable
+private fun ReplyStrip(quote: String, typed: String, canHold: Boolean, onHold: () -> Unit, onCancel: () -> Unit) {
+    // His message waits in the box meanwhile, and goes along if he sends now.
+    if (typed.isNotBlank()) {
+        Text(typed, Modifier.padding(start = 8.dp, bottom = 4.dp), look.faint, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    Row(
+        Modifier.padding(bottom = 6.dp).fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.padding(start = 8.dp).width(2.dp).fillMaxHeight().background(look.ink, RoundedCornerShape(1.dp)))
+        Text(quote, Modifier.weight(1f).padding(start = 10.dp).testTag("replying"), look.soft, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (canHold) {
+            Box(
+                Modifier
+                    .padding(start = 8.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(look.surface)
+                    .clickable(onClick = onHold)
+                    .semantics { role = Role.Button }
+                    .heightIn(min = 38.dp)
+                    .padding(horizontal = 14.dp),
+                Alignment.Center,
+            ) { Text("Hold", color = look.ink, style = Words.small) }
+        }
+        Round(R.drawable.lucide_x, "Cancel this reply", onCancel, size = 38.dp)
+    }
+}
+
+/** Selecting words offers Quote this, which replies to just those words. */
+@Composable
+private fun Quotable(onQuote: (String) -> Unit, content: @Composable () -> Unit) {
+    val real = LocalClipboard.current
+    val catcher = remember(real) { Catcher(real) }
+    catcher.onWords = onQuote
+    CompositionLocalProvider(LocalClipboard provides catcher) {
+        Box(
+            Modifier
+                .filterTextContextMenuComponents { c ->
+                    if (c is TextContextMenuItem && c.key === TextContextMenuKeys.CopyKey) catcher.copy = c
+                    true
+                }
+                .appendTextContextMenuComponents {
+                    item(QUOTE, "Quote this") { catcher.catching { catcher.copy?.onClick?.invoke(this) } }
+                },
+        ) { SelectionContainer(content = content) }
+    }
+}
+
+private val QUOTE = Any()
+
+/**
+ * Compose has no public way to ask a selection for its words, but its Copy has them. So Quote this
+ * presses Copy with this clipboard in the way: the words land here and the real clipboard stays as it
+ * was. Copy pressed by hand passes straight through.
+ */
+private class Catcher(private val real: Clipboard) : Clipboard {
+    var copy: TextContextMenuItem? = null
+    var onWords: (String) -> Unit = {}
+    private var catching = false
+
+    fun catching(press: () -> Unit) {
+        catching = true
+        press()
+    }
+
+    override val nativeClipboard: NativeClipboard get() = real.nativeClipboard
+
+    override suspend fun getClipEntry(): ClipEntry? = real.getClipEntry()
+
+    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+        if (!catching) return real.setClipEntry(clipEntry)
+        catching = false
+        clipEntry?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.let { onWords(it.toString()) }
+    }
+}
 
 /** A report is one soft line that opens. */
 @Composable

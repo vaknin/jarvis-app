@@ -59,15 +59,12 @@ import kotlinx.coroutines.launch
 data class Opening(
     val tab: String? = null,
     val zoom: Float = 1f,
-    val reply: String? = null,
     val closed: Boolean = false,
 )
 
 /** The tabs open when a tab was: frozen, so tiles don't reorder under his finger mid-swipe. */
 private class Open(val order: List<String>, val first: Int)
 
-/** The answer being replied to, and the tab it's in. */
-private class Replying(val tab: String, val answer: Entry.Answer)
 
 /**
  * The screens, one on top of the other. A tab is not a new page: it's its tile, grown. One number,
@@ -92,10 +89,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     val zoom = remember { Animatable(if (opening.tab != null) opening.zoom else 0f) }
     var closedTab by remember { mutableStateOf<String?>(null) }
     var reopening by remember { mutableStateOf<String?>(null) }
-    var replying by remember {
-        val answer = state.tabs[opening.tab]?.entries?.firstOrNull { it.key == opening.reply } as? Entry.Answer
-        mutableStateOf(answer?.let { Replying(opening.tab.orEmpty(), it) })
-    }
     var closedPage by rememberSaveable { mutableStateOf(opening.closed) }
     var undo by remember { mutableStateOf<ClosedTab?>(null) }
 
@@ -120,7 +113,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     LaunchedEffect(state.opened, state.tiles) {
         val id = state.opened ?: return@LaunchedEffect
         if (id == WALL) {
-            replying = null
             closedPage = false
             closedTab = null
             toWall()
@@ -148,7 +140,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     val anyLoading = open != null && state.tabs.values.any { it.loading }
     val glide = rememberGlide((anyWork || anyLoading) && state.online)
 
-    val covered = replying != null || closedPage || closedTab != null
+    val covered = closedPage || closedTab != null
     LaunchedEffect(open == null) { if (open == null) deck.here(null) }
 
     CompositionLocalProvider(
@@ -209,7 +201,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                             }
                         },
                         onWall = ::toWall,
-                        onReply = { id, answer -> replying = Replying(id, answer) },
                         onClose = { id ->
                             undo = ClosedTab(id, state.tabs[id]?.tile?.name.orEmpty())
                             deck.close(id)
@@ -222,9 +213,9 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 val id = closedTab!!
                 state.tabs[id]?.let { tab ->
                     TabPage(
-                        tab, "", emptyMap(), state.online, true,
+                        tab, "", state.online, true,
                         onWall = { closedTab = null },
-                        onType = {}, onSend = {}, onReply = {}, onClose = {},
+                        onType = {}, onSend = { _, _ -> }, onClose = {},
                         onReopen = {
                             deck.reopen(id)
                             reopening = id
@@ -246,35 +237,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                     onBack = { closedPage = false },
                 )
             }
-            AnimatedVisibility(
-                replying != null,
-                enter = fadeIn(tween(Curves.QUICK)) + slideInVertically(tween(Curves.PAGE, easing = Curves.out)) { it / 8 },
-                exit = fadeOut(tween(Curves.QUICK)) + slideOutVertically(tween(Curves.QUICK)) { it / 8 },
-            ) {
-                val reply = replying ?: return@AnimatedVisibility
-                val id = reply.tab
-                val answer = reply.answer
-                val to = answer.offset ?: 0
-                val draft = state.drafts[draftKey(id, to)] ?: ReplyDraft(to)
-                ReplyPage(
-                    name = state.tabs[id]?.tile?.name.orEmpty(),
-                    answer = answer,
-                    draft = draft,
-                    heard = state.heard,
-                    onTaken = { deck.words(false) },
-                    onDraft = { deck.draft(id, to, it) },
-                    onSend = { _, quotes, end ->
-                        deck.say(id, end, quotes)
-                        deck.draft(id, to, null)
-                        replying = null
-                    },
-                    onBack = { replying = null },
-                )
-            }
-            if (replying != null) PredictiveBackHandler(!typing) { flow ->
-                flow.collect {}
-                replying = null
-            }
             if (closedPage || closedTab != null) PredictiveBackHandler(!typing) { flow ->
                 flow.collect {}
                 if (closedTab != null) closedTab = null else closedPage = false
@@ -294,7 +256,6 @@ private fun TabLayer(
     deck: Deck,
     onPinched: (Boolean) -> Unit,
     onWall: () -> Unit,
-    onReply: (String, Entry.Answer) -> Unit,
     onClose: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -400,17 +361,19 @@ private fun TabLayer(
                 TabPage(
                     tab = tab,
                     typed = state.typed[tabId].orEmpty(),
-                    drafts = state.drafts,
                     online = state.online,
                     active = i == pager.currentPage,
                     onWall = onWall,
                     onType = { deck.type(tabId, it) },
-                    onSend = {
+                    onSend = { words, quotes ->
                         if (state.heard.isNotBlank()) deck.words(false)
-                        deck.send(tabId, it)
+                        deck.send(tabId, words, quotes)
+                        deck.marks(tabId, emptyList())
                         deck.type(tabId, "")
                     },
-                    onReply = { onReply(tabId, it) },
+                    marks = state.marks[tabId].orEmpty(),
+                    onMarks = { deck.marks(tabId, it) },
+                    onTaken = { deck.words(false) },
                     onClose = { onClose(tabId) },
                     onReopen = { deck.reopen(tabId) },
                     heard = state.heard,

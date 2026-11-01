@@ -119,11 +119,12 @@ class RealDeck private constructor(
         s.copy(attached = s.attached + files.filter { f -> s.attached.none { it.path == f.path } }.map { Attached(it.path, it.name, Tray.picture(it.name)) })
     }
 
-    override fun send(id: String?, text: String) {
+    override fun send(id: String?, text: String, quotes: List<Quoted>) {
         val going = flow.value.attached
         val out = going.map { OutFile(it.name, it.path) }
+        val replies = quotes.map { QuoteRec(it.to.toULong(), it.quote, it.text) }
         if (going.isEmpty()) {
-            if (id == null) tabsStart(text, out) else tabsSay(id, text, emptyList(), out)
+            if (id == null) tabsStart(text, out) else tabsSay(id, text, replies, out)
             return
         }
         // The waiting card shows the phone's own copy until the record has it.
@@ -132,18 +133,12 @@ class RealDeck private constructor(
         }
         if (id == null) opening = going
         // The files are read here, so off the main thread.
-        scope.launch { if (id == null) tabsStart(text, out) else tabsSay(id, text, emptyList(), out) }
+        scope.launch { if (id == null) tabsStart(text, out) else tabsSay(id, text, replies, out) }
     }
-
-    override fun say(id: String, text: String, quotes: List<Quoted>) =
-        tabsSay(id, text, quotes.map { QuoteRec(it.to.toULong(), it.quote, it.text) }, emptyList())
 
     override fun type(id: String, text: String) = flow.update { it.copy(typed = if (text.isEmpty()) it.typed - id else it.typed + (id to text)) }
 
-    override fun draft(id: String, to: Long, draft: ReplyDraft?) = flow.update {
-        val key = draftKey(id, to)
-        it.copy(drafts = if (draft == null || draft.empty && draft.notes.isEmpty()) it.drafts - key else it.drafts + (key to draft))
-    }
+    override fun marks(id: String, marks: List<QuoteMark>) = flow.update { it.copy(marks = if (marks.isEmpty()) it.marks - id else it.marks + (id to marks)) }
 
     // Seen, close and move show at once and go to the server behind; its next wall has the last word.
     override fun seen(id: String) {
@@ -304,7 +299,54 @@ internal fun DeckState.with(tab: TabRec): DeckState {
         tab.loading,
         tab.jobs,
     )
-    return copy(tabs = tabs + (id to view))
+    return copy(tabs = tabs + (id to view)).foldDrafts(id)
+}
+
+/** How much of a whole answer travels as its quote: enough to say which one, the session has the rest. */
+private const val WHOLE_ANSWER = 280
+
+/**
+ * What a draft from the old reply page sends: the quotes, and the words that follow them. A paragraph
+ * he wrote under quotes that paragraph, and words he picked go even with nothing written under them.
+ * Words with no quote at all still answer that answer, so they quote it.
+ */
+internal fun replyPieces(to: Long, blocks: List<Block>, draft: ReplyDraft): Pair<List<Quoted>, String> {
+    val end = draft.end.trim()
+    val quotes = draft.notes.toSortedMap().filterValues { it.text.isNotBlank() || it.quote.isNotEmpty() }.map { (i, n) ->
+        Quoted(to, n.quote.ifEmpty { blocks.getOrNull(i)?.plain.orEmpty() }, n.text.trim())
+    }
+    val whole = blocks.joinToString(" ") { it.plain }
+    return when {
+        quotes.isEmpty() && end.isNotEmpty() && whole.isNotEmpty() -> {
+            val quote = if (whole.length > WHOLE_ANSWER) whole.take(WHOLE_ANSWER).trimEnd() + "…" else whole
+            listOf(Quoted(to, quote, end)) to ""
+        }
+        else -> quotes to end
+    }
+}
+
+/** Drafts written on the reply page that's gone become held replies once their answer is here, so none is lost. */
+internal fun DeckState.foldDrafts(id: String): DeckState {
+    var out = this
+    for ((key, draft) in drafts) {
+        if (!key.startsWith("$id/")) continue
+        val answer = tabs[id]?.entries?.firstOrNull { it is Entry.Answer && it.offset == draft.to } as Entry.Answer? ?: continue
+        val blocks = Prose.parse(answer.text)
+        val (quotes, end) = replyPieces(draft.to, blocks, draft)
+        val held = quotes.fold(out.marks[id].orEmpty()) { all, q ->
+            val mark = QuoteMark(q.to, blocks.place(q.quote), q.quote, q.text)
+            // Words already held on it stay, with these after them.
+            val words = listOfNotNull(all.firstOrNull { it.same(mark) }?.text, q.text).filter { it.isNotBlank() }
+            all.with(mark.copy(text = words.joinToString("\n\n")))
+        }
+        val typed = out.typed[id].orEmpty()
+        out = out.copy(
+            drafts = out.drafts - key,
+            marks = if (held.isEmpty()) out.marks else out.marks + (id to held),
+            typed = if (end.isEmpty()) out.typed else out.typed + (id to if (typed.isBlank()) end else "$typed\n\n$end"),
+        )
+    }
+    return out
 }
 
 /** Words that didn't land go back in the box, above anything typed since. */
@@ -341,6 +383,7 @@ internal data class Saved(
     val typed: Map<String, String>,
     val drafts: Map<String, ReplyDraft>,
     val attached: List<Attached>,
+    val marks: Map<String, List<QuoteMark>> = emptyMap(),
 ) {
     fun json(): String = JSONObject().apply {
         put("tiles", tiles.fold(org.json.JSONArray()) { a, t ->
@@ -358,6 +401,13 @@ internal data class Saved(
         put("attached", attached.fold(org.json.JSONArray()) { a, f ->
             a.put(JSONObject().put("path", f.path).put("name", f.name).put("picture", f.picture))
         })
+        put("marks", JSONObject().also { all ->
+            for ((id, list) in marks) {
+                all.put(id, list.fold(org.json.JSONArray()) { a, m ->
+                    a.put(JSONObject().put("to", m.to).put("block", m.block).put("quote", m.quote).put("text", m.text))
+                })
+            }
+        })
         // Gone as a concept, but an older build refuses a value without it: rolling back keeps the words.
         put("muted", false)
     }.toString()
@@ -367,7 +417,7 @@ internal data class Saved(
     companion object {
         private const val KEY = "deck"
 
-        fun of(s: DeckState) = Saved(s.tiles, s.typed, s.drafts, s.attached)
+        fun of(s: DeckState) = Saved(s.tiles, s.typed, s.drafts, s.attached, s.marks)
 
         fun read(prefs: SharedPreferences): DeckState = prefs.getString(KEY, null)?.let(::parse) ?: DeckState()
 
@@ -378,6 +428,7 @@ internal data class Saved(
             val typed = o.getJSONObject("typed")
             val drafts = o.getJSONObject("drafts")
             val attached = o.optJSONArray("attached")
+            val marks = o.optJSONObject("marks")
             DeckState(
                 tiles = (0 until tiles.length()).map { i ->
                     val t = tiles.getJSONObject(i)
@@ -401,6 +452,13 @@ internal data class Saved(
                 attached = (0 until (attached?.length() ?: 0)).map { i ->
                     val f = attached!!.getJSONObject(i)
                     Attached(f.getString("path"), f.getString("name"), f.getBoolean("picture"))
+                },
+                marks = marks?.keys()?.asSequence().orEmpty().associateWith { id ->
+                    val list = marks!!.getJSONArray(id)
+                    (0 until list.length()).map { i ->
+                        val m = list.getJSONObject(i)
+                        QuoteMark(m.getLong("to"), m.getInt("block"), m.getString("quote"), m.optString("text"))
+                    }
                 },
             )
         }.getOrNull()
