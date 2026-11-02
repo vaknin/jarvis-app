@@ -7,10 +7,11 @@
 //!   answering clears amber.
 //! - **Working:** any `work` open, or a job the tab started still running. It shows alongside the other
 //!   two.
-//! - **Quiet:** none of them.
+//! - **Quiet:** none of them. A reply the server wrote `quiet` (docs/autonomy-plan.md §2, the unread
+//!   rule) isn't new to read: it's a line on the digest screen, and `digest_new` is the tab's faint mark.
 
 use crate::autopilot::{ApTile, AskKind, Item};
-use crate::event::{Body, Event, SessionState, Urgency, Via, Who, WorkState};
+use crate::event::{Body, By, Event, SessionState, Urgency, Via, Who, WorkState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -64,6 +65,9 @@ pub struct Tile {
     /// The offsets behind `unread`, so a client folding on from a listing counts what the server does.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     new: Vec<u64>,
+    /// The offsets behind `digest_new`, the same way.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    digest: Vec<u64>,
 }
 
 /// A question of the tab's that's still open: answered by his `said` replying to `offset`, or closed
@@ -114,13 +118,18 @@ impl Tile {
         Some(self.jobs_said.clone()).filter(|l| !l.is_empty()).or_else(|| (n > 0).then(|| format!("{n} job{} running: {}", if n == 1 { "" } else { "s" }, self.jobs.join(", "))))
     }
 
+    /// Only digest lines are new: the faint mark, not the dot.
+    pub fn faint(&self) -> bool {
+        self.digest_new > 0 && !self.amber && !self.blue()
+    }
+
     pub fn quiet(&self) -> bool {
         !self.amber && !self.blue() && !self.working()
     }
 
     /// Whether a `seen` up to `upto` would change anything: a tab opened again and again adds no lines.
     pub fn seen_moves(&self, upto: u64) -> bool {
-        upto > self.seen && self.new.iter().any(|o| *o <= upto)
+        upto > self.seen && self.new.iter().chain(&self.digest).any(|o| *o <= upto)
     }
 
     pub fn apply(&mut self, e: &Event) {
@@ -180,6 +189,8 @@ impl Tile {
                 let seen = self.seen;
                 self.new.retain(|o| *o > seen);
                 self.unread = self.new.len();
+                self.digest.retain(|o| *o > seen);
+                self.digest_new = self.digest.len() as u32;
             }
             Body::Jobs { jobs, queued, line } => {
                 self.jobs = jobs.clone();
@@ -195,9 +206,22 @@ impl Tile {
                 self.asks.push(OpenAsk { q: q.clone(), offset: e.offset, at: e.at, ask: Some(*ask), level: *level, items: items.clone(), due: *due, blocks: *blocks, suggest_urgent: *suggest_urgent, ap: ap.clone() });
                 self.mark_new(e.offset);
             }
-            Body::Answer { q, .. } => self.asks.retain(|a| a.q != *q),
+            Body::Answer { q, by, .. } => {
+                self.asks.retain(|a| a.q != *q);
+                if *by == By::Default {
+                    self.mark_digest(e.offset);
+                }
+            }
             Body::Autopilot { ap } => self.autopilot = Some(ApTile::of(ap)),
-            Body::Assumed { .. } | Body::Quiet { .. } => {}
+            Body::Assumed { .. } => self.mark_digest(e.offset),
+            // The reply goes from the dot to the digest screen.
+            Body::Quiet { to, .. } => {
+                if let Some(i) = self.new.iter().position(|o| o == to) {
+                    self.new.remove(i);
+                    self.unread = self.new.len();
+                }
+                self.mark_digest(*to);
+            }
             Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Delivered { .. } | Body::Other => {}
         }
     }
@@ -210,6 +234,13 @@ impl Tile {
                 self.amber = false;
                 self.needs.clear();
             }
+        }
+    }
+
+    fn mark_digest(&mut self, offset: u64) {
+        if offset > self.seen && !self.digest.contains(&offset) {
+            self.digest.push(offset);
+            self.digest_new = self.digest.len() as u32;
         }
     }
 
