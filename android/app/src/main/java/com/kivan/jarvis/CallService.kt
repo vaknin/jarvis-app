@@ -57,8 +57,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * service, types phoneCall and microphone). He started it deliberately, so Jarvis speaks until he
  * hangs up, whatever the screen does, and music pauses until then. The rule
  * (`crates/voice/src/rules.rs`, fed by [Senses]) picks the mic: the Lark, a headset, the phone's.
+ * For now a call with the AirPods leaves them as speakers and hears him on the phone's mic, as a Lark call does.
  *
- * Everything but the Lark is a self-managed Telecom call (androidx core-telecom; a "leg", see [leg]),
+ * Everything but the Lark and that is a self-managed Telecom call (androidx core-telecom; a "leg", see [leg]),
  * so Android routes it like a real call: AirPods switch to their call profile, a press on them hangs
  * up, and another call coming in puts it on hold. If Telecom refuses, it still runs, with the audio
  * routed by hand (communication mode, the Bluetooth headset when there is one).
@@ -111,6 +112,8 @@ class CallService : Service() {
     private var routeWatch: AudioManager.OnCommunicationDeviceChangedListener? = null
     /** Held while the call's audio plays, so media keys come to Jarvis after it ([MediaKeys]). */
     private var keys: android.media.session.MediaSession? = null
+    /** Held while the AirPods are only speakers: no Telecom call for their press to end, so it comes here. */
+    private var press: android.media.session.MediaSession? = null
     /** The phone's own recognizer hearing Aviv's turns (thread #118), when on-device en-US is installed. */
     private var stt: PhoneStt? = null
 
@@ -271,6 +274,13 @@ class CallService : Service() {
             keys = null
             end.complete(Unit)
         }
+        val speakers = !want && route.mic == MicPick.PHONE
+        if (speakers && press == null) {
+            press = MediaKeys.session(this) { mainExecutor.execute { call?.hangup() } }
+        } else if (!speakers) {
+            press?.release()
+            press = null
+        }
     }
 
     /** The headset's press, or the system ending the call. */
@@ -386,8 +396,8 @@ class CallService : Service() {
     }
 
     /**
-     * One stretch of speaking: on the call route, or on a Lark call as media, which leaves the AirPods
-     * their music quality. A media track sleeps through a silence, so it doesn't hold the AirPods awake.
+     * One stretch of speaking: on the call route, or off it as media, which leaves the AirPods their
+     * music quality. A media track sleeps through a silence, so it doesn't hold the AirPods awake.
      * True if the route changed, false once the call is over.
      */
     private fun speakOn(c: VoiceCall, media: Boolean): Boolean {
@@ -456,7 +466,7 @@ class CallService : Service() {
             // Before reading the route: a change while a mic opens must still count.
             reroute = false
             val r = route
-            val got = if (r.mic == MicPick.LARK) micLark(c) else micOnce(c)
+            val got = if (r.telecom) micOnce(c) else micPlain(c, r)
             when (got) {
                 MicEnd.OVER -> break@loop
                 MicEnd.REROUTE -> failures = 0
@@ -471,7 +481,7 @@ class CallService : Service() {
             Voice.update(this) { it.copy(error = "the microphone stopped") }
             c.hangup()
         }
-        if (headsetFrames > 0) sendCallLog("a call on a headset")
+        if (headsetFrames > 0 || sense?.airpods == true) sendCallLog("a call on a headset")
     }
 
     private var lastWatchReopen = Long.MIN_VALUE / 2
@@ -487,9 +497,10 @@ class CallService : Service() {
         headsetFrames = 0
     }
 
-    private fun micLark(c: VoiceCall): MicEnd {
+    private fun micPlain(c: VoiceCall, r: Route): MicEnd {
         leftHeadset()
-        return PlainMic(audio, { route.rule }, { !running }, { reroute }, c::sendAudio).lark()
+        val plain = PlainMic(audio, { route.rule }, { !running }, { reroute }, c::sendAudio)
+        return if (r.mic == MicPick.LARK) plain.lark() else plain.phone()
     }
 
     private fun micOnce(c: VoiceCall): MicEnd {
@@ -851,6 +862,8 @@ class CallService : Service() {
         routes.release()
         keys?.release()
         keys = null
+        press?.release()
+        press = null
         Updater.callEnded(this)
         val scope = scope
         scope.launch {
@@ -871,6 +884,7 @@ class CallService : Service() {
         running = false
         call?.hangup()
         keys?.release()
+        press?.release()
         senses?.stop()
         super.onDestroy()
     }

@@ -43,7 +43,7 @@ internal class PlainMic(
         }
     }
 
-    /** The phone's own mic, with no echo to cancel: Jarvis isn't speaking. */
+    /** The phone's own mic, with no echo to cancel: Jarvis isn't speaking, or only in the AirPods. */
     fun phone(): MicEnd {
         val phone = am.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
         return record(RATE, AudioFormat.CHANNEL_IN_MONO, phone, FRAME_BYTES) { it }

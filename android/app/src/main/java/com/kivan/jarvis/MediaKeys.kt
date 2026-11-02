@@ -43,6 +43,8 @@ object MediaKeys {
     private const val PREF = "double_press_call"
     private const val FALLBACK_ID = 30
     private val CALLS = setOf(KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+    /** A single press of the stem while audio plays; a double press is NEXT. */
+    private val PRESSES = setOf(KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
 
     /** The switch in home's menu, "Double-press to call Jarvis"; on unless turned off. */
     fun enabled(context: Context) = prefs(context).getBoolean(PREF, true)
@@ -55,14 +57,21 @@ object MediaKeys {
     @Volatile var screenAt = 0L
     @Volatile private var pressedAt = 0L
 
-    /** For the length of a call: makes Jarvis the app media keys go to, and swallows them meanwhile. */
-    fun session(context: Context): MediaSession? {
+    /**
+     * For the length of a call: makes Jarvis the app media keys go to, and swallows them meanwhile. [pressed] takes the
+     * press on a call with no Telecom behind it to end it.
+     */
+    fun session(context: Context, pressed: () -> Unit = {}): MediaSession? {
         if (!enabled(context)) return null
         return runCatching {
             MediaSession(context, "jarvis-call").apply {
                 setMediaButtonBroadcastReceiver(ComponentName(context, Receiver::class.java))
                 setCallback(object : MediaSession.Callback() {
-                    override fun onMediaButtonEvent(intent: Intent) = true
+                    override fun onMediaButtonEvent(intent: Intent): Boolean {
+                        val key = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                        if (key?.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0 && key.keyCode in PRESSES) pressed()
+                        return true
+                    }
                 })
                 setPlaybackState(PlaybackState.Builder().setState(PlaybackState.STATE_PLAYING, 0, 1f).build())
                 isActive = true
