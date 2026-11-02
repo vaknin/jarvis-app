@@ -365,6 +365,39 @@ class CallService : Service() {
         override fun onLine(text: String) {
             Voice.line.value = text
         }
+
+        /** The server's mic test (its `mictest.rs`): say which mic and filter, and tee the Lark's raw audio to it. */
+        override fun onMicTest(on: Boolean, ns: Boolean?) {
+            LarkNs.test = if (on) ns else null
+            synchronized(raw) { raw.reset() }
+            micTest = on
+            micNote("mic test ${if (on) "on" else "off"}${ns?.let { ", phone noise filter $it for it" } ?: ""}")
+            if (!on) return
+            val lark = route.mic == MicPick.LARK
+            val mic = when (route.mic) { MicPick.LARK -> "lark"; MicPick.AIR_PODS -> "airpods"; else -> "phone" }
+            // The Lark's filter as the mic holds it (set within 2 s); the others record with it off (ours or none).
+            call?.micSetup(mic, lark && LarkNs.wanted(this@CallService))
+        }
+    }
+
+    /** Through a mic test: whether to tee, and the Lark's left channel waiting to go (about 200 ms at a time). */
+    @Volatile private var micTest = false
+    private val raw = java.io.ByteArrayOutputStream()
+
+    private fun teeRaw(stereo: ByteArray) {
+        if (!micTest) return
+        val c = call ?: return
+        val out = synchronized(raw) {
+            var i = 0
+            while (i + 3 < stereo.size) {
+                raw.write(stereo[i].toInt())
+                raw.write(stereo[i + 1].toInt())
+                i += 4
+            }
+            if (raw.size() < RAW_BATCH) return
+            raw.toByteArray().also { raw.reset() }
+        }
+        c.sendRaw(out)
     }
 
     /** The speaker: until the call is over and its last earcon has played. Then the service ends. */
@@ -515,7 +548,7 @@ class CallService : Service() {
 
     private fun micPlain(c: VoiceCall, r: Route): MicEnd {
         leftHeadset()
-        val plain = PlainMic(audio, { route.rule }, { !running }, { reroute }, c::sendAudio)
+        val plain = PlainMic(audio, { route.rule }, { !running }, { reroute }, c::sendAudio, { LarkNs.wanted(this) }, ::teeRaw)
         return if (r.mic == MicPick.LARK) plain.lark() else plain.phone()
     }
 
@@ -970,6 +1003,8 @@ class CallService : Service() {
     }
 
     companion object {
+        /** 200 ms of the Lark's left channel, 48 kHz PCM16. */
+        private const val RAW_BATCH = 19_200
         const val HANGUP = "hangup"
         const val MUTE = "mute"
         const val ROUTE = "route"

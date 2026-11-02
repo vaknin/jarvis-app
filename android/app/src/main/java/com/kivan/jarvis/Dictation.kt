@@ -165,5 +165,6 @@ object Dictation {
         override fun onFlush() {}
         override fun onPaused(on: Boolean) {}
         override fun onVoiceMuted(on: Boolean) {}
+        override fun onMicTest(on: Boolean, ns: Boolean?) {}
     }
 }

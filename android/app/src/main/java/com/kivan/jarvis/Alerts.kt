@@ -42,9 +42,16 @@ class Alerts private constructor(private val context: Context) : AlertListener {
             url == "/call" -> Callback.ring(context, null, title, text)
             // A tracked task landed or needs him: quiet, and the call is his to place.
             url.startsWith(TASK) -> Notifier.task(context, n, title, text, url.removePrefix(TASK))
-            // A setting from the server, nothing shown: the AirPods mic (thread #125). A value it doesn't know says so.
-            url.startsWith(AirPodsMic.URL) -> AirPodsMic.set(context, url.removePrefix(AirPodsMic.URL))
-                ?.let { Log.i("Jarvis", "airpods mic: ${it.key}"); null } ?: "unknown airpods mic value"
+            // Settings from the server, nothing shown: the AirPods mic (thread #125), the phone's noise filter on the
+            // Lark (thread t57). A value it doesn't know says so; a known one answers null, which is "done".
+            url.startsWith(AirPodsMic.URL) -> when (val m = AirPodsMic.set(context, url.removePrefix(AirPodsMic.URL))) {
+                null -> "unknown airpods mic value"
+                else -> { Log.i("Jarvis", "airpods mic: ${m.key}"); null }
+            }
+            url.startsWith(LarkNs.URL) -> when (val on = LarkNs.set(context, url.removePrefix(LarkNs.URL))) {
+                null -> "unknown lark noise filter value"
+                else -> { Log.i("Jarvis", "lark phone noise filter: ${if (on) "on" else "off"}"); null }
+            }
             else -> Notifier.jarvis(context, n, title, text, url)
         }
         if (why == null) prefs.edit().putString(RECENT, (recent + n.toString()).takeLast(KEEP).joinToString(",")).apply()

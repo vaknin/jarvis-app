@@ -66,6 +66,9 @@ pub trait VoiceListener: Send + Sync {
     fn on_joined(&self, id: String);
     /// Aviv hung up but the server may not have heard: deliver it later with [`voice_end`].
     fn on_hangup_owed(&self, id: String);
+    /// A mic test starts or ends: on, answer `mic_setup` and, on the Lark, `send_raw` until off.
+    /// `ns`: the phone's noise filter for the test, null for its setting.
+    fn on_mic_test(&self, on: bool, ns: Option<bool>);
 }
 
 /// After the line is back, this long before the log goes: the old pipe's own end line (its path,
@@ -215,6 +218,9 @@ impl Events for Bridge {
     fn line(&self, text: &str) {
         self.0.on_line(text.into());
     }
+    fn mic_test(&self, on: bool, ns: Option<bool>) {
+        self.0.on_mic_test(on, ns);
+    }
     fn kick(&self) {
         self.1.went_down.store(true, Ordering::SeqCst);
         crate::forum::forum_network_changed();
@@ -316,6 +322,17 @@ impl VoiceCall {
     /// One 20 ms mic frame (640 bytes PCM16 LE mono 16 kHz). Never blocks.
     pub fn send_audio(&self, pcm: Vec<u8>) {
         self.0.send_audio(pcm);
+    }
+
+    /// A mic test's answer to `on_mic_test` on: `mic` (lark, phone, airpods), the phone's noise filter on it.
+    pub fn mic_setup(&self, mic: String, ns: Option<bool>) {
+        self.0.mic_setup(mic, ns);
+    }
+
+    /// Through a mic test on the Lark: its raw left channel, 48 kHz PCM16 LE mono, any length.
+    pub fn send_raw(&self, pcm: Vec<u8>) {
+        use base64::Engine;
+        self.0.send_raw(base64::engine::general_purpose::STANDARD.encode(pcm));
     }
 
     /// How well Jarvis hears the mic right now, 0 to 1: a lock-free read for the screen's frame clock.

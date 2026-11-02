@@ -149,6 +149,9 @@ pub trait Events: Send + Sync + 'static {
     fn tab(&self, _id: &str, _n: u32) {}
     /// One line for the ongoing notification.
     fn line(&self, _text: &str) {}
+    /// A mic test starts or ends: on, the app answers [`Call::mic_setup`] and, on the Lark, sends
+    /// [`Call::send_raw`] until off. `ns`: the phone's noise filter for the test, else its setting.
+    fn mic_test(&self, _on: bool, _ns: Option<bool>) {}
     /// The server has this call as `id` (on the first `ready`, and if a resume became a new call):
     /// the app keeps it, so a call its process dies in can be rejoined.
     fn joined(&self, _id: &str) {}
@@ -214,6 +217,8 @@ enum Cmd {
     Hangup,
     NetworkChanged,
     Online(bool),
+    /// A text frame that matters only now (a mic test's): dropped with no line.
+    Now(String),
 }
 
 struct Shared {
@@ -405,6 +410,16 @@ impl Call {
 
     pub fn hangup(&self) {
         let _ = self.cmd.send(Cmd::Hangup);
+    }
+
+    /// A mic test's answer to `mictest` on: the mic and whether the phone's noise filter is on it.
+    pub fn mic_setup(&self, mic: String, ns: Option<bool>) {
+        let _ = self.cmd.send(Cmd::Now(Up::Micsetup { mic, ns }.json()));
+    }
+
+    /// Through a mic test on the Lark: its raw left channel (48 kHz PCM16 LE, base64).
+    pub fn send_raw(&self, pcm: String) {
+        let _ = self.cmd.send(Cmd::Now(Up::Raw { pcm }.json()));
     }
 
     /// The phone moved to another network: check the line now instead of waiting for it to go quiet.
@@ -633,6 +648,12 @@ async fn run(
                 }
                 Some(Cmd::Where(tab, speak, stay)) => {
                     r.send(Frame::Text(Up::Where { tab, speak, stay }.json())).await;
+                    None
+                }
+                Some(Cmd::Now(json)) => {
+                    if r.line.is_some() {
+                        r.send(Frame::Text(json)).await;
+                    }
                     None
                 }
                 Some(Cmd::Words(send)) => {
@@ -903,6 +924,7 @@ impl Run {
                 Some(Down::Words { text }) => sh.events.words(&text),
                 Some(Down::Tab { id, n }) => sh.events.tab(&id, n),
                 Some(Down::Line { text }) => sh.events.line(&text),
+                Some(Down::Mictest { on, ns }) => sh.events.mic_test(on, ns),
                 Some(Down::Ready { .. }) | Some(Down::Unknown) | None => {}
             },
             _ => {}

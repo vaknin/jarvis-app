@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.NoiseSuppressor
 import android.os.SystemClock
 import android.util.Log
 import com.kivan.jarvis.core.LarkFilter
@@ -24,6 +25,10 @@ internal class PlainMic(
     private val over: () -> Boolean,
     private val moved: () -> Boolean,
     private val send: (ByteArray) -> Unit,
+    /** The phone's noise filter on the Lark ([LarkNs]): asked at the open and every 2 s. */
+    private val ns: () -> Boolean = { false },
+    /** Each raw Lark read, before our filters (a mic test's). */
+    private val tee: (ByteArray) -> Unit = {},
 ) {
     private var lastReopen = Long.MIN_VALUE / 2
 
@@ -37,7 +42,7 @@ internal class PlainMic(
         }
         val filter = LarkFilter()
         return try {
-            record(LARK_RATE, AudioFormat.CHANNEL_IN_STEREO, lark, LARK_FRAME_BYTES, filter::feed)
+            record(LARK_RATE, AudioFormat.CHANNEL_IN_STEREO, lark, LARK_FRAME_BYTES, ns) { tee(it); filter.feed(it) }
         } finally {
             filter.close()
         }
@@ -46,10 +51,11 @@ internal class PlainMic(
     /** The phone's own mic, with no echo to cancel: Jarvis isn't speaking, or only in the AirPods. */
     fun phone(): MicEnd {
         val phone = am.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
-        return record(RATE, AudioFormat.CHANNEL_IN_MONO, phone, FRAME_BYTES) { it }
+        return record(RATE, AudioFormat.CHANNEL_IN_MONO, phone, FRAME_BYTES, null) { it }
     }
 
-    private fun record(rate: Int, channels: Int, want: AudioDeviceInfo?, size: Int, convert: (ByteArray) -> ByteArray): MicEnd {
+    /** [nsOn]: hold the phone's noise filter on this open and keep it as that says; null leaves it alone. */
+    private fun record(rate: Int, channels: Int, want: AudioDeviceInfo?, size: Int, nsOn: (() -> Boolean)?, convert: (ByteArray) -> ByteArray): MicEnd {
         val min = AudioRecord.getMinBufferSize(rate, channels, AudioFormat.ENCODING_PCM_16BIT)
         val rec = try {
             @Suppress("MissingPermission")
@@ -59,6 +65,21 @@ internal class PlainMic(
             return MicEnd.FAILED
         }
         if (want != null && !rec.setPreferredDevice(want)) Log.w(TAG, "mic: ${CallService.name(want)} refused as the preferred input")
+        // Our own handle, so it's ours to say: off unless asked, whatever the system attached (thread t57).
+        val ns = if (nsOn != null && NoiseSuppressor.isAvailable()) runCatching { NoiseSuppressor.create(rec.audioSessionId) }.getOrNull() else null
+        fun applyNs() {
+            if (ns == null || nsOn == null) return
+            val want = nsOn()
+            if (ns.enabled != want) {
+                runCatching { ns.enabled = want }
+                micNote("phone noise filter ${if (ns.enabled) "on" else "off"}")
+            }
+            LarkNs.active = ns.enabled
+        }
+        if (nsOn != null) {
+            if (ns == null) micNote("phone noise filter: none on this mic") else micNote("phone noise filter was ${if (ns.enabled) "on" else "off"} at the open")
+            applyNs()
+        }
         try {
             rec.startRecording()
             micNote("open: ${rule()}: wanted ${CallService.name(want)}, on ${CallService.name(rec.routedDevice)}, $rate Hz")
@@ -81,6 +102,7 @@ internal class PlainMic(
                 loudest = maxOf(loudest, p)
                 quiet = if (p < SILENT_PEAK) quiet + 1 else 0
                 if (++reads % 100 == 0L) {
+                    applyNs()
                     micNote("peak $loudest on ${CallService.name(rec.routedDevice)}")
                     loudest = 0
                     if (want != null && rec.routedDevice?.id != want.id && System.nanoTime() - lastReopen > 10_000_000_000L) {
@@ -98,6 +120,8 @@ internal class PlainMic(
             return MicEnd.FAILED
         } finally {
             runCatching { rec.stop() }
+            ns?.release()
+            if (nsOn != null) LarkNs.active = null
             rec.release()
         }
     }

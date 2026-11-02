@@ -48,6 +48,10 @@ pub enum Up {
     },
     /// What he said on screen: `send` goes, otherwise it's dropped (the phone took it into a box).
     Words { send: bool },
+    /// Answering a `mictest` on: the mic it records from and whether the phone's noise filter is on it.
+    Micsetup { mic: String, ns: Option<bool> },
+    /// Through a mic test on the Lark: its left channel as it came, 48 kHz PCM16 LE, base64.
+    Raw { pcm: String },
     Hangup,
 }
 
@@ -93,6 +97,13 @@ pub enum Down {
     Tab { id: String, n: u32 },
     /// One line for the ongoing notification: no sound, no ping.
     Line { text: String },
+    /// A mic test starts or ends (the server's `mictest.rs`). On: answer `micsetup` and, on the Lark,
+    /// send its raw audio as `raw` until off. `ns`: the phone's noise filter for the test, else its setting.
+    Mictest {
+        on: bool,
+        #[serde(default)]
+        ns: Option<bool>,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -152,6 +163,9 @@ mod tests {
         assert_eq!(Down::parse(r#"{"type":"words","text":"so"}"#), Some(Down::Words { text: "so".into() }));
         assert_eq!(Down::parse(r#"{"type":"tab","id":"t3","n":3}"#), Some(Down::Tab { id: "t3".into(), n: 3 }));
         assert_eq!(Down::parse(r#"{"type":"line","text":"Done."}"#), Some(Down::Line { text: "Done.".into() }));
+        assert_eq!(Down::parse(r#"{"type":"mictest","on":true,"ns":false}"#), Some(Down::Mictest { on: true, ns: Some(false) }));
+        assert_eq!(Down::parse(r#"{"type":"mictest","on":false}"#), Some(Down::Mictest { on: false, ns: None }));
+        assert_eq!(Up::Micsetup { mic: "lark".into(), ns: Some(false) }.json(), r#"{"type":"micsetup","mic":"lark","ns":false}"#);
         assert_eq!(Down::parse(r#"{"type":"later","x":1}"#), Some(Down::Unknown));
         assert_eq!(Down::parse("not json"), None);
     }
