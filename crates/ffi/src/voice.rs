@@ -135,6 +135,8 @@ pub struct Sensed {
     pub airpods: bool,
     /// A real call, not dictation.
     pub call: bool,
+    /// The AirPods mic setting is on: a call hears him on their mic, not the phone's.
+    pub airpods_mic: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -155,7 +157,7 @@ pub struct Route {
 /// Which mic, and whether Jarvis speaks.
 #[uniffi::export]
 pub fn pick_route(s: Sensed) -> Route {
-    let p = rules::pick(rules::Sense { lark: s.lark, airpods: s.airpods, call: s.call });
+    let p = rules::pick(rules::Sense { lark: s.lark, airpods: s.airpods, call: s.call, airpods_mic: s.airpods_mic });
     let mic = match p.mic {
         rules::Mic::Lark => MicPick::Lark,
         rules::Mic::Phone => MicPick::Phone,

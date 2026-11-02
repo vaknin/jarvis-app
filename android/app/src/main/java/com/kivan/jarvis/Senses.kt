@@ -14,7 +14,7 @@ import com.kivan.jarvis.core.Sensed
  * the main thread when a device comes or goes. Nothing about the screen or music: being on a call
  * decides, and he chose that.
  */
-class Senses(context: Context, private val call: Boolean, private val changed: (Sensed) -> Unit) {
+class Senses(private val context: Context, private val call: Boolean, private val changed: (Sensed) -> Unit) {
     private val am = context.getSystemService(AudioManager::class.java)
     private val main = Handler(Looper.getMainLooper())
     private var last: Sensed? = null
@@ -25,6 +25,7 @@ class Senses(context: Context, private val call: Boolean, private val changed: (
             lark = fake?.lark ?: (lark(am) != null),
             airpods = fake?.airpods ?: am.availableCommunicationDevices.any(::headset),
             call = call,
+            airpodsMic = AirPodsMic.mode(context).budsMic,
         )
     }
 
@@ -81,6 +82,11 @@ class Senses(context: Context, private val call: Boolean, private val changed: (
                 field = f
                 one?.let { s -> s.main.post(s::look) }
             }
+
+        /** Something the rule reads changed outside the devices (the AirPods mic setting): it looks again. */
+        fun again() {
+            one?.let { s -> s.main.post(s::look) }
+        }
 
         @Volatile private var one: Senses? = null
     }

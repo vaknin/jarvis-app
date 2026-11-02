@@ -8,11 +8,6 @@
 //! the Lark, else the phone's, so the AirPods keep their music at full quality. The pick reads no
 //! screen, so a screen turning over mid-call can't flip the mic.
 
-/// On a call the AirPods are only speakers, as on a Lark call, and the phone's own mic hears him.
-/// Temporary, until their mic is fixed; `false` puts the AirPods' mic back. Aviv, 2026-11-02: "I can
-/// hear you in the AirPods. speakers. speakers in my ears and you will hear me from the phone. But
-/// just as a temporary fix, can we do that quickly?"
-const AIRPODS_AS_SPEAKERS: bool = true;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Sense {
@@ -21,6 +16,11 @@ pub struct Sense {
     pub airpods: bool,
     /// A real call he started or answered. Otherwise he's dictating.
     pub call: bool,
+    /// The app's AirPods mic setting is on. Off, a call leaves the AirPods only speakers, as on a Lark
+    /// call, and the phone's own mic hears him: Aviv, 2026-11-02, "I can hear you in the AirPods.
+    /// speakers. speakers in my ears and you will hear me from the phone. But just as a temporary fix".
+    /// On is the real fix's way back to their mic (`AirPodsMic.kt`).
+    pub airpods_mic: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,10 +41,7 @@ pub struct Pick {
 }
 
 pub fn pick(s: Sense) -> Pick {
-    pick_with(s, AIRPODS_AS_SPEAKERS)
-}
-
-fn pick_with(s: Sense, speakers: bool) -> Pick {
+    let speakers = !s.airpods_mic;
     let (mic, rule) = match () {
         _ if s.call && s.lark => (Mic::Lark, "call: lark plugged in"),
         _ if s.call && s.airpods && speakers => (Mic::Phone, "call: phone mic, airpods as speakers"),
@@ -64,7 +61,7 @@ mod tests {
     use super::*;
 
     fn at(lark: bool, airpods: bool, call: bool) -> Pick {
-        pick(Sense { lark, airpods, call })
+        pick(Sense { lark, airpods, call, airpods_mic: false })
     }
 
     #[test]
@@ -85,17 +82,23 @@ mod tests {
     }
 
     #[test]
-    fn the_airpods_mic_comes_back_with_the_setting_off() {
-        let on_airpods = pick_with(Sense { lark: false, airpods: true, call: true }, false);
+    fn the_airpods_mic_comes_back_with_the_setting_on() {
+        let on_airpods = pick(Sense { lark: false, airpods: true, call: true, airpods_mic: true });
         assert_eq!(on_airpods, Pick { mic: Mic::AirPods, speak: true, telecom: true, rule: "call: airpods mic" });
     }
 
     #[test]
     fn dictating_never_touches_the_airpods() {
-        for lark in [false, true] {
-            let p = at(lark, true, false);
+        for (lark, airpods_mic) in [(false, false), (true, false), (false, true), (true, true)] {
+            let p = pick(Sense { lark, airpods: true, call: false, airpods_mic });
             assert!(p.mic != Mic::AirPods && !p.telecom && !p.speak);
         }
+    }
+
+    #[test]
+    fn the_lark_outranks_the_airpods_mic_setting() {
+        let p = pick(Sense { lark: true, airpods: true, call: true, airpods_mic: true });
+        assert_eq!((p.mic, p.telecom), (Mic::Lark, false));
     }
 
     #[test]

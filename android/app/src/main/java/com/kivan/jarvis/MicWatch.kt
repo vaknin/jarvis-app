@@ -28,8 +28,12 @@ class MicWatch {
     /** A reopen is waiting for a pause, so it doesn't eat his words. */
     private var due = true
 
-    /** One frame's peak; [listening]: Jarvis is quiet and the mic is live, so what's there is Aviv. True: reopen now. */
-    fun frame(peak: Int, listening: Boolean, log: (String) -> Unit): Boolean {
+    /**
+     * One frame's peak; [listening]: Jarvis is quiet and the mic is live, so what's there is Aviv. True: reopen now.
+     * [quiet] runs first when his voice reads quiet: it moves the mic to the other AirPod and says so, or false
+     * ([AirPodsMic]); a move gets its own reopen. [fine] runs for each window at the usual level.
+     */
+    fun frame(peak: Int, listening: Boolean, log: (String) -> Unit, quiet: (Int) -> Boolean = { false }, fine: () -> Unit = {}): Boolean {
         age++
         if (due) {
             gap = if (peak < VOICE) gap + 1 else 0
@@ -56,9 +60,12 @@ class MicWatch {
         val level = peaks.sorted()[FRAMES * 9 / 10]
         if (level >= FINE) {
             left = QUIET_REOPENS
+            fine()
             return false
         }
-        if (left > 0) {
+        if (quiet(level)) {
+            due = true
+        } else if (left > 0) {
             left--
             log("voice at peak $level: reopening in the next pause")
             due = true
