@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use jarvis_voice::{Call, Events, Lark, Status, Timing, Word, rules, websocket};
+use jarvis_voice::{Call, Events, Lark, Status, Timing, rules, websocket};
 
 use crate::RT;
 
@@ -56,13 +56,6 @@ pub trait VoiceListener: Send + Sync {
     /// Aviv's mic is muted by voice ("mute my mic") or not any more. The mic keeps streaming (the
     /// server listens for "unmute"); only the screen changes. A tap of mute or unmute ends it.
     fn on_voice_muted(&self, on: bool);
-    /// (A call with `phone_stt`) the phone's recognizer opens session `id`; the call's mic audio
-    /// follows as the server got it (20 ms frames, or a backlog at once), then `on_stt_close`.
-    /// Answer `VoiceCall.stt_done` once the session is over, however it ended. Never block here.
-    fn on_stt_open(&self, id: u64);
-    fn on_stt_audio(&self, id: u64, pcm: Vec<u8>);
-    /// No more audio for session `id`: the recognizer finishes it.
-    fn on_stt_close(&self, id: u64);
     /// All Aviv has said on screen and hasn't sent; empty once it's gone.
     fn on_words(&self, text: String);
     /// His words opened tab `n`, or a word moved him there.
@@ -73,13 +66,6 @@ pub trait VoiceListener: Send + Sync {
     fn on_joined(&self, id: String);
     /// Aviv hung up but the server may not have heard: deliver it later with [`voice_end`].
     fn on_hangup_owed(&self, id: String);
-}
-
-/// One word the phone's recognizer heard: as formatted, and its start in ms from its session's first sample.
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct SttWord {
-    pub text: String,
-    pub start_ms: u64,
 }
 
 /// After the line is back, this long before the log goes: the old pipe's own end line (its path,
@@ -220,15 +206,6 @@ impl Events for Bridge {
     fn voice_muted(&self, on: bool) {
         self.0.on_voice_muted(on);
     }
-    fn stt_open(&self, id: u64) {
-        self.0.on_stt_open(id);
-    }
-    fn stt_audio(&self, id: u64, pcm: &[u8]) {
-        self.0.on_stt_audio(id, pcm.to_vec());
-    }
-    fn stt_close(&self, id: u64) {
-        self.0.on_stt_close(id);
-    }
     fn words(&self, text: &str) {
         self.0.on_words(text.into());
     }
@@ -280,23 +257,22 @@ pub struct VoiceCall(Call);
 
 #[uniffi::export]
 impl VoiceCall {
-    /// Dials `url` (`ws://127.0.0.1:8790/call`, the forum tunnel's voice port) at once. `phone_stt`:
-    /// the phone's own recognizer transcribes Aviv's turns (the listener's `on_stt_*`).
+    /// Dials `url` (`ws://127.0.0.1:8790/call`, the forum tunnel's voice port) at once.
     #[uniffi::constructor]
-    pub fn new(url: String, listener: Box<dyn VoiceListener>, phone_stt: bool) -> Arc<Self> {
+    pub fn new(url: String, listener: Box<dyn VoiceListener>) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
-        Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), None, phone_stt)))
+        Arc::new(VoiceCall(Call::start_about(websocket(url), bridge(listener), Timing::default(), None)))
     }
 
     /// [`VoiceCall::new`] standing at `tab` from the start: a tab's id, or `""` the wall, where his
     /// first words open a new tab. `task`: a tracked task's slug, for Jarvis to open with.
     #[uniffi::constructor]
-    pub fn at(url: String, listener: Box<dyn VoiceListener>, tab: String, task: Option<String>, phone_stt: bool) -> Arc<Self> {
+    pub fn at(url: String, listener: Box<dyn VoiceListener>, tab: String, task: Option<String>) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
         let about = task.map(|slug| jarvis_voice::proto::About { topic: 0, title: String::new(), text: String::new(), task: Some(slug) });
-        Arc::new(VoiceCall(Call::start_at(websocket(url), bridge(listener), Timing::default(), about, phone_stt, tab)))
+        Arc::new(VoiceCall(Call::start_at(websocket(url), bridge(listener), Timing::default(), about, tab)))
     }
 
     /// Dictation in `tab` (`""` the wall): his words come back through `on_words`, nothing sounds,
@@ -311,30 +287,30 @@ impl VoiceCall {
     /// [`VoiceCall::new`] for a call about forum thread `topic` (its notification's Call button): the
     /// first hello carries the thread's title and newest posts, so Jarvis opens with it.
     #[uniffi::constructor]
-    pub fn about(url: String, listener: Box<dyn VoiceListener>, topic: u64, title: String, text: String, phone_stt: bool) -> Arc<Self> {
+    pub fn about(url: String, listener: Box<dyn VoiceListener>, topic: u64, title: String, text: String) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
         let about = jarvis_voice::proto::About { topic, title, text, task: None };
-        Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
+        Arc::new(VoiceCall(Call::start_about(websocket(url), bridge(listener), Timing::default(), Some(about))))
     }
 
     /// A call placed from a tracked task's Call Jarvis button: the server opens it with the task's file.
     #[uniffi::constructor]
-    pub fn about_task(url: String, listener: Box<dyn VoiceListener>, slug: String, phone_stt: bool) -> Arc<Self> {
+    pub fn about_task(url: String, listener: Box<dyn VoiceListener>, slug: String) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
         let about = jarvis_voice::proto::About { topic: 0, title: String::new(), text: String::new(), task: Some(slug) };
-        Arc::new(VoiceCall(Call::start_full(websocket(url), bridge(listener), Timing::default(), Some(about), phone_stt)))
+        Arc::new(VoiceCall(Call::start_about(websocket(url), bridge(listener), Timing::default(), Some(about))))
     }
 
     /// Back to the dropped call `id` the app had left (its process died mid-call, or Aviv answered
     /// Jarvis calling back). `aviv_left`: Jarvis opens with where they were cut off; without it (a
     /// restart Aviv never noticed, like an update in a pause) the call just goes on.
     #[uniffi::constructor]
-    pub fn rejoin(url: String, listener: Box<dyn VoiceListener>, id: String, phone_stt: bool, aviv_left: bool) -> Arc<Self> {
+    pub fn rejoin(url: String, listener: Box<dyn VoiceListener>, id: String, aviv_left: bool) -> Arc<Self> {
         crate::init_logging();
         let _rt = RT.enter();
-        Arc::new(VoiceCall(Call::rejoin(websocket(url), bridge(listener), Timing::default(), id, phone_stt, aviv_left)))
+        Arc::new(VoiceCall(Call::rejoin(websocket(url), bridge(listener), Timing::default(), id, aviv_left)))
     }
 
     /// One 20 ms mic frame (640 bytes PCM16 LE mono 16 kHz). Never blocks.
@@ -371,12 +347,6 @@ impl VoiceCall {
     /// His words on screen: `send` goes, otherwise it's dropped.
     pub fn send_words(&self, send: bool) {
         self.0.send_words(send);
-    }
-
-    /// The recognizer finished session `id`: its words, or null if it failed.
-    pub fn stt_done(&self, id: u64, words: Option<Vec<SttWord>>) {
-        let words = words.map(|w| w.into_iter().map(|w| Word { text: w.text, start_ms: w.start_ms }).collect());
-        self.0.stt_done(id, words);
     }
 
     pub fn hangup(&self) {

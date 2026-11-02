@@ -110,15 +110,6 @@ impl Events for Log {
     fn voice_muted(&self, on: bool) {
         self.0.lock().unwrap().push(format!("voice muted {on}"));
     }
-    fn stt_open(&self, id: u64) {
-        self.0.lock().unwrap().push(format!("stt open {id}"));
-    }
-    fn stt_audio(&self, id: u64, pcm: &[u8]) {
-        self.0.lock().unwrap().push(format!("stt audio {id} {}", pcm.len()));
-    }
-    fn stt_close(&self, id: u64) {
-        self.0.lock().unwrap().push(format!("stt close {id}"));
-    }
     fn kick(&self) {
         self.0.lock().unwrap().push("kick".into());
     }
@@ -264,7 +255,7 @@ async fn hangup_sends_hangup_and_ends_with_the_earcon() {
 async fn a_new_tab_is_said_in_the_hello_until_the_server_has_the_call() {
     let (connector, mut servers, _) = fake();
     let log = Arc::new(Log::default());
-    let _call = Call::start_at(connector, log.clone(), Timing::default(), None, false, String::new());
+    let _call = Call::start_at(connector, log.clone(), Timing::default(), None, String::new());
     let mut s = servers.recv().await.unwrap();
     assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":null,"tab":""}"#);
     // A line that breaks before `ready` is still the first hello.
@@ -799,7 +790,7 @@ async fn a_rejoin_resumes_the_call_saying_so_once_and_never_gives_up() {
     let (conn, mut accept, refuse) = fake();
     let log = Arc::new(Log::default());
     refuse.store(true, Ordering::SeqCst);
-    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c7".into(), false, true);
+    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c7".into(), true);
     // Not the first connect's 45 s: the server has this call.
     tokio::time::sleep(Duration::from_secs(120)).await;
     assert!(!log.0.lock().unwrap().iter().any(|l| l.starts_with("status Ended")));
@@ -819,7 +810,7 @@ async fn a_rejoin_resumes_the_call_saying_so_once_and_never_gives_up() {
 async fn a_restart_aviv_never_noticed_resumes_without_saying_so() {
     let (conn, mut accept, _refuse) = fake();
     let log = Arc::new(Log::default());
-    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c8".into(), false, false);
+    let _call = Call::rejoin(conn, log.clone(), Timing::default(), "c8".into(), false);
     let mut s = accept.recv().await.unwrap();
     assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c8"}"#);
     s.send(r#"{"type":"ready","call":"c8"}"#);
@@ -1026,33 +1017,6 @@ async fn a_call_about_a_thread_says_so_until_the_server_has_it_but_never_on_resu
     drop(s);
     let mut s = accept.recv().await.unwrap();
     assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":"c1","have":0,"queued_ms":0}"#);
-}
-
-#[tokio::test(start_paused = true)]
-async fn phone_stt_says_so_feeds_the_recognizer_and_answers_each_cut() {
-    let (conn, mut accept, _refuse) = fake();
-    let log = Arc::new(Log::default());
-    let call = Call::start_full(conn, log.clone(), Timing::default(), None, true);
-    let mut s = accept.recv().await.unwrap();
-    assert_eq!(s.text().await, r#"{"type":"hello","version":1,"resume":null,"stt":"phone"}"#);
-    s.send(r#"{"type":"ready","call":"c1"}"#);
-    wait_for(&log, "status Listening").await;
-    // One second of mic: 50 frames, each fed to session 1 as it goes out.
-    for _ in 0..50 {
-        call.send_audio(vec![0; 640]);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    wait_for(&log, "stt open 1").await;
-    assert_eq!(log.0.lock().unwrap().iter().filter(|l| *l == "stt audio 1 640").count(), 50);
-    // The turn ran 0.2 s to 0.8 s: session 1 closes, session 2 opens at 0.8 s with the 0.2 s since.
-    s.send(r#"{"type":"cut","id":1,"from":3200,"to":12800}"#);
-    wait_for(&log, "stt close 1").await;
-    wait_for(&log, "stt audio 2 6400").await;
-    tokio::time::sleep(Duration::from_millis(900)).await;
-    let w = |t: &str, ms| jarvis_voice::Word { text: t.into(), start_ms: ms };
-    call.stt_done(1, Some(vec![w("Check", 300), w("it.", 500), w("Next.", 850)]));
-    let heard = s.text().await;
-    assert!(heard.starts_with(r#"{"type":"heard","id":1,"text":"Check it.","ms":9"#), "{heard}");
 }
 
 #[tokio::test(start_paused = true)]

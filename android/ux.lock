@@ -9,3 +9,7 @@ removed flow android-reply-button
 removed flow android-airpods-call-route
   what: For now a call with the AirPods connected isn't Android's own call: Jarvis plays in them as media and the phone's mic hears him, so that call has no call-style notification and no working route button. A stem press still hangs up. AIRPODS_AS_SPEAKERS in crates/voice/src/rules.rs turns it back.
   approved: 2026-11-02 "I can hear you in the AirPods. speakers. speakers in my ears and you will hear me from the phone. But just as a temporary fix, can we do that quickly?"
+
+removed flow android-call-phone-stt
+  what: On a call the phone's own on-device recognizer no longer hears Aviv's turns beside the server's Parakeet (PhoneStt, the hello's "stt":"phone", cut/heard). Parakeet on the server is the only speech to text.
+  approved: 2026-11-02 "So we don't need this backup. You can delete it from the code So, yeah, no need for that. Only parakeet."

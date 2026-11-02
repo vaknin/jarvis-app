@@ -9,12 +9,10 @@ pub mod lark;
 pub mod player;
 pub mod proto;
 pub mod rules;
-pub mod stt;
 
 pub use call::{Call, Connector, Events, Frame, Status, Timing, websocket};
 pub use lark::Lark;
 pub use rules::{Mic, Pick, Sense};
-pub use stt::Word;
 pub use player::{Earcon, Player};
 
 /// Samples per second, both ways.

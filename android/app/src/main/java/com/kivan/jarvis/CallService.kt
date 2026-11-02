@@ -114,8 +114,6 @@ class CallService : Service() {
     private var keys: android.media.session.MediaSession? = null
     /** Held while the AirPods are only speakers: no Telecom call for their press to end, so it comes here. */
     private var press: android.media.session.MediaSession? = null
-    /** The phone's own recognizer hearing Aviv's turns (thread #118), when on-device en-US is installed. */
-    private var stt: PhoneStt? = null
     /** The AirPods mic setting's link to the buds, from the first open on their mic to the call's end ([AirPodsMic]). */
     private var aap: Aap? = null
     private var buds: BudChoice? = null
@@ -182,20 +180,17 @@ class CallService : Service() {
         firstOpen = true
         watch = MicWatch()
         started = System.currentTimeMillis()
-        stt?.stop()
-        stt = if (PhoneStt.available(this)) PhoneStt(this) else null
-        val listener = Listener(stt, rejoin.takeIf { auto })
+        val listener = Listener(rejoin.takeIf { auto })
         val c = if (rejoin != null) {
             Log.i(TAG, "rejoining call $rejoin${if (auto) " (the app restarted)" else ""}")
             CallStore.joined(this, rejoin)
-            VoiceCall.rejoin(BuildConfig.VOICE_URL, listener, rejoin, stt != null, !auto)
+            VoiceCall.rejoin(BuildConfig.VOICE_URL, listener, rejoin, !auto)
         } else {
             val task = intent?.getStringExtra(TASK)
             // A hello that names no place: Jarvis rang, and the server knows who asked.
-            if (task != null || tab != null) VoiceCall.at(BuildConfig.VOICE_URL, listener, tab ?: Voice.NEW_TAB, task, stt != null)
-            else VoiceCall(BuildConfig.VOICE_URL, listener, stt != null)
+            if (task != null || tab != null) VoiceCall.at(BuildConfig.VOICE_URL, listener, tab ?: Voice.NEW_TAB, task)
+            else VoiceCall(BuildConfig.VOICE_URL, listener)
         }
-        stt?.call = c
         call = c
         Voice.call = c
         MicLevel.source = c::micLevel
@@ -300,7 +295,7 @@ class CallService : Service() {
     }
 
     /** `resumed`: the call the app restarted into, which Aviv didn't ask for: one the server no longer has isn't started. */
-    private inner class Listener(private val stt: PhoneStt?, private val resumed: String?) : VoiceListener {
+    private inner class Listener(private val resumed: String?) : VoiceListener {
         override fun onState(state: CallState) {
             Log.i(TAG, "call: $state")
             val up = state is CallState.Listening || state is CallState.Thinking || state is CallState.Speaking
@@ -369,18 +364,6 @@ class CallService : Service() {
 
         override fun onLine(text: String) {
             Voice.line.value = text
-        }
-
-        override fun onSttOpen(id: ULong) {
-            stt?.open(id.toLong())
-        }
-
-        override fun onSttAudio(id: ULong, pcm: ByteArray) {
-            stt?.audio(id.toLong(), pcm)
-        }
-
-        override fun onSttClose(id: ULong) {
-            stt?.close(id.toLong())
         }
     }
 
@@ -890,9 +873,6 @@ class CallService : Service() {
         legEnd?.complete(Unit)
         legEnd = null
         Voice.line.value = ""
-        stt?.stop()
-        stt = null
-        PhoneStt.check(this)
         routes.release()
         keys?.release()
         keys = null

@@ -52,7 +52,6 @@ use crate::{
     meter::{MicMeter, level, rms},
     player::{Earcon, Player},
     proto::{About, Down, Up},
-    stt::{Do, Stt, Word},
 };
 
 /// One WebSocket message, as the call sees it.
@@ -138,13 +137,6 @@ pub trait Events: Send + Sync + 'static {
     fn paused(&self, _on: bool) {}
     /// Aviv's mic is muted by voice or not any more (the mic keeps streaming; the screen shows it).
     fn voice_muted(&self, _on: bool) {}
-    /// (A call started with phone speech to text) the app's recognizer opens session `id`: the
-    /// call's mic audio follows, as the server got it, then [`Events::stt_close`]. The app answers
-    /// [`Call::stt_done`] with its words once the session is over, however it ended.
-    fn stt_open(&self, _id: u64) {}
-    fn stt_audio(&self, _id: u64, _pcm: &[u8]) {}
-    /// No more audio for session `id`: the recognizer finishes it.
-    fn stt_close(&self, _id: u64) {}
     /// The line stalled or broke, or the dial after it is slow: the transport should look for its
     /// paths again now (the ffi: iroh's `network_change`) instead of waiting for the system to say
     /// the network changed.
@@ -222,7 +214,6 @@ enum Cmd {
     Hangup,
     NetworkChanged,
     Online(bool),
-    SttDone(u64, Option<Vec<Word>>),
 }
 
 struct Shared {
@@ -305,35 +296,29 @@ impl Call {
 
     /// A call that stands at `tab` from its first hello: a tab's id, or `""` the wall, where his
     /// first words open a new tab. `about`: Jarvis opens with it.
-    pub fn start_at(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, tab: String) -> Call {
-        Self::begin(connector, events, timing, about, phone_stt, None, Start { tab: Some(tab), speak: None })
+    pub fn start_at(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, tab: String) -> Call {
+        Self::begin(connector, events, timing, about, None, Start { tab: Some(tab), speak: None })
     }
 
     /// Dictation in `tab` (`""` the wall): the same line, and nothing about it sounds. His words come
     /// back through [`Events::words`], Jarvis stays silent, and no hangup is ever owed.
     pub fn dictate(connector: Connector, events: Arc<dyn Events>, timing: Timing, tab: String) -> Call {
-        Self::begin(connector, events, timing, None, false, None, Start { tab: Some(tab), speak: Some(false) })
+        Self::begin(connector, events, timing, None, None, Start { tab: Some(tab), speak: Some(false) })
     }
 
     /// [`Call::start`], for a call about one thread: the first hello says which, so Jarvis opens with it.
     pub fn start_about(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>) -> Call {
-        Self::start_full(connector, events, timing, about, false)
-    }
-
-    /// [`Call::start_about`]; `phone_stt`: the app's own recognizer transcribes Aviv's turns (the
-    /// hello says `"stt":"phone"`, and [`Events::stt_open`] and its kin feed it; see `stt.rs`).
-    pub fn start_full(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool) -> Call {
-        Self::begin(connector, events, timing, about, phone_stt, None, Start::default())
+        Self::begin(connector, events, timing, about, None, Start::default())
     }
 
     /// Back to the dropped call `id` the app had left (its process died mid-call, or Aviv answered
     /// Jarvis calling back): its first hello resumes `id`, with `rejoin` when Aviv had left it
     /// (`aviv_left`), and from there it's a call like any other.
-    pub fn rejoin(connector: Connector, events: Arc<dyn Events>, timing: Timing, id: String, phone_stt: bool, aviv_left: bool) -> Call {
-        Self::begin(connector, events, timing, None, phone_stt, Some((id, aviv_left)), Start::default())
+    pub fn rejoin(connector: Connector, events: Arc<dyn Events>, timing: Timing, id: String, aviv_left: bool) -> Call {
+        Self::begin(connector, events, timing, None, Some((id, aviv_left)), Start::default())
     }
 
-    fn begin(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, phone_stt: bool, rejoin: Option<(String, bool)>, start: Start) -> Call {
+    fn begin(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, rejoin: Option<(String, bool)>, start: Start) -> Call {
         let dictating = start.speak == Some(false);
         let shared = Arc::new(Shared {
             player: Mutex::new(Player::new(timing.jitter)),
@@ -351,7 +336,7 @@ impl Call {
         let (cmd, cmd_rx) = mpsc::unbounded_channel();
         // 10 frames (200 ms): a send that lags more than that drops the newest speech, not the call.
         let (mic, mic_rx) = mpsc::channel(10);
-        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, phone_stt, rejoin, start));
+        tokio::spawn(run(connector, shared.clone(), cmd_rx, mic_rx, timing, about, rejoin, start));
         Call { shared, cmd, mic, meter: MicMeter::default() }
     }
 
@@ -422,12 +407,6 @@ impl Call {
         let _ = self.cmd.send(Cmd::Hangup);
     }
 
-    /// The app's recognizer finished session `id`: its words (start in ms from the session's first
-    /// sample), or `None` if it failed.
-    pub fn stt_done(&self, id: u64, words: Option<Vec<Word>>) {
-        let _ = self.cmd.send(Cmd::SttDone(id, words));
-    }
-
     /// The phone moved to another network: check the line now instead of waiting for it to go quiet.
     pub fn network_changed(&self) {
         let _ = self.cmd.send(Cmd::NetworkChanged);
@@ -459,7 +438,7 @@ impl Drop for Call {
 /// line didn't carry his hangup): an `"end":true` hello, and the server closes once it has it.
 pub async fn end(connector: Connector, id: String, t: Timing) -> Result<()> {
     let (mut tx, mut rx) = timeout(t.connect_timeout, connector()).await.context("connect timed out")??;
-    let hello = Up::Hello { version: 1, resume: Some(id), about: None, stt: None, rejoin: false, end: true, have: None, queued_ms: None, tab: None, speak: None };
+    let hello = Up::Hello { version: 1, resume: Some(id), about: None, rejoin: false, end: true, have: None, queued_ms: None, tab: None, speak: None };
     timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await.context("send timed out")??;
     timeout(t.connect_timeout, async {
         loop {
@@ -513,7 +492,7 @@ struct Dial {
 
 /// `holds`: the player holds this call's audio (it had a `ready`), so a resume says what it has.
 #[allow(clippy::too_many_arguments)]
-fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, start: Start, stt: bool, rejoin: bool, holds: bool) -> Dial {
+fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<String>, about: Option<About>, start: Start, rejoin: bool, holds: bool) -> Dial {
     let (hello, (stop, mut stopped)) = (Arc::new(AtomicBool::new(false)), oneshot::channel::<()>());
     let (connect, said, t) = (connector(), hello.clone(), t.clone());
     let fut = Box::pin(async move {
@@ -533,7 +512,7 @@ fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<Strin
         } else {
             (None, None)
         };
-        let hello = Up::Hello { version: 1, resume, about, stt: stt.then_some("phone"), rejoin, end: false, have, queued_ms, tab: start.tab, speak: start.speak };
+        let hello = Up::Hello { version: 1, resume, about, rejoin, end: false, have, queued_ms, tab: start.tab, speak: start.speak };
         match timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await {
             Ok(Ok(())) => said.store(true, Ordering::SeqCst),
             Ok(Err(e)) => return Dialed::Failed(format!("send: {e:#}")),
@@ -589,10 +568,6 @@ struct Run {
     rekick_at: Option<Instant>,
     /// What the server last said it's doing, to show again if a stalled line comes back.
     state: Status,
-    /// The phone's own speech to text, if this call has it.
-    stt: Option<Stt>,
-    /// Text frames to send once the frame that asked for them is handled.
-    out: Vec<Up>,
     /// Sends and takes of what he said, made while the line was down: the server still holds the words.
     words_later: Vec<bool>,
     /// The phone has a network (as the app last said).
@@ -610,13 +585,12 @@ async fn run(
     mic: mpsc::Receiver<Vec<u8>>,
     t: Timing,
     about: Option<About>,
-    phone_stt: bool,
     rejoin: Option<(String, bool)>,
     start: Start,
 ) {
     sh.set_status(Status::Connecting);
     let (rejoin, aviv_left) = rejoin.map_or((None, false), |(id, left)| (Some(id), left));
-    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), start.clone(), phone_stt, aviv_left, false));
+    let next = Some(dial(&connector, sh.clone(), &t, rejoin.clone(), about.clone(), start.clone(), aviv_left, false));
     let mut r = Run {
         connector,
         sh: sh.clone(),
@@ -636,8 +610,6 @@ async fn run(
         retry_at: None,
         rekick_at: None,
         state: Status::Listening,
-        stt: phone_stt.then(Stt::default),
-        out: Vec::new(),
         words_later: Vec::new(),
     };
     let mut tick = tokio::time::interval(Duration::from_millis(100));
@@ -645,13 +617,7 @@ async fn run(
         let ended = tokio::select! {
             Some(pcm) = r.mic.recv(), if r.line.is_some() => {
                 if !r.sh.muted.load(Ordering::SeqCst) {
-                    let copy = r.stt.is_some().then(|| pcm.clone());
                     r.send(Frame::Binary(pcm)).await;
-                    // Counted only once it's on the line: the server counts what it got.
-                    if let Some(pcm) = copy.filter(|_| r.line.is_some()) {
-                        let d = r.stt.as_mut().map(|s| s.sent(&pcm)).unwrap_or_default();
-                        r.stt_do(d);
-                    }
                 }
                 None
             }
@@ -685,11 +651,6 @@ async fn run(
                     r.set_online(on).await;
                     None
                 }
-                Some(Cmd::SttDone(id, words)) => {
-                    let d = r.stt.as_mut().map(|s| s.done(id, words, Instant::now())).unwrap_or_default();
-                    r.stt_do(d);
-                    None
-                }
                 Some(Cmd::Hangup) | None => {
                     r.hangup().await;
                     Some("hung up".to_string())
@@ -704,9 +665,6 @@ async fn run(
             }
             _ = tick.tick() => r.tick().await,
         };
-        for up in std::mem::take(&mut r.out) {
-            r.send(Frame::Text(up.json())).await;
-        }
         if let Some(why) = ended {
             break why;
         }
@@ -736,22 +694,6 @@ async fn at(when: Option<Instant>) {
 }
 
 impl Run {
-    /// Does what the phone's speech-to-text books ask: the app's recognizer hears of it at once,
-    /// `heard` goes out after the frame being handled.
-    fn stt_do(&mut self, d: Vec<Do>) {
-        for d in d {
-            match d {
-                Do::Open(id) => self.sh.events.stt_open(id),
-                Do::Audio(id, pcm) => self.sh.events.stt_audio(id, &pcm),
-                Do::Close(id) => self.sh.events.stt_close(id),
-                Do::Heard { id, text, ms } => {
-                    tracing::info!("voice stt: cut {id} heard {text:?} after {ms} ms");
-                    self.out.push(Up::Heard { id, text, ms });
-                }
-            }
-        }
-    }
-
     /// Sends on the line, if there is one; a send that fails or hangs breaks it.
     async fn send(&mut self, f: Frame) {
         let Some(l) = self.line.as_mut() else { return };
@@ -805,7 +747,7 @@ impl Run {
         }
         // Until the server has the call, a redial is still its first hello, and says what it's about.
         let (about, start) = if self.id.is_none() { (self.about.clone(), self.start.clone()) } else { (None, Start::default()) };
-        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, start, self.stt.is_some(), self.rejoin, self.holds));
+        self.next = Some(dial(&self.connector, self.sh.clone(), &self.t, self.id.clone(), about, start, self.rejoin, self.holds));
     }
 
     async fn set_online(&mut self, on: bool) {
@@ -961,10 +903,6 @@ impl Run {
                 Some(Down::Words { text }) => sh.events.words(&text),
                 Some(Down::Tab { id, n }) => sh.events.tab(&id, n),
                 Some(Down::Line { text }) => sh.events.line(&text),
-                Some(Down::Cut { id, from, to }) => {
-                    let d = self.stt.as_mut().map(|s| s.cut(id, from, to, now)).unwrap_or_default();
-                    self.stt_do(d);
-                }
                 Some(Down::Ready { .. }) | Some(Down::Unknown) | None => {}
             },
             _ => {}
@@ -1025,8 +963,6 @@ impl Run {
         self.id = Some(call);
         // The old socket (if any) goes here: the server has handed the call to this one.
         self.line = Some(Line::new(tx, rx));
-        let d = self.stt.as_mut().map(|s| s.new_line()).unwrap_or_default();
-        self.stt_do(d);
         self.down = None;
         self.tries = 0;
         self.retry_at = None;
@@ -1066,9 +1002,6 @@ impl Run {
     }
 
     async fn tick(&mut self) -> Option<String> {
-        if let Some(s) = self.stt.as_mut() {
-            s.tick(Instant::now());
-        }
         if let Some(l) = self.line.as_mut() {
             let quiet = l.last_in.elapsed();
             if quiet >= self.t.dead_after {

@@ -16,7 +16,6 @@ class JarvisApp : Application() {
         Shortcuts.publish(this)
         background()
         LinkService.start(this)
-        PhoneStt.check(this)
         Move.booted()
     }
 

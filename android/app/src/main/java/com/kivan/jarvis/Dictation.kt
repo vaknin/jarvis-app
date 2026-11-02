@@ -165,8 +165,5 @@ object Dictation {
         override fun onFlush() {}
         override fun onPaused(on: Boolean) {}
         override fun onVoiceMuted(on: Boolean) {}
-        override fun onSttOpen(id: ULong) {}
-        override fun onSttAudio(id: ULong, pcm: ByteArray) {}
-        override fun onSttClose(id: ULong) {}
     }
 }
