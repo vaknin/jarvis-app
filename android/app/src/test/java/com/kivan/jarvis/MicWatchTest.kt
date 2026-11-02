@@ -46,7 +46,23 @@ class MicWatchTest {
             assertEquals(0, w.feed(300, 100))
             assertEquals(1, w.feed(20, 16))
         }
+        assertFalse(w.recognition)
+        assertEquals(0, w.feed(300, 100))
+        assertEquals(1, w.feed(20, 16))
+        assertTrue("the last try is another source", w.recognition)
         repeat(20) { assertEquals(0, w.feed(300, 100) + w.feed(20, 50)) }
+    }
+
+    @Test
+    fun aSilencedRecognitionSourceIsNotTriedAgain() {
+        val w = opened()
+        repeat(3) {
+            w.feed(300, 100)
+            w.feed(20, 16)
+        }
+        w.silenced()
+        repeat(20) { assertEquals(0, w.feed(300, 100) + w.feed(20, 50)) }
+        assertFalse(w.recognition)
     }
 
     @Test
@@ -86,8 +102,12 @@ class MicWatchTest {
             w.feed(20, 16)
         }
         val said = mutableListOf<String>()
+        repeat(100) { w.frame(300, true) { said += it } }
+        repeat(16) { w.frame(20, true) { said += it } }
         repeat(500) { w.frame(300, true) { said += it } }
-        assertTrue(said.single(), said.single().contains("didn't help"))
+        assertEquals(said.toString(), 2, said.size)
+        assertTrue(said[0], said[0].contains("trying the recognition source"))
+        assertTrue(said[1], said[1].contains("didn't help either"))
     }
 
     @Test

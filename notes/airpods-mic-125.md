@@ -225,3 +225,21 @@ send: that one only covers the stay's first minute), and before an update's rest
 2 s head start in the pause, not a wait for its answer: on the 20:27 install the app had at most 4 s from the download's end
 (20:27:32) to its death (20:27:36.4), so a commit alone could beat the upload. A slow network can still lose it. Look for
 `left a headset` and `an update restarts the app` in the `why` of `~/.jarvis/phone-logs/`.
+
+## Round 6: the night of 2026-11-01 (build from that day)
+Calls 174, 178 and 182 on the AirPods gave peaks of 47 to 142 (usual median 5000 to 6000, phone 18000), hiss at rms 3,
+speech only visible under 1 kHz, about 40 dB down, in the phone's own peak lines, so before anything server side. Five
+calls and every reopen stayed there: new links didn't help, so it isn't the link. No mic code changed that day. Boosting
+those clips to peak 8000 gives Parakeet no better words: the consonants are under the hiss. Why the buds went deaf is
+still unknown.
+
+**Gboard never used the AirPods' mic.** The phone's `dumpsys audio` has it recording (source VOICE_RECOGNITION) 22:35:41 to
+22:38:21 and 22:38:51 to 22:39:43, and `dumpsys media.audio_flinger` shows no SCO link in either: the output stayed on
+A2DP, which carries no mic. So it was the phone's mic, with the AirPods only playing. Every other app's "the AirPods work
+great" most likely reads the same way. Our rule puts a call on the AirPods' mic whenever they're connected, so talking at
+the phone on a call still goes through the buds. The one true phone-mic stretch that night (6 s of call 186, earpiece then
+speaker, peaks 5830 and 4873) heard him fine.
+
+The last try on a mic that stays quiet is now one reopen with VOICE_RECOGNITION (`MicWatch.recognition`; silence sends it
+back). Not tested on real buds. Look for `trying the recognition source`, then the `source 6` line after it and
+the peaks that follow.

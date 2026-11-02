@@ -523,9 +523,10 @@ class CallService : Service() {
         }
         val bluetooth = device?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || device?.type == AudioDeviceInfo.TYPE_BLE_HEADSET
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val source = if (onHeadset && watch.recognition) MediaRecorder.AudioSource.VOICE_RECOGNITION else MediaRecorder.AudioSource.VOICE_COMMUNICATION
         val rec = try {
             @Suppress("MissingPermission")
-            AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
+            AudioRecord(source, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
         } catch (e: Exception) {
             Log.w(TAG, "mic", e)
             return MicEnd.FAILED
@@ -585,6 +586,10 @@ class CallService : Service() {
                 }
                 if ((astray || zeros >= 100 && !Voice.ui.value.muted) && System.nanoTime() - lastWatchReopen > 10_000_000_000L) {
                     lastWatchReopen = System.nanoTime()
+                    if (zeros >= 100 && source == MediaRecorder.AudioSource.VOICE_RECOGNITION) {
+                        micNote("the recognition source gives silence: back to the call's")
+                        watch.silenced()
+                    }
                     Log.w(TAG, "mic: ${if (astray) "not on ${name(want)}" else "2 s of digital silence"} on ${name(rec.routedDevice)}; reopening")
                     return MicEnd.REROUTE
                 }

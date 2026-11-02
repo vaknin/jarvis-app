@@ -17,6 +17,14 @@ class MicWatch {
     private var gap = 0
     private var left = QUIET_REOPENS
     private var saidSo = false
+    private var tried = false
+    /**
+     * Reopening didn't help, so the next open asks for the recognition source. Voice calls never used it on a headset,
+     * and that mic has nothing left to lose: the night of 2026-11-01 stayed 40 dB down through five calls. Round 6 of
+     * notes/airpods-mic-125.md. The log's source line tells whether it helped.
+     */
+    var recognition = false
+        private set
     /** A reopen is waiting for a pause, so it doesn't eat his words. */
     private var due = true
 
@@ -54,11 +62,21 @@ class MicWatch {
             left--
             log("voice at peak $level: reopening in the next pause")
             due = true
+        } else if (!tried) {
+            tried = true
+            recognition = true
+            log("voice at peak $level, and reopening didn't help: trying the recognition source")
+            due = true
         } else if (!saidSo) {
             saidSo = true
-            log("voice at peak $level, and reopening didn't help: the server may not hear him")
+            log("voice at peak $level, the recognition source didn't help either: the server may not hear him")
         }
         return false
+    }
+
+    /** The system silenced the recognition source: back to the call's own. */
+    fun silenced() {
+        recognition = false
     }
 
     private companion object {
