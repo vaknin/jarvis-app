@@ -12,6 +12,7 @@
 //! every event read and goes along on the wire to a screen. Nothing ever moves a byte, so offsets
 //! never change: a secret pasted by mistake is overwritten in place (`Writer::scrub`).
 
+use crate::autopilot::{AskKind, Autopilot, Item, QuietWhy};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,6 +69,10 @@ pub enum Body {
         text: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         closed: bool,
+        /// The blocking `question` this stands for, for a screen from before questions: a screen that
+        /// knows them shows the card, and this adds nothing new to read.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        q: String,
     },
     /// The tab's hidden one line: where it stands.
     Line { text: String },
@@ -127,6 +132,45 @@ pub enum Body {
     /// The tab's level: how hard what it asks of him reaches him. Urgent only `by` him, from his
     /// screens or his shell; a tab's session may set itself low or default.
     Level { level: Urgency, by: By },
+    /// A question for him, through the one door (`jarvis ask`, `asks.rs`): one card on the Needs you
+    /// list. `q` is its id in the tab. Each item is one question with its options and Jarvis's pick.
+    /// `due` is when silence takes the picks: none for urgent, and for a kind that never defaults. A
+    /// blocking one also writes a `needs` naming it, so a screen from before this shows it amber.
+    Question {
+        q: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ap: Option<String>,
+        ask: AskKind,
+        #[serde(default, skip_serializing_if = "Urgency::is_default")]
+        level: Urgency,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        suggest_urgent: bool,
+        items: Vec<Item>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        due: Option<u64>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        blocks: bool,
+    },
+    /// A question closed by code: a deadline took the picks (`by: default`), or it was taken back
+    /// (`by: withdrawn`). Never his: his answer is a `said` replying to the question's offset.
+    Answer {
+        q: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        picks: Vec<u32>,
+        by: By,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        note: String,
+    },
+    /// The tab decided instead of asking (`jarvis assume`): the digest screen lists it, with "wrong".
+    Assumed {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ap: Option<String>,
+        text: String,
+    },
+    /// The reply at offset `to` went to the digest screen instead of lighting the tab.
+    Quiet { to: u64, why: QuietWhy },
+    /// A tab's autopilot, whole, every time it changes (`jobs` is the precedent).
+    Autopilot { ap: Autopilot },
     /// A kind this code doesn't know yet.
     #[serde(other)]
     Other,
@@ -190,12 +234,16 @@ impl Urgency {
     }
 }
 
-/// Who set something on a tab: him, from his screens or his shell, or the tab's own session.
+/// Who set something on a tab: him, from his screens or his shell, or the tab's own session. On an
+/// `Answer`, only the code's two: a deadline took the default, or the question was taken back. His
+/// own answer is never an `Answer`: it's his `said`, replying to the question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum By {
     Aviv,
     Tab,
+    Default,
+    Withdrawn,
     #[serde(other)]
     Other,
 }

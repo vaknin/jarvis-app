@@ -240,7 +240,7 @@ impl Hold {
                 let line = if line.is_empty() { jarvis_tabs_wire::first_line(text) } else { line.clone() };
                 Some(EntryRec::Report { key: key(), from: from.clone(), line, text: text.clone() })
             }
-            Body::Needs { text, closed: false } => Some(EntryRec::Question { key: key(), text: text.clone(), closed: false }),
+            Body::Needs { text, closed: false, .. } => Some(EntryRec::Question { key: key(), text: text.clone(), closed: false }),
             Body::Needs { closed: true, .. } => {
                 self.close_questions();
                 None
@@ -1099,12 +1099,12 @@ mod tests {
         let mut d = up(&[("t1", 0)]);
         d.take();
         event(&mut d, "t1", said(10, Who::Jarvis, "news"));
-        event(&mut d, "t1", Event { offset: 20, at: 5, body: Body::Needs { text: "which?".into(), closed: false } });
+        event(&mut d, "t1", Event { offset: 20, at: 5, body: Body::Needs { text: "which?".into(), closed: false, q: String::new() } });
         let Told::Wall(tiles, ..) = &d.take()[0] else { panic!("the wall") };
         assert!(tiles[0].needs && tiles[0].unread);
         d.show(vec!["t1".into()]);
         event(&mut d, "t1", said(10, Who::Jarvis, "news"));
-        event(&mut d, "t1", Event { offset: 20, at: 5, body: Body::Needs { text: "which?".into(), closed: false } });
+        event(&mut d, "t1", Event { offset: 20, at: 5, body: Body::Needs { text: "which?".into(), closed: false, q: String::new() } });
         d.out.clear();
         d.seen("t1".into());
         assert_eq!(d.out, [Ask::Seen { id: "t1".into(), upto: 20 }]);
@@ -1337,7 +1337,7 @@ mod tests {
     fn a_question_closes_when_he_answers() {
         let mut d = up(&[("t1", 0)]);
         d.show(vec!["t1".into()]);
-        event(&mut d, "t1", Event { offset: 10, at: 1, body: Body::Needs { text: "which?".into(), closed: false } });
+        event(&mut d, "t1", Event { offset: 10, at: 1, body: Body::Needs { text: "which?".into(), closed: false, q: String::new() } });
         event(&mut d, "t1", said(20, Who::Aviv, "the first"));
         let r = tab(&d.take(), "t1");
         assert!(matches!(&r.entries[0], EntryRec::Question { closed: true, .. }));

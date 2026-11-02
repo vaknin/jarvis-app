@@ -16,3 +16,12 @@
 {"tell":"done"}
 {"tell":"put","id":"t1","name":"chord.png","file":{"name":"1-0.png","alt":"chord.png"}}
 {"tell":"event","id":"t1","event":{"offset":400,"at":1793430374000,"kind":"jobs","jobs":["dark mode"],"queued":["a","b","c","d"],"line":"1 job running: dark mode. 4 queued: a, b, c, d"}}
+{"tell":"event","id":"t1","event":{"offset":350,"at":1793430374000,"kind":"level","level":"urgent","by":"aviv"}}
+{"tell":"raised","id":"t1","q":"q1793430374000"}
+{"tell":"queue","decide":[{"tabs":[{"id":"t1","name":"Piano","q":"q1793430374000","offset":350},{"id":"t2","q":"q1793430375000","offset":90}],"kind":"money","level":"urgent","items":[{"text":"Rent a GPU for $3?","options":["Rent","Don't"],"pick":0,"safe":1}],"blocks":true,"at":1793430374000}],"digest":[{"id":"t1","name":"Piano","at":1793430374000,"offset":400,"what":"done","line":"Dark mode landed"}]}
+{"tell":"event","id":"t1","event":{"offset":360,"at":1793430374000,"kind":"question","q":"q1793430374000","ask":"tie","level":"low","items":[{"text":"Blue or green?","options":["Blue","Green"],"pick":0}],"due":1793430374000}}
+{"tell":"event","id":"t1","event":{"offset":370,"at":1793430374000,"kind":"needs","text":"Rent a GPU for $3?","q":"q1793430375000"}}
+{"tell":"event","id":"t1","event":{"offset":380,"at":1793430374000,"kind":"answer","q":"q1793430374000","picks":[0],"by":"default","note":"4 h passed"}}
+{"tell":"event","id":"t1","event":{"offset":390,"at":1793430374000,"kind":"assumed","text":"picked sqlite"}}
+{"tell":"event","id":"t1","event":{"offset":395,"at":1793430374000,"kind":"quiet","to":380,"why":"default"}}
+{"tell":"event","id":"t1","event":{"offset":398,"at":1793430374000,"kind":"autopilot","ap":{"id":"ap1","words":"add dark mode","from":120,"criteria":[{"n":1,"what":"tests pass","check":{"how":"cmd","cmd":"cargo test","dir":"tabs"},"status":"pass","by":"check","evidence":"ok"}],"repos":["jarvis"],"spent":1200000,"idle":0,"strays":0,"rounds":1,"state":"review"}}}

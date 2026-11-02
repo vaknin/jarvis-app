@@ -9,6 +9,7 @@
 //!   two.
 //! - **Quiet:** none of them.
 
+use crate::autopilot::{ApTile, AskKind, Item};
 use crate::event::{Body, Event, SessionState, Urgency, Via, Who, WorkState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -47,6 +48,15 @@ pub struct Tile {
     /// The tab's level: how hard what it asks reaches him.
     #[serde(default, skip_serializing_if = "Urgency::is_default")]
     pub level: Urgency,
+    /// Its autopilot, if it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autopilot: Option<ApTile>,
+    /// Its questions still open, oldest first: the Needs you list is these, from every tab.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asks: Vec<OpenAsk>,
+    /// Lines on the digest screen he hasn't looked at.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub digest_new: u32,
     /// How far he has read.
     pub seen: u64,
     /// The record's end when this was folded: the N to read on from.
@@ -54,6 +64,33 @@ pub struct Tile {
     /// The offsets behind `unread`, so a client folding on from a listing counts what the server does.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     new: Vec<u64>,
+}
+
+/// A question of the tab's that's still open: answered by his `said` replying to `offset`, or closed
+/// by an `answer` (a default taken, or taken back).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct OpenAsk {
+    pub q: String,
+    /// The question's event: what his answer replies to.
+    pub offset: u64,
+    pub at: u64,
+    pub ask: Option<AskKind>,
+    #[serde(default, skip_serializing_if = "Urgency::is_default")]
+    pub level: Urgency,
+    pub items: Vec<Item>,
+    /// When silence takes the picks: none, never.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub blocks: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub suggest_urgent: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ap: Option<String>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 impl Tile {
@@ -89,9 +126,10 @@ impl Tile {
     pub fn apply(&mut self, e: &Event) {
         self.end = self.end.max(e.offset);
         match &e.body {
-            Body::Said { who: Who::Aviv, .. } => {
-                self.amber = false;
-                self.needs.clear();
+            Body::Said { who: Who::Aviv, replies, .. } => {
+                // His answer to a question is his words replying to it: a tap or typed, the same.
+                self.asks.retain(|a| !replies.iter().any(|r| r.to == a.offset));
+                self.unblock();
             }
             Body::Said { via, .. } => {
                 if *via != Some(Via::Voice) {
@@ -99,6 +137,12 @@ impl Tile {
                 }
             }
             Body::Report { .. } => self.mark_new(e.offset),
+            Body::Needs { closed: true, q, .. } if !q.is_empty() => self.unblock(),
+            Body::Needs { text, q, .. } if !q.is_empty() => {
+                // A blocking question's twin, for screens from before questions: the card is what's new.
+                self.amber = true;
+                self.needs = text.clone();
+            }
             Body::Needs { closed: true, .. } => {
                 self.amber = false;
                 self.needs.clear();
@@ -146,7 +190,26 @@ impl Tile {
             Body::Level { level, .. } => self.level = *level,
             Body::Named { name } => self.name = name.clone(),
             Body::Mode { mode } => self.mode = mode.clone(),
+            Body::Question { q, ap, ask, level, suggest_urgent, items, due, blocks } => {
+                self.asks.retain(|a| a.q != *q);
+                self.asks.push(OpenAsk { q: q.clone(), offset: e.offset, at: e.at, ask: Some(*ask), level: *level, items: items.clone(), due: *due, blocks: *blocks, suggest_urgent: *suggest_urgent, ap: ap.clone() });
+                self.mark_new(e.offset);
+            }
+            Body::Answer { q, .. } => self.asks.retain(|a| a.q != *q),
+            Body::Autopilot { ap } => self.autopilot = Some(ApTile::of(ap)),
+            Body::Assumed { .. } | Body::Quiet { .. } => {}
             Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Delivered { .. } | Body::Other => {}
+        }
+    }
+
+    /// Amber clears, unless a blocking question he hasn't answered still holds it.
+    fn unblock(&mut self) {
+        match self.asks.iter().find(|a| a.blocks) {
+            Some(a) => self.needs = a.items.first().map(|i| i.text.clone()).unwrap_or_default(),
+            None => {
+                self.amber = false;
+                self.needs.clear();
+            }
         }
     }
 

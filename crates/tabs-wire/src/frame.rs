@@ -10,6 +10,7 @@
 //! **Live text is for clients only.** `Text` carries a reply while it's being written and never
 //! reaches the record; the finished block lands as an `Event`, and a client drops its live text then.
 
+use crate::autopilot::{AskKind, Item};
 use crate::{Event, Reply, FileRef, Tile, Urgency, Via};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -104,6 +105,9 @@ pub enum Ask {
         from: String,
         line: String,
         text: String,
+        /// What the work behind it cost, in millionths of a dollar, for an autopilot's spend.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        micro_usd: Option<u64>,
     },
     /// The jobs this tab started that are running now, and those queued, whole: on the record if that
     /// changed. Answered by `Done`.
@@ -120,8 +124,92 @@ pub enum Ask {
         #[serde(default)]
         word: bool,
     },
+    /// A question for him, from a tab's own session only (`jarvis ask`): answered by `Raised` with its
+    /// id, or `Refused` with why (`asks.rs` holds the form). `low` marks it below the tab's level; it
+    /// can't go above: `suggest_urgent` is all a tab may do.
+    Question {
+        id: String,
+        kind: AskKind,
+        items: Vec<Item>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        low: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        suggest_urgent: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        blocks: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ap: Option<String>,
+    },
+    /// His answer to question `q` of the tab, from his screens only: `picks` per item, `text` his words
+    /// if he wrote any. It lands as his `said` replying to the question (and on a merged card, in each
+    /// tab), so it starts a turn there. Answered by `Landed`.
+    Answer {
+        id: String,
+        q: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        picks: Vec<u32>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        text: String,
+    },
+    /// The tab decided instead of asking (`jarvis assume`), from its own session. Answered by `Done`.
+    Assume { id: String, text: String },
+    /// The Needs you list and the digest: answered by `Queue`, and again on every change, until the
+    /// connection closes or `Unfollow` with `QUEUE`.
+    Queue,
+    /// Autopilot: `on`, `off`, `accept` and `reopen` from his screens; the rest from the tab's session.
+    Autopilot {
+        id: String,
+        op: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        n: Option<u32>,
+    },
     #[serde(other)]
     Other,
+}
+
+/// The id `Unfollow` takes to stop the queue's updates.
+pub const QUEUE: &str = "queue";
+
+/// One card of the Needs you list: one question, or the same question from several tabs, which one
+/// tap answers in each.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Card {
+    pub tabs: Vec<CardTab>,
+    pub kind: AskKind,
+    #[serde(default, skip_serializing_if = "Urgency::is_default")]
+    pub level: Urgency,
+    pub items: Vec<Item>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub blocks: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub suggest_urgent: bool,
+    pub at: u64,
+}
+
+/// Where a card's question stands in one tab: what an `Answer` names.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CardTab {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    pub q: String,
+    pub offset: u64,
+}
+
+/// A line of the digest screen: what finished, a default taken, an assumption, a stall.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DigestLine {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    pub at: u64,
+    pub offset: u64,
+    pub what: String,
+    pub line: String,
 }
 
 /// What a voice asks for on `tap.sock`, after the two pipe ends in one message: its end of the pipe
@@ -188,6 +276,14 @@ pub enum Tell {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         id: String,
         why: String,
+    },
+    /// The question is on the list, as `q` in its tab.
+    Raised { id: String, q: String },
+    /// The Needs you list, urgent first, then by deadline; and the digest's lines, newest first.
+    Queue {
+        decide: Vec<Card>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        digest: Vec<DigestLine>,
     },
     /// The ask went through and has nothing else to say.
     Done,

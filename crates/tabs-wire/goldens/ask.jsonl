@@ -19,3 +19,11 @@
 {"ask":"say","id":"t1","text":"","via":"typed","replies":[{"to":120,"quote":"Done, tested.","text":"and the phone?"}],"quiet":true}
 {"ask":"release","id":"t1"}
 {"ask":"level","id":"t1","level":"urgent"}
+{"ask":"level","id":"t1","level":"urgent"}
+{"ask":"question","id":"t1","kind":"ux","items":[{"text":"Move the dot to the left?","options":["Yes","No, keep it"],"pick":0,"safe":1,"why":"it lines up with the names","loses":"the dot on the right","gets":"one line of marks"}],"suggest_urgent":true,"blocks":true}
+{"ask":"question","id":"t1","kind":"hands","items":[{"text":"the phone's PIN, once","pick":0}],"low":true}
+{"ask":"answer","id":"t1","q":"q1793430374000","picks":[1],"text":"keep it"}
+{"ask":"assume","id":"t1","text":"picked sqlite because one file is enough"}
+{"ask":"queue"}
+{"ask":"autopilot","id":"t1","op":"check","text":"cargo test passed","n":2}
+{"ask":"note","id":"t1","from":"job-x-1","line":"done","text":"landed","micro_usd":420000}
