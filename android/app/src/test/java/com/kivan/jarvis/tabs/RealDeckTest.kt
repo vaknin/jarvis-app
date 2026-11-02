@@ -99,4 +99,54 @@ class RealDeckTest {
 
     @Test
     fun aBrokenSaveIsIgnored() = assertNull(Saved.parse("{nope"))
+
+    private val held = QuoteMark(41, 0, "first", "go at the end", quiet = true)
+    private val editing = QuoteMark(41, 1, "second", "half an edit")
+    private val marked = QuoteMark(57, 0, "third")
+
+    private fun at(working: Boolean, marks: List<QuoteMark> = listOf(held, editing, marked)) = DeckState(
+        tiles = listOf(TileView("t1", 1, "Piano app", working = working)),
+        tabs = mapOf("t1" to TabView(TileView("t1", 1, "Piano app"), work = if (working) WorkView("thinking", 1) else null)),
+        marks = mapOf("t1" to marks),
+    )
+
+    @Test
+    fun aTurnsEndTakesOnlyTheQuietRepliesAndOnce() {
+        val (after, going) = at(true).quietAfter(at(false))
+        assertEquals(mapOf("t1" to listOf(Quoted(41, "first", "go at the end"))), going)
+        assertEquals(listOf(editing, marked), after.marks["t1"])
+        // The next frame is no new end: nothing goes twice.
+        assertEquals(emptyMap<String, List<Quoted>>(), at(false).quietAfter(after).second)
+    }
+
+    @Test
+    fun aHeldReplyStaysWhileTheTurnRunsOrNoTurnEnds() {
+        assertEquals(emptyMap<String, List<Quoted>>(), at(true).quietAfter(at(true)).second)
+        assertEquals(emptyMap<String, List<Quoted>>(), at(false).quietAfter(at(false)).second)
+        // A turn starting isn't an end either.
+        assertEquals(emptyMap<String, List<Quoted>>(), at(false).quietAfter(at(true)).second)
+    }
+
+    @Test
+    fun theWallsTileEndingATurnAlsoTakesThem() {
+        val was = at(true).copy(tabs = emptyMap())
+        val now = at(false).copy(tabs = emptyMap())
+        assertEquals(listOf("t1"), was.quietAfter(now).second.keys.toList())
+    }
+
+    @Test
+    fun leavingTheAppTakesEveryQuietReplyAndLeavesTheRest() {
+        val (after, going) = at(false).quietAll()
+        assertEquals(mapOf("t1" to listOf(Quoted(41, "first", "go at the end"))), going)
+        assertEquals(listOf(editing, marked), after.marks["t1"])
+        val (empty, gone) = at(false, listOf(held)).quietAll()
+        assertNull(empty.marks["t1"])
+        assertEquals(1, gone.getValue("t1").size)
+    }
+
+    @Test
+    fun aQuietReplySurvivesARestart() {
+        val back = Saved.parse(Saved(emptyList(), emptyMap(), emptyMap(), emptyList(), mapOf("t1" to listOf(held, editing))).json())!!
+        assertEquals(listOf(held, editing), back.marks["t1"])
+    }
 }

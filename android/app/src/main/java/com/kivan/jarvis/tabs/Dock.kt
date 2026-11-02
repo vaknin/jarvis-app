@@ -262,12 +262,12 @@ private fun WordsBox(
         if (talk) Round(R.drawable.lucide_paperclip, "Attach a picture or file", { deck?.pick() }, size = 38.dp)
         Column(Modifier.weight(1f)) {
             if (heard.isNotBlank()) {
-                // What he said waits here; a tap sends it.
+                // What he said waits here; a tap stops the mic and puts it in the box to edit.
                 Text(
                     heard,
                     Modifier
                         .fillMaxWidth()
-                        .clickable(onClickLabel = "Send what you said", onClick = onHeard)
+                        .clickable(onClickLabel = "Edit what you said", onClick = onHeard)
                         .padding(start = if (talk) 2.dp else 18.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
                     look.soft,
                     style = Words.yours,

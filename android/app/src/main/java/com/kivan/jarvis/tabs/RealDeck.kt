@@ -104,13 +104,24 @@ class RealDeck private constructor(
     }
 
     fun down() {
+        // Leaving the app: what he held goes to the server quiet, so it reaches Jarvis with the phone away.
+        var going = emptyMap<String, List<Quoted>>()
+        flow.update { s -> s.quietAll().also { going = it.second }.first }
+        for ((id, quotes) in going) hold(id, quotes)
         tabsDetach()
         Saved.of(flow.value).write(prefs)
     }
 
-    override fun wall(tiles: List<TileRec>, closed: List<ClosedRec>, online: Boolean) = flow.update { it.walled(tiles, closed, online) }
+    override fun wall(tiles: List<TileRec>, closed: List<ClosedRec>, online: Boolean) = moved { it.walled(tiles, closed, online) }
 
-    override fun tab(tab: TabRec) = flow.update { it.with(tab) }
+    override fun tab(tab: TabRec) = moved { it.with(tab) }
+
+    /** A change from the server; a turn it ended takes what he held there, quiet, once. */
+    private fun moved(change: (DeckState) -> DeckState) {
+        var going = emptyMap<String, List<Quoted>>()
+        flow.update { s -> s.quietAfter(change(s)).also { going = it.second }.first }
+        for ((id, quotes) in going) hold(id, quotes)
+    }
 
     override fun opened(id: String) {
         val going = opening
@@ -212,8 +223,8 @@ class RealDeck private constructor(
         }
         // A call stays in its tab while he looks around.
         if (Voice.ui.value.live) return
-        // They go to the tab they were said on, ahead of the jump.
-        if (Voice.heard.value.isNotEmpty()) words(true)
+        // They stay in the box of the tab they were said on, for him to edit and send.
+        if (Voice.heard.value.isNotEmpty()) Dictation.stop()
         Voice.place.value = Voice.Place(id, name, stay = false)
     }
 
@@ -229,6 +240,9 @@ class RealDeck private constructor(
         (Dictation.call ?: Voice.call)?.sendWords(send)
         if (Dictation.call != null) Voice.heard.value = ""
     }
+
+    // Stopping keeps every word: the line closes after the last ones land, and they go into the box.
+    override fun edit() = Dictation.stop()
 
     /** Words that didn't go stay in that box. */
     fun kept(id: String, words: String) = flow.update {
@@ -282,7 +296,7 @@ class RealDeck private constructor(
 
     override fun stop(id: String) = tabsStop(id)
 
-    override fun hold(id: String, quote: Quoted) = tabsHold(id, listOf(QuoteRec(quote.to.toULong(), quote.quote, quote.text)))
+    override fun hold(id: String, quotes: List<Quoted>) = tabsHold(id, quotes.map { QuoteRec(it.to.toULong(), it.quote, it.text) })
 
     override fun release(id: String) = tabsRelease(id)
 
@@ -392,6 +406,32 @@ internal fun DeckState.foldDrafts(id: String): DeckState {
     return out
 }
 
+/**
+ * What he held, from [now] on: a tab whose turn ended between this and [now] takes its quiet replies,
+ * once, and they leave the marks. One open for editing isn't quiet until he holds it again.
+ */
+internal fun DeckState.quietAfter(now: DeckState): Pair<DeckState, Map<String, List<Quoted>>> {
+    val ended = now.marks.keys.filter { id ->
+        val tab = tabs[id]?.work != null && now.tabs[id]?.let { it.work == null } == true
+        val tile = tiles.any { it.id == id && it.working } && now.tiles.any { it.id == id && !it.working }
+        tab || tile
+    }
+    return now.quietTaken(ended)
+}
+
+/** Every quiet reply he holds, in every tab: leaving the app sends them. */
+internal fun DeckState.quietAll() = quietTaken(marks.keys)
+
+private fun DeckState.quietTaken(ids: Collection<String>): Pair<DeckState, Map<String, List<Quoted>>> {
+    val going = ids.associateWith { id -> marks[id].orEmpty().filter { it.quiet && it.held } }.filterValues { it.isNotEmpty() }
+    if (going.isEmpty()) return this to emptyMap()
+    val left = going.entries.fold(marks) { all, (id, gone) ->
+        val rest = all[id].orEmpty() - gone.toSet()
+        if (rest.isEmpty()) all - id else all + (id to rest)
+    }
+    return copy(marks = left) to going.mapValues { (_, l) -> l.map { Quoted(it.to, it.quote, it.text.trim()) } }
+}
+
 /** Words that didn't land go back in the box, above anything typed since. */
 internal fun DeckState.typedBack(id: String, text: String): DeckState {
     val now = typed[id].orEmpty()
@@ -467,7 +507,7 @@ internal data class Saved(
         put("marks", JSONObject().also { all ->
             for ((id, list) in marks) {
                 all.put(id, list.fold(org.json.JSONArray()) { a, m ->
-                    a.put(JSONObject().put("to", m.to).put("block", m.block).put("quote", m.quote).put("text", m.text))
+                    a.put(JSONObject().put("to", m.to).put("block", m.block).put("quote", m.quote).put("text", m.text).put("quiet", m.quiet))
                 })
             }
         })
@@ -520,7 +560,7 @@ internal data class Saved(
                     val list = marks!!.getJSONArray(id)
                     (0 until list.length()).map { i ->
                         val m = list.getJSONObject(i)
-                        QuoteMark(m.getLong("to"), m.getInt("block"), m.getString("quote"), m.optString("text"))
+                        QuoteMark(m.getLong("to"), m.getInt("block"), m.getString("quote"), m.optString("text"), m.optBoolean("quiet"))
                     }
                 },
             )

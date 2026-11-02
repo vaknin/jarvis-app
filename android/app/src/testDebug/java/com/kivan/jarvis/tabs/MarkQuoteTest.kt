@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -179,29 +180,80 @@ class MarkQuoteTest {
         rule.onNodeWithTag("replying").assertDoesNotExist()
     }
 
-    @Test
-    fun aHeldReplyGoesToTheServerToWaitForTheTurnsEnd() {
-        val deck = deck()
-        swipe(0, 400f)
-        type("note one")
+    private fun FakeDeck.yours() = state.value.tabs.getValue("t1").entries.count { it is Entry.Yours }
+
+    private fun holdIt() {
         rule.onNodeWithText("Hold").performClick()
         rule.mainClock.advanceTimeBy(300)
-        assertEquals(listOf(Quoted(41, firstQuote, "note one")), deck.sent().quotes)
-        assertEquals("", deck.sent().text)
-        assertEquals(emptyList<QuoteMark>(), deck.state.value.marks["t1"].orEmpty())
-        rule.onNodeWithTag("replying").assertDoesNotExist()
-        assertTrue(deck.state.value.tabs.getValue("t1").waiting)
     }
 
     @Test
-    fun sendWithNothingTypedLetsWhatsHeldGoInNow() {
+    fun aHeldReplyStaysHereQuietAndEditable() {
+        val deck = deck()
+        val before = deck.yours()
+        swipe(0, 400f)
+        type("note one")
+        holdIt()
+        assertEquals(listOf(QuoteMark(41, 0, firstQuote, "note one", quiet = true)), deck.state.value.marks["t1"])
+        assertEquals("nothing goes yet", before, deck.yours())
+        rule.onNodeWithTag("replying").assertDoesNotExist()
+    }
+
+    @Test
+    fun anEditedHeldReplyReplacesItStaysEditableAndGoesOnce() {
+        val deck = deck()
+        val before = deck.yours()
+        swipe(0, 400f)
+        type("note one")
+        holdIt()
+        // Back to it: a tap on the held paragraph opens his words again.
+        paragraph(0).performTouchInput { click() }
+        rule.mainClock.advanceTimeBy(300)
+        rule.onNodeWithTag("replying").assertIsDisplayed()
+        box().performTextClearance()
+        type("note two")
+        // Half-edited it isn't quiet: it can't go by itself mid-edit.
+        assertEquals(listOf(false), deck.state.value.marks["t1"]!!.map { it.quiet })
+        holdIt()
+        assertEquals(listOf(QuoteMark(41, 0, firstQuote, "note two", quiet = true)), deck.state.value.marks["t1"])
+        assertEquals(before, deck.yours())
+        // And again: still his to edit.
+        paragraph(0).performTouchInput { click() }
+        rule.mainClock.advanceTimeBy(300)
+        rule.onNodeWithTag("replying").assertIsDisplayed()
+        box().performTextClearance()
+        type("note three")
+        holdIt()
+        send()
+        assertEquals("one message", before + 1, deck.yours())
+        assertEquals(listOf(Quoted(41, firstQuote, "note three")), deck.sent().quotes)
+        assertEquals(emptyList<QuoteMark>(), deck.state.value.marks["t1"].orEmpty())
+    }
+
+    @Test
+    fun sendWithNothingTypedTakesWhatsHeld() {
         val deck = deck()
         swipe(2, 400f)
         type("mine")
-        rule.onNodeWithText("Hold").performClick()
-        rule.mainClock.advanceTimeBy(300)
+        holdIt()
         send()
-        assertFalse(deck.state.value.tabs.getValue("t1").waiting)
+        assertEquals(listOf(Quoted(57, second, "mine")), deck.sent().quotes)
+        assertEquals(emptyList<QuoteMark>(), deck.state.value.marks["t1"].orEmpty())
+    }
+
+    @Test
+    fun aTapOnWhatHeSaidPutsItInTheBoxNotSent() {
+        val deck = deck()
+        val before = deck.yours()
+        deck.dictate()
+        deck.heard("said aloud")
+        rule.mainClock.advanceTimeBy(300)
+        rule.onAllNodesWithText("said aloud")[0].performClick()
+        rule.mainClock.advanceTimeBy(300)
+        assertEquals("said aloud", deck.state.value.typed["t1"])
+        assertEquals("", deck.state.value.heard)
+        assertFalse(deck.state.value.dictating)
+        assertEquals("nothing sent", before, deck.yours())
     }
 
     @Test

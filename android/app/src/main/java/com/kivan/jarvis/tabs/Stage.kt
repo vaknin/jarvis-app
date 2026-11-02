@@ -186,7 +186,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 onMove = deck::move,
                 onClosedTabs = { closedPage = true },
                 onList = { list = true },
-                onHeard = { deck.words(true) },
+                onHeard = { deck.edit() },
                 undo = undo,
                 onUndo = {
                     undo?.let { deck.reopen(it.id) }
@@ -214,7 +214,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                     text = wallWords,
                     onText = { deck.type(WALL, it) },
                     onStart = startNew,
-                    onHeard = { deck.words(true) },
+                    onHeard = { deck.edit() },
                     asking = asking,
                     onAsking = { asking = it },
                 )
@@ -416,9 +416,8 @@ private fun TabLayer(
                     onClose = { onClose(tabId) },
                     onReopen = { deck.reopen(tabId) },
                     heard = state.heard,
-                    onHeard = { deck.words(true) },
+                    onHeard = { deck.edit() },
                     onStop = { deck.stop(tabId) },
-                    onHold = { deck.hold(tabId, it) },
                     onRelease = { deck.release(tabId) },
                     onMode = { m, e -> deck.mode(tabId, m, e) },
                     notice = state.notice?.takeIf { it.id == tabId }?.text,

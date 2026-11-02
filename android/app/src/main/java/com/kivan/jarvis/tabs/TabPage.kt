@@ -108,7 +108,6 @@ fun TabPage(
     heard: String = "",
     onHeard: () -> Unit = {},
     onStop: () -> Unit = {},
-    onHold: (Quoted) -> Unit = {},
     onRelease: () -> Unit = {},
     marks: List<QuoteMark> = emptyList(),
     onMarks: (List<QuoteMark>) -> Unit = {},
@@ -170,7 +169,8 @@ fun TabPage(
     }
     fun write(words: String) {
         val r = reply ?: return
-        onMarks(if (words.isBlank()) marks.without(r) else marks.with(r.copy(text = words)))
+        // Being written, it isn't quiet: only Hold makes it go by itself, so a half-done edit never goes.
+        onMarks(if (words.isBlank()) marks.without(r) else marks.with(r.copy(text = words, quiet = false)))
     }
     /** Leaves the box. Kept words stay held; a cancel, or nothing written, goes back to what was there. */
     fun closed(keep: Boolean): List<QuoteMark> {
@@ -196,16 +196,19 @@ fun TabPage(
             onRelease()
         }
     }
-    /** Hold: the reply goes to the server, which keeps it for the turn's end, as the laptop's enter. */
+    /**
+     * Hold: the reply stays here, his to open and edit, and goes quiet by itself at the end of the
+     * tab's turn or when he leaves the app, as the laptop's enter; Send takes it along sooner. Held
+     * again after an edit, it's the same one: it goes once, with its last words.
+     */
     val hold = {
         val r = reply
         val words = writing?.trim().orEmpty()
         if (r != null && words.isNotEmpty()) {
             reply = null
             replyBefore = null
-            onMarks(marks.without(r))
+            onMarks(marks.with(r.copy(text = words, quiet = true)))
             buzz.sent()
-            onHold(Quoted(r.to, r.quote, words))
         }
     }
     // With a reply open his spoken words write into it.
@@ -309,8 +312,7 @@ fun TabPage(
                 onSend = { send() },
                 focus = ask,
                 heard = if (reply != null) "" else heard,
-                // What he said joins what's marked in one message, as his typed words do.
-                onHeard = { if (marks.isEmpty()) onHeard() else send() },
+                onHeard = onHeard,
                 onStop = onStop.takeIf { tab.work != null },
                 tab = tab.tile.id,
                 ready = reply != null || marks.isNotEmpty() || tab.waiting,

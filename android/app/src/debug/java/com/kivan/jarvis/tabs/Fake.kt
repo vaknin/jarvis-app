@@ -154,15 +154,28 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun show(ids: List<String>) {}
 
-    override fun here(id: String?) {}
+    private var looking: String? = null
+
+    override fun here(id: String?) {
+        looking = id
+    }
 
     override fun words(send: Boolean) = flow.update { it.copy(heard = "") }
+
+    /** As the server, his words collecting while he dictates. */
+    fun heard(words: String) = flow.update { it.copy(heard = words) }
+
+    override fun edit() = flow.update { s ->
+        val id = looking ?: WALL
+        val was = s.typed[id].orEmpty()
+        s.copy(heard = "", dictating = false, typed = s.typed + (id to listOf(was, s.heard).filter { it.isNotBlank() }.joinToString(" ")))
+    }
 
     override fun stop(id: String) {}
 
     /** As the server: held words wait, marked, until a send-now. */
-    override fun hold(id: String, quote: Quoted) {
-        edit(id) { t -> t.copy(entries = t.entries + Entry.Yours("y${++counter}", "", quotes = listOf(quote), state = Sending.Sent), waiting = true) }
+    override fun hold(id: String, quotes: List<Quoted>) {
+        edit(id) { t -> t.copy(entries = t.entries + Entry.Yours("y${++counter}", "", quotes = quotes, state = Sending.Sent), waiting = true) }
     }
 
     override fun release(id: String) {

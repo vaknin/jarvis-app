@@ -133,10 +133,11 @@ data class ReplyDraft(val to: Long, val notes: Map<Int, Note> = emptyMap(), val 
  * A paragraph or words of the answer at offset [to], waiting to go as a quote with his next message.
  * With no [text] it's a mark; with [text] it's a held reply, words of its own under the quote. [block]
  * keeps them in the order they were said. What it says is kept here, as the laptop keeps it, so it
- * outlives the record it came from.
+ * outlives the record it came from. [quiet]: he pressed Hold on it, so it also goes by itself, quiet,
+ * at the end of the tab's turn or when he leaves the app; until then it stays his to edit.
  */
 @Immutable
-data class QuoteMark(val to: Long, val block: Int, val quote: String, val text: String = "") {
+data class QuoteMark(val to: Long, val block: Int, val quote: String, val text: String = "", val quiet: Boolean = false) {
     fun same(o: QuoteMark) = to == o.to && block == o.block && quote == o.quote
     val held get() = text.isNotBlank()
 }
@@ -206,14 +207,16 @@ interface Deck {
     fun move(id: String, to: Int)
     /** Sets the tab's model and effort, from its next message. */
     fun mode(id: String, model: String, effort: String)
-    /** He's on this tab now, or at the wall (null). A jump sends what waits. */
+    /** He's on this tab now, or at the wall (null). What he said stays in the box of the one he left. */
     fun here(id: String?)
     /** What he said on screen: `send` sends it, otherwise it was taken into a box. */
     fun words(send: Boolean)
+    /** A tap on what he said: the mic stops and his words go into the box, for him to edit and send. */
+    fun edit()
     /** Stops what the tab is writing; what's written stays. */
     fun stop(id: String)
-    /** A reply he holds: the server keeps it for the turn's end, as the laptop's enter. */
-    fun hold(id: String, quote: Quoted)
+    /** Replies he held, going quiet: the server keeps them for the turn's end, as the laptop's enter. */
+    fun hold(id: String, quotes: List<Quoted>)
     /** What he holds in tab [id] goes in now, as the laptop's ctrl+enter. */
     fun release(id: String)
     /** Asks for a file beside the record; it lands in [DeckState.files]. */

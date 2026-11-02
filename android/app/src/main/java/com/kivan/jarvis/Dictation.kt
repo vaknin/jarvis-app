@@ -24,9 +24,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * The mic button in a words box: he speaks, the words collect, Jarvis writes. No sound, no call route,
- * no notification, no audio focus, so music plays on at full quality. It only runs while Tabs is on
- * screen, so it isn't a service: leaving the app stops it and what he said stays as a draft.
+ * The mic button in a words box: he speaks, the words collect, and when he stops they go into the box
+ * for him to edit and send. No sound, no call route, no notification, no audio focus, so music plays
+ * on at full quality. It only runs while Tabs is on screen, so it isn't a service: leaving the app
+ * stops it and what he said stays as a draft.
  */
 object Dictation {
     private const val TAG = "JarvisDictation"
@@ -47,6 +48,8 @@ object Dictation {
     @Volatile private var route = Route(MicPick.PHONE, false, false, "")
     @Volatile private var running = false
     @Volatile private var reroute = false
+    /** The box his words go into when the line closes: where he was when he stopped, before any jump. */
+    @Volatile private var into: String? = null
 
     fun toggle(context: Context) = if (on.value) stop() else start(context.applicationContext)
 
@@ -86,6 +89,7 @@ object Dictation {
         }
         then(then)
         if (on.value) {
+            into = Voice.place.value.tab ?: WALL
             on.value = false
             running = false
             senses?.stop()
@@ -139,7 +143,9 @@ object Dictation {
         scope = null
         val words = Voice.heard.value
         Voice.heard.value = ""
-        if (words.isNotBlank()) RealDeck.get(app).kept(Voice.place.value.tab ?: WALL, words)
+        val box = into ?: Voice.place.value.tab ?: WALL
+        into = null
+        if (words.isNotBlank()) RealDeck.get(app).kept(box, words)
         val next = after
         after = null
         next?.invoke()
