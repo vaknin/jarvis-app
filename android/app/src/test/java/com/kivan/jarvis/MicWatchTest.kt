@@ -127,11 +127,11 @@ class MicWatchTest {
         val quiet = { _: Int -> moves-- > 0 }
         var fine = 0
         repeat(2) {
-            repeat(100) { w.frame(300, true, { said += it }, quiet) {} }
-            assertEquals("a move reopens in the next pause", 1, (1..16).count { w.frame(20, true, { said += it }, quiet) {} })
+            repeat(100) { w.frame(300, true, quiet, {}) { said += it } }
+            assertEquals("a move reopens in the next pause", 1, (1..16).count { w.frame(20, true, quiet, {}) { said += it } })
         }
         assertEquals("no plain reopen while the buds move", emptyList<String>(), said)
-        repeat(100) { w.frame(3000, true, {}, quiet) { fine++ } }
+        repeat(100) { w.frame(3000, true, quiet, { fine++ }) {} }
         assert(fine > 0)
     }
 }

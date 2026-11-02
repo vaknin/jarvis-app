@@ -33,7 +33,7 @@ class MicWatch {
      * [quiet] runs first when his voice reads quiet: it moves the mic to the other AirPod and says so, or false
      * ([AirPodsMic]); a move gets its own reopen. [fine] runs for each window at the usual level.
      */
-    fun frame(peak: Int, listening: Boolean, log: (String) -> Unit, quiet: (Int) -> Boolean = { false }, fine: () -> Unit = {}): Boolean {
+    fun frame(peak: Int, listening: Boolean, quiet: (Int) -> Boolean = { false }, fine: () -> Unit = {}, log: (String) -> Unit): Boolean {
         age++
         if (due) {
             gap = if (peak < VOICE) gap + 1 else 0

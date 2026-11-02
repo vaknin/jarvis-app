@@ -624,7 +624,7 @@ class CallService : Service() {
                         loudest = 0
                     }
                     val ui = Voice.ui.value
-                    if (want != null && watch.frame(p, !ui.muted && ui.state is CallState.Listening, ::micNote, ::budsQuiet, ::budsFine)) {
+                    if (want != null && watch.frame(p, !ui.muted && ui.state is CallState.Listening, ::budsQuiet, ::budsFine, ::micNote)) {
                         micNote("reopening after $frames frames")
                         return MicEnd.REROUTE
                     }
