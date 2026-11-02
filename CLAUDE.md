@@ -35,7 +35,8 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   up (iroh's relay ping every 15 s is the standing battery cost; no connection is held). Design: the jarvis repo's
   `notes/jarvis-notify.md`.
   One app, voice first (thread #112, 2026-10-29; the forum app `com.vaknin.forum` folded in): the label is "Jarvis".
-  The app opens on the wall (thread #195): `MainActivity` is the gate, first-run steps then `wallIntent`; its old home
+  The app opens on Needs you, with Digest beside it and the wall a tap away (thread #195, J9 of the jarvis repo's
+  `docs/autonomy-plan.md`; `tabs/Queue.kt`; a question's notification answers from its buttons, `AskReceiver`): `MainActivity` is the gate, first-run steps then `wallIntent`; its old home
   shows only with `home` from the wall's menu, a fallback for a week of testing.
   That home (`MainActivity`, `ui/HomeScreen.kt`) is the big Call button plus What's new (`Brief.kt`, `GET /brief` on the
   tunnel's 8791; the forum's unread list until that answers). The top bar opens the forum (`forum/ForumActivity`, a

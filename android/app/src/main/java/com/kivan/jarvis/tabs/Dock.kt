@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
@@ -53,6 +54,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -100,6 +102,8 @@ fun Dock(
     tab: String? = null,
     ready: Boolean = false,
     above: (@Composable () -> Unit)? = null,
+    /** In a tab: its autopilot, for the Auto button beside Call; null shows none. */
+    autopilot: Boolean? = null,
 ) {
     val on = LocalTalk.current
     Column(modifier.overKeyboard().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
@@ -114,6 +118,7 @@ fun Dock(
         ) {
             leading?.invoke(this)
             WordsBox(hint, text, onText, onSend, Modifier.weight(1f), focus, showSend, heard, onHeard, onStop, talk, ready)
+            if (talk && tab != null && autopilot != null) AutoButton(tab, autopilot)
             if (talk) CallButton(tab)
         }
     }
@@ -133,6 +138,30 @@ private fun CallButton(tab: String?) {
         tint = if (here) look.canvas else look.soft,
         size = 48.dp,
     )
+}
+
+/** Auto: the tab goes on by itself, taking Jarvis's picks, until he stops it. Filled while on. */
+@Composable
+fun AutoButton(tab: String, on: Boolean, height: Dp = 48.dp) {
+    val deck = LocalDeck.current
+    Box(
+        Modifier
+            .heightIn(min = Space.target)
+            .clickable(onClickLabel = if (on) "Stop autopilot" else "Autopilot") { deck?.autopilot(tab, !on) }
+            .semantics { contentDescription = if (on) "Autopilot on" else "Autopilot off" },
+        Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .height(height)
+                .clip(RoundedCornerShape(height / 2))
+                .background(if (on) look.ink else look.surface)
+                .padding(horizontal = 12.dp),
+            Alignment.Center,
+        ) {
+            Text(if (on) "▸▸ Auto" else "Auto", color = if (on) look.canvas else look.soft, style = Words.small.copy(fontWeight = FontWeight.W600))
+        }
+    }
 }
 
 /** The call going on while he looks around: one tap back to it, from every screen. */

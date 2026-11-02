@@ -54,7 +54,7 @@ class ScreensTest {
         rule.onRoot().captureRoboImage("build/shots/$name.png")
     }
 
-    private fun wall(n: Int, name: String, dark: Boolean = true) = shot(name, dark) { Stage(FakeDeck(Fake.deck(n))) }
+    private fun wall(n: Int, name: String, dark: Boolean = true) = shot(name, dark) { Stage(FakeDeck(Fake.deck(n)), Opening(list = false)) }
 
     @Test fun wall3() = wall(3, "wall-03")
     @Test fun wall5() = wall(5, "wall-05")
@@ -67,7 +67,18 @@ class ScreensTest {
     @Test fun tabQuestion() = shot("tab-question") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t2")) }
     @Test fun tabLight() = shot("tab-light", dark = false) { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1")) }
     @Test fun zoom() = shot("zoom-50") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1", zoom = 0.5f)) }
-    @Test fun closed() = shot("closed") { Stage(FakeDeck(Fake.deck(9)), Opening(closed = true)) }
+    // J9: the app opens on Needs you, with Digest beside it.
+    @Test fun needs() = shot("needs-you") { Stage(FakeDeck(Fake.deck(9))) }
+    @Test fun needsLight() = shot("needs-you-light", dark = false) { Stage(FakeDeck(Fake.deck(9))) }
+    @Test fun needsEmpty() = shot("needs-you-empty") { Stage(FakeDeck(Fake.deck(9).copy(cards = emptyList()))) }
+    @Test fun digest() = shot("digest") { Stage(FakeDeck(Fake.deck(9)), Opening(digest = true)) }
+    @Test fun dialog() = shot("ask-dialog") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[0].key)) }
+    @Test fun dialogThree() = shot("ask-dialog-3") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[2].key)) }
+    @Test fun dialogLight() = shot("ask-dialog-light", dark = false) { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[0].key)) }
+    @Test fun tabNotice() = shot("tab-auto-refused") {
+        Stage(FakeDeck(Fake.deck(9).copy(notice = Notice("t2", "autopilot isn't built yet"))), Opening(tab = "t2"))
+    }
+    @Test fun closed() = shot("closed") { Stage(FakeDeck(Fake.deck(9)), Opening(closed = true, list = false)) }
 
     @Test fun marked() = shot("tab-marked") {
         val deck = Fake.deck(9)
@@ -107,11 +118,11 @@ class ScreensTest {
     }
     @Test fun callHere() = shot("tab-on-call") { Stage(FakeDeck(Fake.deck(9).copy(call = onCall)), Opening(tab = "t1")) }
     @Test fun callElsewhere() = shot("tab-call-elsewhere") { Stage(FakeDeck(Fake.deck(9).copy(call = onCall)), Opening(tab = "t2")) }
-    @Test fun callWall() = shot("wall-on-call") { Stage(FakeDeck(Fake.deck(9).copy(call = onCall))) }
-    @Test fun trayWall() = shot("wall-tray") { Stage(FakeDeck(Fake.deck(9).copy(attached = listOf(photo, paper)))) }
+    @Test fun callWall() = shot("wall-on-call") { Stage(FakeDeck(Fake.deck(9).copy(call = onCall)), Opening(list = false)) }
+    @Test fun trayWall() = shot("wall-tray") { Stage(FakeDeck(Fake.deck(9).copy(attached = listOf(photo, paper))), Opening(list = false)) }
     @Test fun trayTab() = shot("tab-tray") { Stage(FakeDeck(Fake.deck(9).copy(attached = listOf(photo))), Opening(tab = "t1")) }
     private val spoken = "Make the piano louder when the room is noisy, and show me the level while it plays"
-    @Test fun heardWall() = shot("wall-heard") { Stage(FakeDeck(Fake.deck(9).copy(heard = spoken))) }
+    @Test fun heardWall() = shot("wall-heard") { Stage(FakeDeck(Fake.deck(9).copy(heard = spoken)), Opening(list = false)) }
     @Test fun heardTab() = shot("tab-heard") { Stage(FakeDeck(Fake.deck(9).copy(heard = spoken)), Opening(tab = "t1")) }
     @Test fun offline() = shot("tab-offline") { Stage(FakeDeck(Fake.deck(9, online = false)), Opening(tab = "t1")) }
     @Test fun readNew() = shot("tab-new-long") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t4")) }
@@ -128,6 +139,6 @@ class ScreensTest {
     @Config(qualifiers = "w840dp-h1180dp-xhdpi")
     @Test fun tabletTab() = shot("tablet-tab") { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1")) }
 
-    @Test fun bigWall() = shot("font200-wall-14", scale = 2f) { Stage(FakeDeck(Fake.deck(14))) }
+    @Test fun bigWall() = shot("font200-wall-14", scale = 2f) { Stage(FakeDeck(Fake.deck(14)), Opening(list = false)) }
     @Test fun bigTab() = shot("font200-tab", scale = 2f) { Stage(FakeDeck(Fake.deck(9)), Opening(tab = "t1")) }
 }

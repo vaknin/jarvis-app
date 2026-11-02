@@ -130,6 +130,7 @@ fun Wall(
     undo: ClosedTab?,
     onUndo: () -> Unit,
     modifier: Modifier = Modifier,
+    onList: () -> Unit = {},
 ) {
     Column(
         modifier
@@ -159,14 +160,14 @@ fun Wall(
             onSend = onStart,
             heard = state.heard,
             onHeard = onHeard,
-            leading = { WallMenu(if (state.closed.isEmpty()) null else onClosedTabs) },
+            leading = { WallMenu(if (state.closed.isEmpty()) null else onClosedTabs, state.cards.size, onList) },
         )
     }
 }
 
-/** The way to everything that isn't a tab: closed tabs, the old home, the forum. */
+/** The way to everything that isn't a tab: Needs you, closed tabs, the old home, the forum. */
 @Composable
-private fun WallMenu(onClosedTabs: (() -> Unit)?) {
+private fun WallMenu(onClosedTabs: (() -> Unit)?, needs: Int, onList: () -> Unit) {
     val deck = LocalDeck.current
     var menu by remember { mutableStateOf(false) }
     @Composable
@@ -180,6 +181,7 @@ private fun WallMenu(onClosedTabs: (() -> Unit)?) {
     Box {
         Round(R.drawable.lucide_ellipsis_vertical, "More", { menu = true }, fill = look.surface, size = 48.dp)
         DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
+            item("Needs you $needs", onList)
             if (onClosedTabs != null) item("Search closed tabs", onClosedTabs)
             item("Home") { deck?.home() }
             item("Forum") { deck?.forum() }

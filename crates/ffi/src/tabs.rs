@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use jarvis_tabs_wire::{
     frame::{read_async, write_async},
-    Ask, Body, Event, FileRef, Info, Reply, Tell, Tile, Via, WorkEnd, WorkState, Who, WALL,
+    ApState, Ask, Body, Card, DigestLine, Event, FileRef, Info, Item, OpenAsk, Reply, Tell, Tile, Urgency, Via, WorkEnd, WorkState, Who, WALL,
 };
 use tokio::sync::{mpsc, Notify};
 
@@ -52,6 +52,50 @@ pub struct TileRec {
     /// The model and effort of the mode (or of the default), short: "opus", "medium".
     pub model: String,
     pub effort: String,
+    /// Its autopilot runs: on, and not yet done, accepted or dropped.
+    pub autopilot: bool,
+}
+
+/// One tab a card's question stands in: what an answer names.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CardTabRec {
+    pub id: String,
+    pub name: String,
+    pub q: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
+pub enum Level {
+    Low,
+    Default,
+    Urgent,
+}
+
+/// A card of the Needs you list, or a question still open in its own tab: its first question, which
+/// is the one a tap answers. `pick` is Jarvis's, the highlighted one; `due` when silence takes it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CardRec {
+    pub tabs: Vec<CardTabRec>,
+    pub kind: String,
+    pub level: Level,
+    pub text: String,
+    pub options: Vec<String>,
+    pub pick: u32,
+    pub why: String,
+    pub due: Option<u64>,
+    pub blocks: bool,
+    pub at: u64,
+}
+
+/// A line of the digest: done, an assumption, a default taken, a stall.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct DigestRec {
+    pub id: String,
+    pub name: String,
+    pub at: u64,
+    pub offset: u64,
+    pub what: String,
+    pub line: String,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -100,6 +144,8 @@ pub struct TabRec {
     pub waiting: bool,
     pub closed: bool,
     pub loading: bool,
+    /// Its questions still open, oldest first: the same cards as on the list.
+    pub asks: Vec<CardRec>,
 }
 
 /// A file he attached: where the app keeps it, and what he calls it.
@@ -121,6 +167,10 @@ pub trait TabsListener: Send + Sync {
     fn file(&self, id: String, name: String, data: Vec<u8>);
     /// Files that didn't go after all: they go back to where he attaches.
     fn unsent(&self, files: Vec<OutFile>);
+    /// The Needs you list and the digest, whole, whenever either changes.
+    fn queue(&self, cards: Vec<CardRec>, digest: Vec<DigestRec>);
+    /// An answer or an autopilot switch the server refused, in its words, for tab `id`.
+    fn refused(&self, id: String, why: String);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +181,42 @@ enum Told {
     Back(String, String),
     File(String, String, Vec<u8>),
     Unsent(Vec<OutFile>),
+    Queue(Vec<CardRec>, Vec<DigestRec>),
+    Refused(String, String),
+}
+
+/// An ask whose answer isn't about words: its `Landed` or `Refused` is its own.
+#[derive(Debug, Clone, PartialEq)]
+enum Asked {
+    Answer,
+    Autopilot,
+}
+
+fn level(l: Urgency) -> Level {
+    match l {
+        Urgency::Urgent => Level::Urgent,
+        Urgency::Low => Level::Low,
+        _ => Level::Default,
+    }
+}
+
+fn card(tabs: Vec<CardTabRec>, kind: &str, lvl: Urgency, items: &[Item], due: Option<u64>, blocks: bool, at: u64) -> CardRec {
+    let first = items.first().cloned().unwrap_or_default();
+    CardRec { tabs, kind: kind.to_string(), level: level(lvl), text: first.text, options: first.options, pick: first.pick, why: first.why, due, blocks, at }
+}
+
+fn card_rec(c: &Card) -> CardRec {
+    let tabs = c.tabs.iter().map(|t| CardTabRec { id: t.id.clone(), name: t.name.clone(), q: t.q.clone() }).collect();
+    card(tabs, c.kind.name(), c.level, &c.items, c.due, c.blocks, c.at)
+}
+
+fn open_ask(id: &str, name: &str, a: &OpenAsk) -> CardRec {
+    let tabs = vec![CardTabRec { id: id.to_string(), name: name.to_string(), q: a.q.clone() }];
+    card(tabs, a.ask.map_or("other", |k| k.name()), a.level, &a.items, a.due, a.blocks, a.at)
+}
+
+fn digest_rec(d: &DigestLine) -> DigestRec {
+    DigestRec { id: d.id.clone(), name: d.name.clone(), at: d.at, offset: d.offset, what: d.what.clone(), line: d.line.clone() }
 }
 
 /// A file on its way: read, as the frame carries it.
@@ -240,6 +326,8 @@ impl Hold {
                 let line = if line.is_empty() { jarvis_tabs_wire::first_line(text) } else { line.clone() };
                 Some(EntryRec::Report { key: key(), from: from.clone(), line, text: text.clone() })
             }
+            // One that stands for a question is its card, at the end of the tab (`TabRec.asks`).
+            Body::Needs { q, .. } if !q.is_empty() => None,
             Body::Needs { text, closed: false, .. } => Some(EntryRec::Question { key: key(), text: text.clone(), closed: false }),
             Body::Needs { closed: true, .. } => {
                 self.close_questions();
@@ -342,6 +430,13 @@ struct Desk {
     keys: u64,
     out: Vec<Ask>,
     told: Vec<Told>,
+    cards: Vec<CardRec>,
+    digest: Vec<DigestRec>,
+    queue_touched: bool,
+    /// Answers and switches on their way, oldest first, by tab.
+    asked: VecDeque<(String, Asked)>,
+    /// Questions he just answered, hidden until the server's list drops them: the tab ids and q.
+    answered: Vec<(String, String)>,
 }
 
 impl Desk {
@@ -349,7 +444,7 @@ impl Desk {
     /// there. Online comes with the first frame.
     fn connected(&mut self) {
         (self.fresh, self.wall_touched) = (true, true);
-        self.out.extend([Ask::List, Ask::Closed, Ask::Follow { id: WALL.into(), after: self.wall_end }]);
+        self.out.extend([Ask::List, Ask::Closed, Ask::Follow { id: WALL.into(), after: self.wall_end }, Ask::Queue]);
     }
 
     /// Nothing still on its way will land, as far as anyone here can tell: the words go back in their
@@ -358,6 +453,7 @@ impl Desk {
         self.online = false;
         self.wall_touched = true;
         self.out.clear();
+        self.asked.clear();
         for (words, files) in std::mem::take(&mut self.opening).into_iter().flatten() {
             self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
         }
@@ -394,6 +490,7 @@ impl Desk {
                 self.wall_touched = true;
             }
             Tell::Opened { tab } => self.opened(tab),
+            Tell::Landed { id, .. } if self.took(&id).is_some() => {}
             Tell::Landed { id, .. } => {
                 if let Some(p) = self.tabs.get_mut(&id).and_then(|t| t.pending.iter_mut().find(|p| p.said())) {
                     p.landed = true;
@@ -435,10 +532,56 @@ impl Desk {
                 }
                 self.relist = true;
             }
-            Tell::Refused { id, why } => self.refused(id, why),
+            Tell::Refused { id, why } => match self.took(&id) {
+                Some(Asked::Answer) => {
+                    // The card comes back with the next list, or now if the list is as it was.
+                    self.answered.clear();
+                    self.queue_touched = true;
+                    self.told.push(Told::Refused(id, why));
+                }
+                Some(Asked::Autopilot) => self.told.push(Told::Refused(id, why)),
+                None => self.refused(id, why),
+            },
+            Tell::Queue { decide, digest } => {
+                self.cards = decide.iter().map(card_rec).collect();
+                self.digest = digest.iter().map(digest_rec).collect();
+                let open: Vec<(String, String)> = self.cards.iter().flat_map(|c| c.tabs.iter().map(|t| (t.id.clone(), t.q.clone()))).collect();
+                self.answered.retain(|a| open.contains(a));
+                self.queue_touched = true;
+            }
             Tell::File { id, name, data } => self.told.push(Told::File(id, name, STANDARD.decode(data).unwrap_or_default())),
             _ => {}
         }
+    }
+
+    /// The oldest answer or switch on its way for tab `id`, now answered.
+    fn took(&mut self, id: &str) -> Option<Asked> {
+        let at = self.asked.iter().position(|(i, _)| i == id)?;
+        self.asked.remove(at).map(|(_, a)| a)
+    }
+
+    /// His answer to the card that holds question `q` of tab `id`: it leaves the list at once.
+    fn answer(&mut self, id: String, q: String, picks: Vec<u32>, text: String) {
+        if let Some(c) = self.cards.iter().find(|c| c.tabs.iter().any(|t| t.id == id && t.q == q)) {
+            self.answered.extend(c.tabs.iter().map(|t| (t.id.clone(), t.q.clone())));
+        } else {
+            self.answered.push((id.clone(), q.clone()));
+        }
+        self.queue_touched = true;
+        if let Some(t) = self.tabs.get_mut(&id) {
+            t.touched = true;
+        }
+        self.asked.push_back((id.clone(), Asked::Answer));
+        self.out.push(Ask::Answer { id, q, picks, text });
+    }
+
+    fn autopilot(&mut self, id: String, on: bool) {
+        self.asked.push_back((id.clone(), Asked::Autopilot));
+        self.out.push(Ask::Autopilot { id, op: if on { "on" } else { "off" }.into(), text: String::new(), n: None });
+    }
+
+    fn shown(&self, tabs: &[CardTabRec]) -> bool {
+        !tabs.iter().any(|t| self.answered.iter().any(|(i, q)| *i == t.id && *q == t.q))
     }
 
     /// What's left after a batch of frames: one listing, however many of the wall's events came.
@@ -681,6 +824,7 @@ impl Desk {
             mode: t.tile.mode.clone(),
             model: jarvis_tabs_wire::mode::parts(&t.tile.mode).0.to_string(),
             effort: jarvis_tabs_wire::mode::parts(&t.tile.mode).1.to_string(),
+            autopilot: t.tile.autopilot.as_ref().is_some_and(|a| !matches!(a.state, ApState::Done | ApState::Accepted | ApState::Dropped)),
         }
     }
 
@@ -691,6 +835,10 @@ impl Desk {
             let tiles = self.order.iter().filter_map(|id| self.tabs.get(id).map(|t| self.tile(id, t))).collect();
             let closed = self.closed.iter().map(|c| ClosedRec { id: c.id.clone(), name: c.tile.name.clone(), line: c.tile.line.clone() }).collect();
             told.push(Told::Wall(tiles, closed, self.online));
+        }
+        if std::mem::take(&mut self.queue_touched) {
+            let cards = self.cards.iter().filter(|c| self.shown(&c.tabs)).cloned().collect();
+            told.push(Told::Queue(cards, self.digest.clone()));
         }
         let ids: Vec<String> = self.tabs.iter().filter(|(_, t)| t.touched && t.loaded).map(|(id, _)| id.clone()).collect();
         for id in ids {
@@ -708,6 +856,7 @@ impl Desk {
                 waiting: t.waiting > 0,
                 closed: t.closed,
                 loading: t.end < t.tile.end,
+                asks: t.tile.asks.iter().map(|a| open_ask(&id, &t.tile.name, a)).filter(|c| self.shown(&c.tabs)).collect(),
             }));
             let t = self.tabs.get_mut(&id).expect("just read");
             (t.from, t.touched) = (None, false);
@@ -751,6 +900,8 @@ fn deliver() {
             Told::Back(id, text) => listener.back(id, text),
             Told::File(id, name, data) => listener.file(id, name, data),
             Told::Unsent(files) => listener.unsent(files),
+            Told::Queue(cards, digest) => listener.queue(cards, digest),
+            Told::Refused(id, why) => listener.refused(id, why),
         }
     }
 }
@@ -985,6 +1136,40 @@ pub fn tabs_mode(id: String, model: String, effort: String) {
     }
 }
 
+/// His answer to question `q` of tab `id`: the picks, a note, or both. On a card from several tabs it
+/// answers in each. A refusal comes back through `TabsListener::refused`.
+#[uniffi::export]
+pub fn tabs_answer(id: String, q: String, picks: Vec<u32>, text: String) {
+    with_desk(|d| d.answer(id, q, picks, text));
+}
+
+/// His autopilot switch for tab `id`. The server may refuse it (until autopilot is built, it does).
+#[uniffi::export]
+pub fn tabs_autopilot(id: String, on: bool) {
+    with_desk(|d| d.autopilot(id, on));
+}
+
+/// An answer from a notification, with the app's screens down: its own short link, the answer, and
+/// what the server said. `None` once it landed, else why not.
+#[uniffi::export]
+pub fn tabs_answer_now(id: String, q: String, picks: Vec<u32>, text: String) -> Option<String> {
+    let run = async move {
+        let forum::Stream { mut send, recv, .. } = forum::open_stream(TABS_HANDSHAKE, false).await?;
+        write_async(&mut send, &Ask::Answer { id: id.clone(), q, picks, text }).await.context("write")?;
+        let mut recv = tokio::io::BufReader::new(recv);
+        loop {
+            match read_async::<Tell>(&mut recv).await {
+                Ok(Tell::Landed { id: got, .. }) if got == id => return Ok(None),
+                Ok(Tell::Refused { why, .. }) => return Ok(Some(why)),
+                Ok(_) | Err(jarvis_tabs_wire::FrameError::Bad(_)) => {}
+                Err(e) => anyhow::bail!("{e}"),
+            }
+        }
+    };
+    let r: Result<Option<String>> = RT.block_on(async { tokio::time::timeout(Duration::from_secs(30), run).await.unwrap_or_else(|_| anyhow::bail!("no answer in 30 s")) });
+    r.unwrap_or_else(|e| Some(format!("{e:#}")))
+}
+
 #[uniffi::export]
 pub fn tabs_move(id: String, to: u32) {
     with_desk(|d| d.out.push(Ask::Move { id, to: to as usize }));
@@ -1057,6 +1242,94 @@ mod tests {
                 EntryRec::Report { line, .. } => line.clone(),
             })
             .collect()
+    }
+
+    fn yes_no(q: &str, tabs: &[&str]) -> Card {
+        Card {
+            tabs: tabs.iter().map(|t| jarvis_tabs_wire::CardTab { id: (*t).into(), name: format!("{t} name"), q: q.into(), offset: 30 }).collect(),
+            kind: jarvis_tabs_wire::AskKind::Ux,
+            level: Urgency::Urgent,
+            items: vec![Item { text: "Use the phone's mic?".into(), options: vec!["Yes".into(), "No".into()], pick: 0, ..Item::default() }],
+            due: None,
+            blocks: true,
+            suggest_urgent: false,
+            at: 7,
+        }
+    }
+
+    fn queued(told: &[Told]) -> (Vec<CardRec>, Vec<DigestRec>) {
+        told.iter().find_map(|t| if let Told::Queue(c, d) = t { Some((c.clone(), d.clone())) } else { None }).expect("the queue")
+    }
+
+    #[test]
+    fn tabs_queue_is_asked_on_every_connection_and_crosses_whole() {
+        let mut d = up(&[("t1", 0)]);
+        assert!(d.out.contains(&Ask::Queue));
+        let line = DigestLine { id: "t1".into(), name: "Piano".into(), at: 3, offset: 40, what: "done".into(), line: "Dark mode landed".into() };
+        d.tell(Tell::Queue { decide: vec![yes_no("q1", &["t1", "t2"])], digest: vec![line] });
+        let (cards, digest) = queued(&d.take());
+        assert_eq!((cards.len(), cards[0].tabs.len(), cards[0].level, cards[0].options.clone(), cards[0].pick), (1, 2, Level::Urgent, vec!["Yes".to_string(), "No".to_string()], 0));
+        assert_eq!((digest[0].what.as_str(), digest[0].line.as_str()), ("done", "Dark mode landed"));
+        assert!(!d.take().iter().any(|t| matches!(t, Told::Queue(..))), "only when it changes");
+    }
+
+    #[test]
+    fn tabs_an_answer_leaves_the_list_at_once_and_comes_back_if_refused() {
+        let mut d = up(&[("t1", 0)]);
+        d.tell(Tell::Queue { decide: vec![yes_no("q1", &["t1", "t2"])], digest: vec![] });
+        d.take();
+        d.out.clear();
+        d.answer("t2".into(), "q1".into(), vec![0], "only on calls".into());
+        assert_eq!(d.out, [Ask::Answer { id: "t2".into(), q: "q1".into(), picks: vec![0], text: "only on calls".into() }]);
+        assert!(queued(&d.take()).0.is_empty(), "gone from every tab it stood in");
+        // A list from before the answer doesn't bring it back.
+        d.tell(Tell::Queue { decide: vec![yes_no("q1", &["t1", "t2"])], digest: vec![] });
+        assert!(queued(&d.take()).0.is_empty());
+        d.tell(Tell::Refused { id: "t2".into(), why: "q1 isn't open in t2 any more".into() });
+        let told = d.take();
+        assert!(told.contains(&Told::Refused("t2".into(), "q1 isn't open in t2 any more".into())));
+        assert_eq!(queued(&told).0.len(), 1, "back on the list");
+    }
+
+    #[test]
+    fn tabs_an_answer_landing_is_not_words_landing() {
+        let mut d = up(&[("t1", 0)]);
+        d.say("t1".into(), "hello".into(), vec![], vec![]);
+        d.answer("t1".into(), "q1".into(), vec![1], String::new());
+        d.tell(Tell::Landed { id: "t1".into(), offset: 50 });
+        assert!(d.tabs["t1"].pending.iter().all(|p| !p.landed), "the answer's landing is its own");
+        d.tell(Tell::Landed { id: "t1".into(), offset: 51 });
+        assert!(d.tabs["t1"].pending[0].landed);
+    }
+
+    #[test]
+    fn tabs_the_autopilot_switch_says_the_servers_refusal_and_keeps_his_words() {
+        let mut d = up(&[("t1", 0)]);
+        d.say("t1".into(), "hello".into(), vec![], vec![]);
+        d.out.clear();
+        d.autopilot("t1".into(), true);
+        assert_eq!(d.out, [Ask::Autopilot { id: "t1".into(), op: "on".into(), text: String::new(), n: None }]);
+        d.tell(Tell::Refused { id: "t1".into(), why: "autopilot isn't built yet".into() });
+        let told = d.take();
+        assert!(told.contains(&Told::Refused("t1".into(), "autopilot isn't built yet".into())));
+        assert!(!told.iter().any(|t| matches!(t, Told::Back(..))), "his words aren't sent back");
+        assert!(d.tabs["t1"].pending[0].failed.is_none());
+    }
+
+    #[test]
+    fn tabs_a_tabs_open_questions_cross_with_it() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        let item = Item { text: "Blue or green?".into(), options: vec!["Blue".into(), "Green".into()], pick: 1, ..Item::default() };
+        let body = Body::Question { q: "q9".into(), ap: None, ask: jarvis_tabs_wire::AskKind::Tie, level: Urgency::Low, suggest_urgent: false, items: vec![item], due: Some(99), blocks: false };
+        event(&mut d, "t1", Event { offset: 10, at: 5, body });
+        event(&mut d, "t1", Event { offset: 11, at: 5, body: Body::Needs { text: "Blue or green?".into(), closed: false, q: "q9".into() } });
+        let r = tab(&d.take(), "t1");
+        assert!(r.entries.is_empty(), "its needs line stands for the card, which already shows");
+        assert_eq!(r.asks.len(), 1);
+        assert_eq!((r.asks[0].tabs[0].q.as_str(), r.asks[0].pick, r.asks[0].due, r.asks[0].level), ("q9", 1, Some(99), Level::Low));
+        d.answer("t1".into(), "q9".into(), vec![0], String::new());
+        assert!(tab(&d.take(), "t1").asks.is_empty(), "answered here, gone here too");
     }
 
     #[test]
@@ -1381,6 +1654,10 @@ mod road {
         }
         fn back(&self, id: String, text: String) {
             panic!("words came back to {id}: {text}");
+        }
+        fn queue(&self, _cards: Vec<CardRec>, _digest: Vec<DigestRec>) {}
+        fn refused(&self, id: String, why: String) {
+            panic!("{id} refused: {why}");
         }
     }
 

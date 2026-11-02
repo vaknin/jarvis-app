@@ -114,7 +114,17 @@ fun TabPage(
     onMarks: (List<QuoteMark>) -> Unit = {},
     onTaken: () -> Unit = {},
     onMode: (String, String) -> Unit = { _, _ -> },
+    /** The server's no to an answer or to Auto here, in its words. */
+    notice: String? = null,
 ) {
+    val deck = LocalDeck.current
+    val notes = rememberNotes()
+    var asking by remember { mutableStateOf<String?>(null) }
+    val answer = { c: CardView, pick: Int? ->
+        deck?.answer(c, pick, notes[c.key].orEmpty())
+        notes.remove(c.key)
+        asking = null
+    }
     val attached = LocalTalk.current.attached.isNotEmpty()
     val rows = remember(tab.entries) { tab.entries.asReversed() }
     val list = rememberLazyListState()
@@ -205,7 +215,8 @@ fun TabPage(
         onTaken()
     }
 
-    Page(modifier) {
+    Box(modifier.fillMaxSize()) {
+    Page {
         Header(tab, onWall, onClose, onMode)
         AnimatedVisibility(!online) { OfflineBar() }
         AnimatedVisibility(
@@ -235,6 +246,10 @@ fun TabPage(
                     contentPadding = PaddingValues(start = Space.margin, end = Space.margin, top = 12.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(Space.turn, Alignment.Bottom),
                 ) {
+                    // His open questions sit at the end of the record, the same cards as on Needs you.
+                    items(tab.asks.asReversed(), key = { "ask/${it.key}" }, contentType = { "ask" }) { c ->
+                        AskCard(c, notes[c.key].orEmpty(), { notes[c.key] = it }, { asking = c.key }, { answer(c, it) })
+                    }
                     if (tab.work != null) {
                         item(key = "work", contentType = "work") { WorkRow(tab.work, active && online) }
                     }
@@ -299,7 +314,9 @@ fun TabPage(
                 onStop = onStop.takeIf { tab.work != null },
                 tab = tab.tile.id,
                 ready = reply != null || marks.isNotEmpty() || tab.waiting,
+                autopilot = tab.tile.autopilot,
                 above = {
+                    if (notice != null) NoticeBar(notice) { deck?.noticed() }
                     val r = reply
                     MarkTray(marks.filterNot { r != null && it.same(r) }, onMarks, open)
                     if (r != null) {
@@ -308,6 +325,10 @@ fun TabPage(
                 },
             )
         }
+    }
+    tab.asks.firstOrNull { it.key == asking }?.let { c ->
+        AskSheet(c, notes[c.key].orEmpty(), { notes[c.key] = it }, { answer(c, it) }, { asking = null }, {})
+    }
     }
 }
 

@@ -298,6 +298,11 @@
             android:name=".forum.Actions"
             android:exported="false" />
 
+        <!-- A question answered from its notification. -->
+        <receiver
+            android:name=".AskReceiver"
+            android:exported="false" />
+
         <!-- Reply and Mark as read on the message notification. -->
         <receiver
             android:name=".ReplyReceiver"

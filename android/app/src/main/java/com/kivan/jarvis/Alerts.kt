@@ -42,6 +42,8 @@ class Alerts private constructor(private val context: Context) : AlertListener {
             url == "/call" -> Callback.ring(context, null, title, text)
             // A tracked task landed or needs him: quiet, and the call is his to place.
             url.startsWith(TASK) -> Notifier.task(context, n, title, text, url.removePrefix(TASK))
+            // A question from a tab: answered from the notification's buttons, or its dialog in the app.
+            url.startsWith(Notifier.ASK) -> Notifier.ask(context, n, title, text, url)
             // Settings from the server, nothing shown: the AirPods mic (thread #125), the phone's noise filter on the
             // Lark (thread t57). A value it doesn't know says so; a known one answers null, which is "done".
             url.startsWith(AirPodsMic.URL) -> when (val m = AirPodsMic.set(context, url.removePrefix(AirPodsMic.URL))) {

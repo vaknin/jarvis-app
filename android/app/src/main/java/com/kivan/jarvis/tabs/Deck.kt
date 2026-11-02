@@ -16,7 +16,43 @@ data class TileView(
     val mode: String = "",
     val model: String = "",
     val effort: String = "",
+    /** Its autopilot runs: the Auto button is on. */
+    val autopilot: Boolean = false,
 )
+
+/** How hard a question reaches him. Urgent is the only amber left; low never reaches his phone's notifications. */
+enum class Level { Low, Default, Urgent }
+
+/** One tab a card's question stands in: what an answer names. */
+@Immutable
+data class CardTab(val id: String, val name: String, val q: String)
+
+/**
+ * A question of his: a card on the Needs you list, or one still open in its own tab. [options] has
+ * Jarvis's [pick] highlighted; [due] (ms) is when silence takes it, null when it waits for him.
+ */
+@Immutable
+data class CardView(
+    val tabs: List<CardTab>,
+    val text: String,
+    val options: List<String> = listOf("Yes", "No"),
+    val pick: Int = 0,
+    val why: String = "",
+    val level: Level = Level.Default,
+    val due: Long? = null,
+    val at: Long = 0,
+) {
+    val key get() = tabs.firstOrNull()?.let { "${it.id}/${it.q}" }.orEmpty()
+    val name get() = tabs.joinToString(" · ") { it.name }
+}
+
+/** A line of the digest: [what] is done, default, assumed, report, notify or quiet. */
+@Immutable
+data class DigestView(val id: String, val name: String, val at: Long, val offset: Long, val what: String, val line: String)
+
+/** The server's no, in its words, to an answer or the Auto button in tab [id]. */
+@Immutable
+data class Notice(val id: String, val text: String)
 
 enum class Sending { Sent, Sending, Refused }
 
@@ -75,6 +111,8 @@ data class TabView(
     val jobs: String = "",
     /** His held words wait in it, for the turn's end or for Send with nothing typed. */
     val waiting: Boolean = false,
+    /** Its own questions still open, the same cards as on Needs you: answering either clears both. */
+    val asks: List<CardView> = emptyList(),
 )
 
 @Immutable
@@ -141,10 +179,17 @@ data class DeckState(
     val marks: Map<String, List<QuoteMark>> = emptyMap(),
     /** The tab just opened from words at the wall, for the screen to zoom into, once; [WALL] zooms out to it. */
     val opened: String? = null,
+    /** Needs you, urgent first, then by when Jarvis takes its pick. */
+    val cards: List<CardView> = emptyList(),
+    val digest: List<DigestView> = emptyList(),
+    val notice: Notice? = null,
 )
 
 /** The key of the wall's own box in [DeckState.typed]. */
 const val WALL = ""
+
+/** [DeckState.opened] for a question's dialog on Needs you: this, then "<tab>/<q>" (a notification's tap). */
+const val ASK = "?"
 
 /** What the screens can ask for. All of it goes to the server, which answers by changing [state]. */
 interface Deck {
@@ -188,4 +233,10 @@ interface Deck {
     /** The old home, from the wall's menu. */
     fun home()
     fun forum()
+    /** His answer to [card]: option [pick] (null for only words) and his [note], to every tab it stands in. */
+    fun answer(card: CardView, pick: Int?, note: String)
+    /** The Auto button: tab [id]'s autopilot on or off. */
+    fun autopilot(id: String, on: Boolean)
+    /** He read the [DeckState.notice]. */
+    fun noticed()
 }

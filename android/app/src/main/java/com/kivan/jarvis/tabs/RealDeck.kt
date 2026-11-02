@@ -10,7 +10,9 @@ import com.kivan.jarvis.Dictation
 import com.kivan.jarvis.Forum
 import com.kivan.jarvis.MainActivity
 import com.kivan.jarvis.Voice
+import com.kivan.jarvis.core.CardRec
 import com.kivan.jarvis.core.ClosedRec
+import com.kivan.jarvis.core.DigestRec
 import com.kivan.jarvis.core.EntryRec
 import com.kivan.jarvis.core.Landing
 import com.kivan.jarvis.core.OutFile
@@ -18,7 +20,9 @@ import com.kivan.jarvis.core.QuoteRec
 import com.kivan.jarvis.core.TabRec
 import com.kivan.jarvis.core.TabsListener
 import com.kivan.jarvis.core.TileRec
+import com.kivan.jarvis.core.tabsAnswer
 import com.kivan.jarvis.core.tabsAttach
+import com.kivan.jarvis.core.tabsAutopilot
 import com.kivan.jarvis.core.tabsClose
 import com.kivan.jarvis.core.tabsDetach
 import com.kivan.jarvis.core.tabsFile
@@ -115,6 +119,26 @@ class RealDeck private constructor(
     }
 
     override fun back(id: String, text: String) = flow.update { it.typedBack(id, text) }
+
+    override fun queue(cards: List<CardRec>, digest: List<DigestRec>) = flow.update { s ->
+        s.copy(cards = needsYou(cards.map(::card)), digest = digest.map { DigestView(it.id, it.name, it.at.toLong(), it.offset.toLong(), it.what, it.line) })
+    }
+
+    override fun refused(id: String, why: String) = flow.update { it.copy(notice = Notice(id, why)) }
+
+    // The ffi hides the card at once, everywhere, and brings it back if the server says no.
+    override fun answer(card: CardView, pick: Int?, note: String) {
+        val tab = card.tabs.firstOrNull() ?: return
+        flow.update { s -> s.copy(notice = null, cards = s.cards.filterNot { it.key == card.key }) }
+        tabsAnswer(tab.id, tab.q, listOfNotNull(pick?.toUInt()), note.trim())
+    }
+
+    override fun autopilot(id: String, on: Boolean) {
+        flow.update { it.copy(notice = null) }
+        tabsAutopilot(id, on)
+    }
+
+    override fun noticed() = flow.update { it.copy(notice = null) }
 
     override fun show(ids: List<String>) = tabsShow(ids)
 
@@ -316,6 +340,7 @@ internal fun DeckState.with(tab: TabRec): DeckState {
         tab.loading,
         tab.jobs,
         tab.waiting,
+        tab.asks.map(::card),
     )
     return copy(tabs = tabs + (id to view)).foldDrafts(id)
 }
@@ -373,7 +398,27 @@ internal fun DeckState.typedBack(id: String, text: String): DeckState {
     return copy(typed = typed + (id to if (now.isBlank()) text else "$text\n\n$now"))
 }
 
-private fun view(t: TileRec) = TileView(t.id, t.n.toInt(), t.name, t.needs, t.unread, t.working, t.mode, t.model, t.effort)
+private fun view(t: TileRec) = TileView(t.id, t.n.toInt(), t.name, t.needs, t.unread, t.working, t.mode, t.model, t.effort, t.autopilot)
+
+internal fun card(c: CardRec) = CardView(
+    c.tabs.map { CardTab(it.id, it.name, it.q) },
+    c.text,
+    c.options,
+    c.pick.toInt(),
+    c.why,
+    when (c.level) {
+        com.kivan.jarvis.core.Level.LOW -> Level.Low
+        com.kivan.jarvis.core.Level.URGENT -> Level.Urgent
+        else -> Level.Default
+    },
+    c.due?.toLong(),
+    c.at.toLong(),
+)
+
+/** Urgent first, then by when Jarvis takes its pick (those waiting on him before), low last. */
+internal fun needsYou(cards: List<CardView>) = cards.sortedWith(
+    compareBy({ if (it.level == Level.Urgent) 0 else if (it.level == Level.Low) 2 else 1 }, { it.due ?: 0L }, { it.at }),
+)
 
 private fun entry(e: EntryRec): Entry = when (e) {
     is EntryRec.Yours -> Entry.Yours(

@@ -13,10 +13,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], application = android.app.Application::class)
 class RealDeckTest {
-    private val rec = TileRec("t1", 3u, "Piano app", needs = false, unread = true, working = false, mode = "", model = "opus", effort = "medium")
+    private val rec = TileRec("t1", 3u, "Piano app", needs = false, unread = true, working = false, mode = "", model = "opus", effort = "medium", autopilot = false)
 
     private fun tab(from: UInt, vararg entries: EntryRec) =
-        TabRec(rec, from, entries.toList(), working = false, what = "", since = 0u, jobs = "", waiting = false, closed = false, loading = false)
+        TabRec(rec, from, entries.toList(), working = false, what = "", since = 0u, jobs = "", waiting = false, closed = false, loading = false, asks = emptyList())
 
     private fun quiet(key: String) = EntryRec.Quiet(key, key)
 

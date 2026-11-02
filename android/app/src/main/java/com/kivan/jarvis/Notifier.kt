@@ -24,6 +24,10 @@ object Notifier {
     private const val ALERTS = "alerts"
     private const val TASKS = "tasks"
     private const val TAB = "/tab/"
+    /** A question's notification: `/ask/<tab>/<q>?o=Yes&o=No&p=0`, its options and Jarvis's pick. */
+    const val ASK = "/ask/"
+    /** Several questions at once: the tap opens Needs you. */
+    private const val NEEDS = "/needs"
 
     private const val MESSAGE_ID = 10
     private const val FAILED_ID = 11
@@ -152,6 +156,9 @@ object Notifier {
             url.startsWith(TAB) -> PendingIntent.getActivity(
                 context, tag, TabsActivity.opening(context, url.removePrefix(TAB)), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+            url == NEEDS -> PendingIntent.getActivity(
+                context, tag, TabsActivity.opening(context, com.kivan.jarvis.tabs.WALL), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
             else -> PendingIntent.getActivity(context, tag, Forum.view(context, url.ifEmpty { "/" }), PendingIntent.FLAG_IMMUTABLE)
         }
         val n = NotificationCompat.Builder(context, JARVIS)
@@ -166,6 +173,68 @@ object Notifier {
             .apply { if (call) addAction(R.drawable.lucide_phone, "Talk", callIntent).setCategory(NotificationCompat.CATEGORY_CALL) }
             .build()
         return runCatching { nm.notify("jarvis", tag, n) }.exceptionOrNull()?.let { Alerts.threw(it) }
+    }
+
+    /**
+     * A question from a tab ([Alerts], url [ASK]): its answers are buttons, Jarvis's pick first and
+     * marked, and Note takes his own words, so he answers without opening the app ([AskReceiver]).
+     * With three options the last goes into Note's choices, as Android shows three buttons at most.
+     * A tap opens the app on the question's dialog. Null once shown, else why not, as [jarvis].
+     */
+    fun ask(context: Context, id: Long, title: String, text: String, url: String): String? {
+        val nm = NotificationManagerCompat.from(context)
+        off(nm.areNotificationsEnabled(), nm.getNotificationChannel(JARVIS)?.importance, "Jarvis")?.let { return it }
+        val uri = android.net.Uri.parse("jarvis:$url")
+        val path = url.removePrefix(ASK).substringBefore('?').split('/').map(android.net.Uri::decode)
+        val tab = path.getOrNull(0).orEmpty()
+        val q = path.getOrNull(1).orEmpty()
+        if (tab.isEmpty() || q.isEmpty()) return jarvis(context, id, title, text, "")
+        val options = uri.getQueryParameters("o").orEmpty()
+        val pick = uri.getQueryParameter("p")?.toIntOrNull()?.takeIf { it in options.indices } ?: 0
+        val tag = "$tab/$q".hashCode()
+        val open = PendingIntent.getActivity(
+            context, tag, TabsActivity.opening(context, com.kivan.jarvis.tabs.ASK + "$tab/$q"), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val buttons = options.indices.sortedBy { if (it == pick) -1 else it }.take(2)
+        val b = NotificationCompat.Builder(context, JARVIS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title.ifEmpty { "Jarvis" })
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+        for (i in buttons) {
+            b.addAction(0, if (i == pick) "${options[i]} ✓" else options[i], AskReceiver.pending(context, tag, tab, q, options, i, typed = false))
+        }
+        val note = androidx.core.app.RemoteInput.Builder(AskReceiver.KEY_NOTE)
+            .setLabel(if (options.isEmpty()) "Your answer" else "A note, or another answer")
+            .setChoices(options.filterIndexed { i, _ -> i !in buttons }.toTypedArray())
+            .build()
+        b.addAction(
+            NotificationCompat.Action.Builder(0, if (options.isEmpty()) "Answer" else "Note", AskReceiver.pending(context, tag, tab, q, options, -1, typed = true))
+                .addRemoteInput(note)
+                .setAllowGeneratedReplies(false)
+                .build(),
+        )
+        return runCatching { nm.notify(ASK, tag, b.build()) }.exceptionOrNull()?.let { Alerts.threw(it) }
+    }
+
+    /** An answer from the notification that didn't land: why, and a tap opens the dialog in the app. */
+    fun askFailed(context: Context, tag: Int, tab: String, q: String, why: String) {
+        val open = PendingIntent.getActivity(
+            context, tag, TabsActivity.opening(context, com.kivan.jarvis.tabs.ASK + "$tab/$q"), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = NotificationCompat.Builder(context, JARVIS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Your answer didn't go")
+            .setContentText("${why.replaceFirstChar { it.uppercase() }}. Tap to answer in the app.")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(ASK, tag, n) }
     }
 
     /**

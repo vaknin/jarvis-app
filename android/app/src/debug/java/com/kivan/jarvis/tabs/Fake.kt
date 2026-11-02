@@ -64,6 +64,46 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
         Entry.Yours("y3", "Now make the keys light up as I play", voice = true),
     )
 
+    /** A time tonight, for "Jarvis takes it at 01:10", the same in every shot. */
+    private fun tonight(h: Int, m: Int) =
+        java.time.LocalDate.of(2026, 11, 3).atTime(h, m).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    val cards = listOf(
+        CardView(
+            listOf(CardTab("t2", "Phone voice", "q1")),
+            "The AirPods mic is deaf on calls. Use the phone's mic instead?",
+            why = "On 3 of the last 5 calls the AirPods sent silence for 20 s or more. The phone's mic heard you each time.",
+            level = Level.Urgent,
+        ),
+        CardView(
+            listOf(CardTab("t3", "Voice test", "q1"), CardTab("t4", "Reactions", "q2")),
+            "Cut replies longer than 30 words on calls?",
+            due = tonight(1, 10),
+        ),
+        CardView(
+            listOf(CardTab("t1", "I'm trying to", "q3")),
+            "Which model runs the replay test?",
+            listOf("Medium", "Fast", "Smart"),
+            why = "Medium did the last three replays within 2% of Smart.",
+            due = tonight(1, 30),
+        ),
+        CardView(
+            listOf(CardTab("t5", "Tab numbers", "q1")),
+            "Keep the old order after the rename?",
+            level = Level.Low,
+            due = tonight(2, 0),
+        ),
+    )
+
+    val digest = listOf(
+        DigestView("t2", "Phone voice", tonight(0, 40), 1, "done", "Ring on the WiiM works, tested twice."),
+        DigestView("t5", "Tab numbers", tonight(0, 35), 1, "done", "Renumbering after alt+x landed."),
+        DigestView("t3", "Voice test", tonight(0, 30), 1, "default", "Keep the call log for a week → Yes"),
+        DigestView("t4", "Reactions", tonight(0, 20), 1, "assumed", "Used 👍 for \"seen\"."),
+        DigestView("t9", "Tab 9", tonight(0, 10), 1, "report", "~/.claude opened in the wrong pane. Fixing."),
+        DigestView("t8", "Jarvis", tonight(0, 5), 1, "report", "A turn stalled 6 min, resumed once."),
+    )
+
     fun deck(n: Int = 9, online: Boolean = true): DeckState {
         val tiles = tiles(n)
         val tabs = tiles.associate { t ->
@@ -77,6 +117,7 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                         Entry.Question("q1", "Should a suspended chord count as major or stay its own thing? It changes what the lesson screen shows."),
                     ),
                     WorkView("Waiting on your answer", System.currentTimeMillis() - 2_000).takeIf { false },
+                    asks = listOf(cards[0].copy(tabs = listOf(CardTab("t2", t.name, "q1")))),
                 )
                 "t3" -> TabView(
                     t.copy(working = true),
@@ -98,6 +139,8 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                 ClosedTab("c5", "Router firmware", "Updated"),
             ),
             online = online,
+            cards = cards,
+            digest = digest,
         )
     }
 }
@@ -237,4 +280,23 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
     override fun home() {}
 
     override fun forum() {}
+
+    /** Each answer given, as the server would get it: the card's key, the pick, the note. */
+    val answers = mutableListOf<Triple<String, Int?, String>>()
+
+    override fun answer(card: CardView, pick: Int?, note: String) {
+        answers += Triple(card.key, pick, note)
+        val keys = card.tabs.map { "${it.id}/${it.q}" }.toSet()
+        flow.update { s ->
+            s.copy(
+                cards = s.cards.filterNot { it.key == card.key },
+                tabs = s.tabs.mapValues { (_, t) -> t.copy(asks = t.asks.filterNot { a -> a.tabs.any { "${it.id}/${it.q}" in keys } }) },
+            )
+        }
+    }
+
+    /** As the server until autopilot is built: it says no. */
+    override fun autopilot(id: String, on: Boolean) = flow.update { it.copy(notice = Notice(id, "autopilot isn't built yet")) }
+
+    override fun noticed() = flow.update { it.copy(notice = null) }
 }

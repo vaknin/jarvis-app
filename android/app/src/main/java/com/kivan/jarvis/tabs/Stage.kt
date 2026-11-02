@@ -60,6 +60,11 @@ data class Opening(
     val tab: String? = null,
     val zoom: Float = 1f,
     val closed: Boolean = false,
+    /** On Needs you, the first screen; false starts on the wall. */
+    val list: Boolean = true,
+    val digest: Boolean = false,
+    /** The card whose dialog is open, by its key. */
+    val asking: String? = null,
 )
 
 /** The tabs open when a tab was: frozen, so tiles don't reorder under his finger mid-swipe. */
@@ -91,10 +96,14 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     var reopening by remember { mutableStateOf<String?>(null) }
     var closedPage by rememberSaveable { mutableStateOf(opening.closed) }
     var undo by remember { mutableStateOf<ClosedTab?>(null) }
+    var list by rememberSaveable { mutableStateOf(opening.list && opening.tab == null) }
+    var digest by rememberSaveable { mutableStateOf(opening.digest) }
+    var asking by rememberSaveable { mutableStateOf(opening.asking) }
 
     fun go(to: Float, then: () -> Unit = {}) {
         scope.launch {
-            if (still) zoom.snapTo(to) else zoom.animateTo(to, Curves.zoom)
+            // From Needs you there's no tile on screen to grow out of: the tab is simply there.
+            if (still || list) zoom.snapTo(to) else zoom.animateTo(to, Curves.zoom)
             then()
         }
     }
@@ -112,9 +121,11 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
     // A tab his words just opened can land here before the wall has its tile.
     LaunchedEffect(state.opened, state.tiles) {
         val id = state.opened ?: return@LaunchedEffect
-        if (id == WALL) {
+        if (id == WALL || id.startsWith(ASK)) {
             closedPage = false
             closedTab = null
+            list = true
+            if (id.startsWith(ASK)) asking = id.removePrefix(ASK)
             toWall()
         } else if (state.tiles.none { it.id == id }) delay(10_000) else openTab(id)
         deck.openedDone()
@@ -136,11 +147,22 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
         }
     }
     val wallWords = state.typed[WALL].orEmpty()
+    // Words in the box at the wall or on Needs you open a new tab.
+    val startNew = {
+        val w = said(wallWords, state.heard)
+        if (w.isNotEmpty() || state.attached.isNotEmpty()) {
+            buzz.sent()
+            if (state.heard.isNotBlank()) deck.words(false)
+            deck.send(null, w)
+            deck.type(WALL, "")
+        }
+    }
     val anyWork = state.tiles.any { it.working } || state.tabs.values.any { it.work != null }
     val anyLoading = open != null && state.tabs.values.any { it.loading }
     val glide = rememberGlide((anyWork || anyLoading) && state.online)
 
     val covered = closedPage || closedTab != null
+    val listed = list && open == null && !covered
     LaunchedEffect(open == null) { if (open == null) deck.here(null) }
 
     CompositionLocalProvider(
@@ -155,15 +177,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 active = open == null,
                 text = wallWords,
                 onText = { deck.type(WALL, it) },
-                onStart = {
-                    val w = said(wallWords, state.heard)
-                    if (w.isNotEmpty() || state.attached.isNotEmpty()) {
-                        buzz.sent()
-                        if (state.heard.isNotBlank()) deck.words(false)
-                        deck.send(null, w)
-                        deck.type(WALL, "")
-                    }
-                },
+                onStart = startNew,
                 onOpen = ::openTab,
                 onClose = { id ->
                     undo = ClosedTab(id, state.tiles.firstOrNull { it.id == id }?.name.orEmpty())
@@ -171,6 +185,7 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 },
                 onMove = deck::move,
                 onClosedTabs = { closedPage = true },
+                onList = { list = true },
                 onHeard = { deck.words(true) },
                 undo = undo,
                 onUndo = {
@@ -183,8 +198,32 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                         alpha = 1f - (p / 0.7f).coerceAtMost(1f)
                     }
                     .drawWithContent { if (zoom.value < 1f) drawContent() }
-                    .hiddenWhen(open != null || covered),
+                    .hiddenWhen(open != null || covered || listed),
             )
+            AnimatedVisibility(
+                listed,
+                enter = fadeIn(tween(Curves.QUICK)),
+                exit = fadeOut(tween(Curves.QUICK)),
+            ) {
+                QueuePage(
+                    state,
+                    digest = digest,
+                    onDigest = { digest = it },
+                    onWall = { list = false },
+                    onOpen = ::openTab,
+                    text = wallWords,
+                    onText = { deck.type(WALL, it) },
+                    onStart = startNew,
+                    onHeard = { deck.words(true) },
+                    asking = asking,
+                    onAsking = { asking = it },
+                )
+            }
+            // Back from the wall goes to Needs you, the first screen.
+            if (!list && open == null && !covered) PredictiveBackHandler(!typing) { flow ->
+                flow.collect {}
+                list = true
+            }
             open?.let { o ->
                 key(o) {
                     val pager = rememberPagerState(o.first) { o.order.size }
@@ -382,6 +421,7 @@ private fun TabLayer(
                     onHold = { deck.hold(tabId, it) },
                     onRelease = { deck.release(tabId) },
                     onMode = { m, e -> deck.mode(tabId, m, e) },
+                    notice = state.notice?.takeIf { it.id == tabId }?.text,
                 )
             }
         }

@@ -114,7 +114,10 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                     Text(it, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(16.dp))
+                CallNotice()
                 if (ui.live) {
+                    // A call in a tab has Auto between Mute and End; the four buttons get a little smaller for it.
+                    val auto = Voice.place.collectAsState().value.tab != null
                     val mic = micLevel(ui.state !is CallState.Connecting && ui.state !is CallState.Reconnecting && !ui.muted)
                     // Stop Jarvis mid-reply and read; continue from the sentence he stopped in.
                     // The same height whether shown or not, so the buttons below never move.
@@ -128,12 +131,13 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                             if (ui.micOff) "Unmute" else "Mute",
                             if (ui.micOff) Color.White else Raised,
                             if (ui.micOff) Bg else Color.White,
-                            96.dp,
+                            if (auto) 80.dp else 96.dp,
                             onMute,
                             // Grey under a voice mute: only "unmute" gets through, so it shows that can be heard, not that Jarvis hears.
                             Modifier.micHalo(mic, if (ui.voiceMuted) Muted else Accent),
                         )
-                        Round(R.drawable.lucide_phone_off, "End", Stop, Color.White, 112.dp, onHangup)
+                        if (auto) CallAuto()
+                        Round(R.drawable.lucide_phone_off, "End", Stop, Color.White, if (auto) 96.dp else 112.dp, onHangup)
                         // Where the call sounds; a tap moves it on, as a phone's own call screen does.
                         val route = ui.route ?: AudioRoute(AudioRoute.Kind.Earpiece, "Earpiece")
                         val loud = route.kind == AudioRoute.Kind.Speaker
@@ -147,7 +151,7 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                             route.name,
                             if (loud) Color.White else Raised,
                             if (loud) Bg else Color.White,
-                            96.dp,
+                            if (auto) 80.dp else 96.dp,
                             onRoute,
                         )
                     }
@@ -409,6 +413,44 @@ internal fun Round(icon: Int, label: String, bg: Color, fg: Color, size: Dp, onC
 }
 
 /** The model and effort of the call's tab, the same chip and picker as the tab page; a pick holds from the next thing he says. */
+@Composable
+private fun CallAuto() {
+    val ctx = LocalContext.current.applicationContext
+    val tab = Voice.place.collectAsState().value.tab ?: return
+    val deck = remember { RealDeck.get(ctx) }
+    val on = deck.state.collectAsState().value.tiles.firstOrNull { it.id == tab }?.autopilot == true
+    Box(
+        Modifier
+            .size(72.dp)
+            .clip(CircleShape)
+            .background(if (on) Color.White else Raised)
+            .clickable(onClickLabel = if (on) "Stop autopilot" else "Autopilot") { deck.autopilot(tab, !on) },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(if (on) "▸▸ Auto" else "Auto", color = if (on) Bg else Color.White, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** The server's no to Auto on this call, in its words. */
+@Composable
+private fun CallNotice() {
+    val ctx = LocalContext.current.applicationContext
+    val tab = Voice.place.collectAsState().value.tab ?: return
+    val deck = remember { RealDeck.get(ctx) }
+    val notice = deck.state.collectAsState().value.notice?.takeIf { it.id == tab } ?: return
+    LaunchedEffect(notice) {
+        kotlinx.coroutines.delay(8000)
+        deck.noticed()
+    }
+    Text(
+        notice.text.replaceFirstChar { it.uppercase() },
+        Modifier.padding(vertical = 8.dp).clickable { deck.noticed() },
+        color = Muted,
+        style = MaterialTheme.typography.bodySmall,
+        textAlign = TextAlign.Center,
+    )
+}
+
 @Composable
 private fun CallModelChip() {
     val ctx = LocalContext.current.applicationContext

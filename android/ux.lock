@@ -13,3 +13,20 @@ removed flow android-airpods-call-route
 removed flow android-call-phone-stt
   what: On a call the phone's own on-device recognizer no longer hears Aviv's turns beside the server's Parakeet (PhoneStt, the hello's "stt":"phone", cut/heard). Parakeet on the server is the only speech to text.
   approved: 2026-11-02 "So we don't need this backup. You can delete it from the code So, yeah, no need for that. Only parakeet."
+
+removed flow android-opens-on-the-wall
+  what: The app no longer opens on the wall of tabs: it opens on Needs you, with Digest beside it, and the wall is one tap away (the grid icon top left, Back, or "Your tabs"). The mockup is the jarvis repo's design/autonomy/final.html.
+  approved: 2026-11-02 "So So on the about option A, I agree about the phone"
+  approved: 2026-11-02 "Yes, I agree"
+
+added flow android-question-dialog
+  what: A question opens as a confirmation dialog: Jarvis's recommended answer highlighted, and always a free-text box whose note goes with any answer, or alone.
+  approved: 2026-11-02 "make sure it's a nice confirmation box dialogue prompt and that the recommended pick is highlighted ... and perhaps always add like a box that I can type free text into it."
+
+added flow android-card-note-line
+  what: Every card on Needs you, and in its tab, has its own note line, so he can answer Yes or No with a remark without opening the dialog.
+  approved: 2026-11-02 "I want to be able to say as an example yes but also add like a note or a remark which is not present in this mock-up"
+
+added flow android-auto-button
+  what: Autopilot is option B: an "Auto" button next to Call in a tab's box, and the same between Mute and End on that tab's call screen. Until the server builds autopilot it says so in a line.
+  approved: 2026-11-02 "Now I like B. You can tell the tab that I went with B, which is what I pressed by mistake, but I actually want it anyway."

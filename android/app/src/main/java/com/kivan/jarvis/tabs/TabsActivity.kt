@@ -19,10 +19,10 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 /**
- * The wall of tabs, the app's front door. The link to the server lives only while this is on screen.
+ * The tabs, the app's front door. The link to the server lives only while this is on screen.
  * It opens silent: the mic is on only while he dictates, and leaving stops that, keeping the words.
- * It opens on the wall, also when it was only left in the background for a while: a short trip to
- * another app comes back to the same tab.
+ * It opens on Needs you (the wall is a tap away), also when it was only left in the background for a
+ * while: a short trip to another app comes back to the same tab.
  */
 class TabsActivity : ComponentActivity() {
     private lateinit var deck: Deck
