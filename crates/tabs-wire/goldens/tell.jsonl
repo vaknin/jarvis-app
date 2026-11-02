@@ -14,3 +14,4 @@
 {"tell":"refused","id":"t1","why":"read only"}
 {"tell":"done"}
 {"tell":"put","id":"t1","name":"chord.png","file":{"name":"1-0.png","alt":"chord.png"}}
+{"tell":"event","id":"t1","event":{"offset":400,"at":1793430374000,"kind":"jobs","jobs":["dark mode"],"queued":["a","b","c","d"],"line":"1 job running: dark mode. 4 queued: a, b, c, d"}}

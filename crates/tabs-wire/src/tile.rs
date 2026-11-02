@@ -28,6 +28,12 @@ pub struct Tile {
     /// The jobs it started that are still running: their titles.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jobs: Vec<String>,
+    /// The jobs it started that wait their turn (a slot, a limit's hold): not running, so not working.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<String>,
+    /// The line about them, in the server's words (`jobs_line`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub jobs_said: String,
     /// The session running, by the record's word.
     pub session: Option<String>,
     /// How far he has read.
@@ -53,10 +59,11 @@ impl Tile {
         !self.open.is_empty()
     }
 
-    /// The tab's one small line about its jobs, the same on every screen.
+    /// The tab's one small line about its jobs, as the server wrote it: the phone shows these words
+    /// and counts nothing itself. A record from before the server wrote it gets the old words.
     pub fn jobs_line(&self) -> Option<String> {
         let n = self.jobs.len();
-        (n > 0).then(|| format!("{n} job{} running: {}", if n == 1 { "" } else { "s" }, self.jobs.join(", ")))
+        Some(self.jobs_said.clone()).filter(|l| !l.is_empty()).or_else(|| (n > 0).then(|| format!("{n} job{} running: {}", if n == 1 { "" } else { "s" }, self.jobs.join(", "))))
     }
 
     pub fn quiet(&self) -> bool {
@@ -115,7 +122,11 @@ impl Tile {
                 self.new.retain(|o| *o > seen);
                 self.unread = self.new.len();
             }
-            Body::Jobs { jobs } => self.jobs = jobs.clone(),
+            Body::Jobs { jobs, queued, line } => {
+                self.jobs = jobs.clone();
+                self.queued = queued.clone();
+                self.jobs_said = line.clone();
+            }
             Body::Line { text } => self.line = text.clone(),
             Body::Named { name } => self.name = name.clone(),
             Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Other => {}

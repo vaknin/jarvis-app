@@ -91,8 +91,16 @@ pub enum Body {
         turn: Option<TurnTokens>,
     },
     /// The jobs this tab started that are still running, a title each, whole every time it changes.
-    /// A job outlives its tab's sessions, so a session's start or end leaves this alone.
-    Jobs { jobs: Vec<String> },
+    /// A job outlives its tab's sessions, so a session's start or end leaves this alone. `queued`: the
+    /// ones waiting for a slot or held by a limit, not started yet.
+    Jobs {
+        jobs: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        queued: Vec<String>,
+        /// The line every screen shows about them, written by the server so none counts for itself.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        line: String,
+    },
     /// In the wall's own record: a tab came onto the wall, at the end of the row, at place `n`.
     Opened { n: u32, id: String },
     /// In the wall's own record: a tab left the wall, from place `n`, and the tabs after it moved down.

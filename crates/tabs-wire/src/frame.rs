@@ -93,9 +93,14 @@ pub enum Ask {
         line: String,
         text: String,
     },
-    /// The jobs this tab started that are running now, whole: on the record if that changed. Answered
-    /// by `Done`.
-    Jobs { id: String, jobs: Vec<String> },
+    /// The jobs this tab started that are running now, and those queued, whole: on the record if that
+    /// changed. Answered by `Done`.
+    Jobs {
+        id: String,
+        jobs: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        queued: Vec<String>,
+    },
     /// Overwrite a secret in every record, in place: answered by `Scrubbed`. `word`: only as a whole
     /// word, for one group of a value with spaces, which could be any four letters.
     Scrub {
