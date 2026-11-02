@@ -108,6 +108,8 @@ fun TabPage(
     heard: String = "",
     onHeard: () -> Unit = {},
     onStop: () -> Unit = {},
+    onHold: (Quoted) -> Unit = {},
+    onRelease: () -> Unit = {},
     marks: List<QuoteMark> = emptyList(),
     onMarks: (List<QuoteMark>) -> Unit = {},
     onTaken: () -> Unit = {},
@@ -177,6 +179,22 @@ fun TabPage(
             // As on the laptop: each goes as a quote with its own words, or none; his message after them.
             onSend(words, all.map { Quoted(it.to, it.quote, it.text.trim()) })
             scope.launch { list.animateScrollToItem(0) }
+        } else if (tab.waiting) {
+            // Nothing typed: what he held goes in now, as the laptop's ctrl+enter.
+            buzz.sent()
+            onRelease()
+        }
+    }
+    /** Hold: the reply goes to the server, which keeps it for the turn's end, as the laptop's enter. */
+    val hold = {
+        val r = reply
+        val words = writing?.trim().orEmpty()
+        if (r != null && words.isNotEmpty()) {
+            reply = null
+            replyBefore = null
+            onMarks(marks.without(r))
+            buzz.sent()
+            onHold(Quoted(r.to, r.quote, words))
         }
     }
     // With a reply open his spoken words write into it.
@@ -279,12 +297,12 @@ fun TabPage(
                 onHeard = { if (marks.isEmpty()) onHeard() else send() },
                 onStop = onStop.takeIf { tab.work != null },
                 tab = tab.tile.id,
-                ready = reply != null || marks.isNotEmpty(),
+                ready = reply != null || marks.isNotEmpty() || tab.waiting,
                 above = {
                     val r = reply
                     MarkTray(marks.filterNot { r != null && it.same(r) }, onMarks, open)
                     if (r != null) {
-                        ReplyStrip(r.quote, typed, canHold = !writing.isNullOrBlank(), onHold = { closed(keep = true) }, onCancel = { onMarks(closed(keep = false)) })
+                        ReplyStrip(r.quote, typed, canHold = !writing.isNullOrBlank(), onHold = { hold() }, onCancel = { onMarks(closed(keep = false)) })
                     }
                 },
             )

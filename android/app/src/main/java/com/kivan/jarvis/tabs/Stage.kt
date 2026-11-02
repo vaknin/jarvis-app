@@ -379,6 +379,8 @@ private fun TabLayer(
                     heard = state.heard,
                     onHeard = { deck.words(true) },
                     onStop = { deck.stop(tabId) },
+                    onHold = { deck.hold(tabId, it) },
+                    onRelease = { deck.release(tabId) },
                 )
             }
         }

@@ -18,6 +18,8 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasSetTextAction
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -178,75 +180,38 @@ class MarkQuoteTest {
     }
 
     @Test
-    fun heldRepliesWaitAndGoTogetherWithTheNextMessage() {
+    fun aHeldReplyGoesToTheServerToWaitForTheTurnsEnd() {
         val deck = deck()
-        val before = deck.state.value.tabs.getValue("t1").entries.size
         swipe(0, 400f)
         type("note one")
         rule.onNodeWithText("Hold").performClick()
         rule.mainClock.advanceTimeBy(300)
-        swipe(2, 400f)
-        type("note two")
-        rule.onNodeWithText("Hold").performClick()
-        rule.mainClock.advanceTimeBy(300)
-        rule.onNodeWithText("↩ 2").assertIsDisplayed()
-        assertEquals(before, deck.state.value.tabs.getValue("t1").entries.size)
-        hold(1)
-        rule.onNodeWithText("● 1 marked  ↩ 2").assertIsDisplayed()
-        type("and my message")
-        send()
-        assertEquals(
-            listOf(Quoted(41, firstQuote, "note one"), Quoted(41, "The rest of it.", ""), Quoted(57, second, "note two")),
-            deck.sent().quotes,
-        )
-        assertEquals("and my message", deck.sent().text)
+        assertEquals(listOf(Quoted(41, firstQuote, "note one")), deck.sent().quotes)
+        assertEquals("", deck.sent().text)
+        assertEquals(emptyList<QuoteMark>(), deck.state.value.marks["t1"].orEmpty())
+        rule.onNodeWithTag("replying").assertDoesNotExist()
+        assertTrue(deck.state.value.tabs.getValue("t1").waiting)
     }
 
     @Test
-    fun cancelDropsANewReplyAndAnEditGoesBackToWhatItSaid() {
+    fun sendWithNothingTypedLetsWhatsHeldGoInNow() {
+        val deck = deck()
+        swipe(2, 400f)
+        type("mine")
+        rule.onNodeWithText("Hold").performClick()
+        rule.mainClock.advanceTimeBy(300)
+        send()
+        assertFalse(deck.state.value.tabs.getValue("t1").waiting)
+    }
+
+    @Test
+    fun cancelDropsANewReply() {
         val deck = deck()
         swipe(2, 400f)
         type("gone")
         rule.onNodeWithContentDescription("Cancel this reply").performClick()
         rule.mainClock.advanceTimeBy(300)
         assertEquals(emptyList<String>(), deck.marks())
-
-        swipe(2, 400f)
-        type("kept")
-        rule.onNodeWithText("Hold").performClick()
-        rule.mainClock.advanceTimeBy(300)
-        swipe(2, 400f)
-        type(" and more")
-        rule.onNodeWithContentDescription("Cancel this reply").performClick()
-        rule.mainClock.advanceTimeBy(300)
-        assertEquals(listOf("kept"), deck.state.value.marks.getValue("t1").map { it.text })
-    }
-
-    @Test
-    fun emptyingAHeldReplyAndSendingTakesItBack() {
-        val deck = deck()
-        swipe(2, 400f)
-        type("mine")
-        rule.onNodeWithText("Hold").performClick()
-        rule.mainClock.advanceTimeBy(300)
-        hold(0)
-        hold(2)
-        box().performTextClearance()
-        rule.mainClock.advanceTimeBy(300)
-        send()
-        assertEquals(listOf(Quoted(41, firstQuote, "")), deck.sent().quotes)
-    }
-
-    @Test
-    fun aHoldNeverWipesWordsItOpensThem() {
-        val deck = deck()
-        swipe(2, 400f)
-        type("mine")
-        rule.onNodeWithText("Hold").performClick()
-        rule.mainClock.advanceTimeBy(300)
-        hold(2)
-        rule.onNodeWithTag("replying").assertIsDisplayed()
-        assertEquals(listOf("mine"), deck.state.value.marks.getValue("t1").map { it.text })
     }
 
     @Test

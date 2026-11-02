@@ -91,6 +91,8 @@ pub struct TabRec {
     pub since: u64,
     /// The one small line about the jobs it started, empty with none.
     pub jobs: String,
+    /// His quiet words wait in it, for the turn's end or for a send-now.
+    pub waiting: bool,
     pub closed: bool,
     pub loading: bool,
 }
@@ -146,6 +148,8 @@ struct Pending {
     /// Files the server hasn't said it kept yet.
     going: Vec<String>,
     kept: Vec<FileRef>,
+    /// Held: the server keeps it for the turn's end, or for a send-now.
+    quiet: bool,
 }
 
 impl Pending {
@@ -168,6 +172,8 @@ struct Hold {
     live: Option<(u64, String, String)>,
     pending: Vec<Pending>,
     began: HashMap<String, u64>,
+    /// The last of his quiet words not gone in yet, 0 for none.
+    waiting: u64,
     seen_sent: u64,
     /// The first entry that moved since the screen last heard. `None` with `touched` set: only the
     /// tail.
@@ -197,6 +203,9 @@ impl Hold {
         let entry = match &e.body {
             Body::Said { who: Who::Aviv, text, via, replies, files } => {
                 self.close_questions();
+                if *via == Some(Via::Quiet) {
+                    self.waiting = self.waiting.max(e.offset);
+                }
                 let mine = self.pending.iter().position(|p| p.text == *text && p.replies == *replies);
                 let key = mine.map_or_else(key, |i| self.pending.remove(i).key);
                 let quotes = replies.iter().map(|r| QuoteRec { to: r.to, quote: r.quote.clone(), text: r.text.clone() }).collect();
@@ -214,6 +223,13 @@ impl Hold {
                 // The words that were arriving become these: same key, so the screen just goes on.
                 let key = self.live.take().map_or_else(key, |(_, k, _)| k);
                 Some(EntryRec::Answer { key, offset: Some(e.offset), text: text.clone(), files: names(files) })
+            }
+            Body::Delivered { upto } => {
+                if *upto >= self.waiting {
+                    self.waiting = 0;
+                }
+                self.tail();
+                None
             }
             Body::Report { from, line, text, .. } => {
                 let line = if line.is_empty() { jarvis_tabs_wire::first_line(text) } else { line.clone() };
@@ -287,6 +303,7 @@ impl Hold {
         self.items = vec![];
         self.applied = BTreeSet::new();
         self.began.clear();
+        self.waiting = 0;
         self.from = None;
     }
 }
@@ -496,7 +513,7 @@ impl Desk {
         }
         p.kept.push(file);
         if p.going.is_empty() && p.failed.is_none() {
-            let ask = Ask::Say { id, text: p.text.clone(), via: Some(Via::Typed), replies: p.replies.clone(), files: p.kept.clone() };
+            let ask = Ask::Say { id, text: p.text.clone(), via: Some(Via::Typed), replies: p.replies.clone(), files: p.kept.clone(), quiet: p.quiet };
             self.out.push(ask);
         }
     }
@@ -587,6 +604,15 @@ impl Desk {
     }
 
     fn say(&mut self, id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<Upload>) {
+        self.say_as(id, text, quotes, files, false);
+    }
+
+    /// Words that wait for the turn's end, as the laptop's enter: on a sleeping tab, for a send-now.
+    fn hold(&mut self, id: String, quotes: Vec<QuoteRec>) {
+        self.say_as(id, String::new(), quotes, vec![], true);
+    }
+
+    fn say_as(&mut self, id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<Upload>, quiet: bool) {
         let Some(t) = self.tabs.get_mut(&id) else {
             let replies = quotes.into_iter().map(|q| Reply { to: q.to, quote: q.quote, text: q.text }).collect();
             let words = as_typed(&Pending { text, replies, ..Pending::default() });
@@ -604,12 +630,13 @@ impl Desk {
             replies: replies.clone(),
             files: files.iter().map(|u| u.file.clone()).collect(),
             going,
+            quiet,
             ..Pending::default()
         };
         t.pending.push(pending);
         t.tail();
         if up {
-            self.out.push(Ask::Say { id, text, via: Some(Via::Typed), replies, files: vec![] });
+            self.out.push(Ask::Say { id, text, via: Some(Via::Typed), replies, files: vec![], quiet });
         } else {
             for u in files {
                 self.out.push(Ask::Put { id: id.clone(), name: u.file.name, data: u.data });
@@ -670,6 +697,7 @@ impl Desk {
                 what: open.map_or(String::new(), |(_, what)| what.clone()),
                 since: open.and_then(|(id, _)| t.began.get(id).copied()).unwrap_or(0),
                 jobs: t.tile.jobs_line().unwrap_or_default(),
+                waiting: t.waiting > 0,
                 closed: t.closed,
                 loading: t.end < t.tile.end,
             }));
@@ -895,6 +923,18 @@ pub fn tabs_say(id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<OutF
     with_desk(|d| d.say(id, text, quotes, files));
 }
 
+/// A reply he holds: it goes in at the turn's end, as the laptop's enter.
+#[uniffi::export]
+pub fn tabs_hold(id: String, quotes: Vec<QuoteRec>) {
+    with_desk(|d| d.hold(id, quotes));
+}
+
+/// Send-now: what waits in the tab goes in at once, as the laptop's ctrl+enter.
+#[uniffi::export]
+pub fn tabs_release(id: String) {
+    with_desk(|d| d.out.push(Ask::Release { id }));
+}
+
 #[uniffi::export]
 pub fn tabs_seen(id: String) {
     with_desk(|d| d.seen(id));
@@ -1105,6 +1145,22 @@ mod tests {
         assert_eq!(texts(&tab(&told, "t1")), ["landed"]);
     }
 
+    /// Hold goes to the server quiet, as the laptop's enter; the tab says words wait until they went in.
+    #[test]
+    fn a_held_reply_goes_quiet_and_waits_until_delivered() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        d.out.clear();
+        let q = QuoteRec { to: 5, quote: "q".into(), text: "w".into() };
+        d.hold("t1".into(), vec![q]);
+        assert!(matches!(&d.out[..], [Ask::Say { quiet: true, text, replies, .. }] if text.is_empty() && replies.len() == 1));
+        let said: Event = serde_json::from_str(r#"{"offset":7,"at":1,"kind":"said","who":"aviv","text":"","via":"quiet","replies":[{"to":5,"quote":"q","text":"w"}]}"#).unwrap();
+        event(&mut d, "t1", said);
+        assert!(tab(&d.take(), "t1").waiting);
+        event(&mut d, "t1", serde_json::from_str(r#"{"offset":8,"at":2,"kind":"delivered","upto":7}"#).unwrap());
+        assert!(!tab(&d.take(), "t1").waiting);
+    }
+
     #[test]
     fn a_file_comes_whole_and_a_missing_one_comes_empty() {
         let mut d = up(&[("t1", 0)]);
@@ -1167,7 +1223,7 @@ mod tests {
         d.tell(Tell::Put { id: "t1".into(), name: "b.pdf".into(), file: kept("b.pdf") });
         assert_eq!(
             d.out,
-            [Ask::Say { id: "t1".into(), text: "look".into(), via: Some(Via::Typed), replies: vec![], files: vec![kept("a.png"), kept("b.pdf")] }]
+            [Ask::Say { id: "t1".into(), text: "look".into(), via: Some(Via::Typed), replies: vec![], files: vec![kept("a.png"), kept("b.pdf")], quiet: false }]
         );
     }
 

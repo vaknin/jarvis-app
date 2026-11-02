@@ -22,7 +22,9 @@ import com.kivan.jarvis.core.tabsAttach
 import com.kivan.jarvis.core.tabsClose
 import com.kivan.jarvis.core.tabsDetach
 import com.kivan.jarvis.core.tabsFile
+import com.kivan.jarvis.core.tabsHold
 import com.kivan.jarvis.core.tabsMove
+import com.kivan.jarvis.core.tabsRelease
 import com.kivan.jarvis.core.tabsReopen
 import com.kivan.jarvis.core.tabsSay
 import com.kivan.jarvis.core.tabsSeen
@@ -245,6 +247,10 @@ class RealDeck private constructor(
 
     override fun stop(id: String) = tabsStop(id)
 
+    override fun hold(id: String, quote: Quoted) = tabsHold(id, listOf(QuoteRec(quote.to.toULong(), quote.quote, quote.text)))
+
+    override fun release(id: String) = tabsRelease(id)
+
     override fun landed(id: String) = flow.update { it.copy(opened = id) }
 
     override fun file(id: String, name: String) = tabsFile(id, name)
@@ -298,6 +304,7 @@ internal fun DeckState.with(tab: TabRec): DeckState {
         tab.closed,
         tab.loading,
         tab.jobs,
+        tab.waiting,
     )
     return copy(tabs = tabs + (id to view)).foldDrafts(id)
 }

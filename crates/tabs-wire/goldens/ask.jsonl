@@ -16,3 +16,5 @@
 {"ask":"say","id":"t1","text":"look","files":[{"name":"1-0.png","alt":"chord.png"}]}
 {"ask":"jobs","id":"t1","jobs":["dark mode","the update prompt"]}
 {"ask":"jobs","id":"t1","jobs":["dark mode"],"queued":["the update prompt"]}
+{"ask":"say","id":"t1","text":"","via":"typed","replies":[{"to":120,"quote":"Done, tested.","text":"and the phone?"}],"quiet":true}
+{"ask":"release","id":"t1"}

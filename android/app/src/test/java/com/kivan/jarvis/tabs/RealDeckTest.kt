@@ -16,7 +16,7 @@ class RealDeckTest {
     private val rec = TileRec("t1", 3u, "Piano app", needs = false, unread = true, working = false)
 
     private fun tab(from: UInt, vararg entries: EntryRec) =
-        TabRec(rec, from, entries.toList(), working = false, what = "", since = 0u, jobs = "", closed = false, loading = false)
+        TabRec(rec, from, entries.toList(), working = false, what = "", since = 0u, jobs = "", waiting = false, closed = false, loading = false)
 
     private fun quiet(key: String) = EntryRec.Quiet(key, key)
 

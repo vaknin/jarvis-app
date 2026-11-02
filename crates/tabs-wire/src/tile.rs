@@ -129,7 +129,7 @@ impl Tile {
             }
             Body::Line { text } => self.line = text.clone(),
             Body::Named { name } => self.name = name.clone(),
-            Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Other => {}
+            Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Delivered { .. } | Body::Other => {}
         }
     }
 

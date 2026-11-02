@@ -69,6 +69,8 @@ data class TabView(
     val loading: Boolean = false,
     /** The one small line about the jobs it started, empty with none. They run on their own: there's nothing to tap. */
     val jobs: String = "",
+    /** His held words wait in it, for the turn's end or for Send with nothing typed. */
+    val waiting: Boolean = false,
 )
 
 @Immutable
@@ -159,6 +161,10 @@ interface Deck {
     fun words(send: Boolean)
     /** Stops what the tab is writing; what's written stays. */
     fun stop(id: String)
+    /** A reply he holds: the server keeps it for the turn's end, as the laptop's enter. */
+    fun hold(id: String, quote: Quoted)
+    /** What he holds in tab [id] goes in now, as the laptop's ctrl+enter. */
+    fun release(id: String)
     /** Asks for a file beside the record; it lands in [DeckState.files]. */
     fun file(id: String, name: String)
     fun openedDone()

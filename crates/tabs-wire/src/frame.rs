@@ -52,11 +52,18 @@ pub enum Ask {
         replies: Vec<Reply>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<FileRef>,
+        /// While a turn runs, hold them for its end instead of steering it; on a sleeping tab, for
+        /// `Release`. Awake and idle, it changes nothing. Whatever doesn't say so goes straight in.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        quiet: bool,
     },
     /// Stop the turn being written: what's written stays on the record. Claude Code stops the tab's
     /// helpers with it, and the record says so, while a background command goes on. Answered by
     /// `Done`, also when there was nothing to stop.
     Stop { id: String },
+    /// Send his quiet words that wait in this tab now: into the running turn, or wake a sleeping tab
+    /// for them. Answered by `Done`, also when there was nothing to send.
+    Release { id: String },
     /// Every event after `after`, then each new one as it lands, and the live text. 0 is the start.
     Follow {
         id: String,

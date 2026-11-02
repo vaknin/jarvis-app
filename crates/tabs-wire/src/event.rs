@@ -115,6 +115,8 @@ pub enum Body {
     /// In the wall's own record: the whole row, left to right. A tab's number is its place in it. The
     /// first one settles a wall that still has old numbers; after it, only his moving a tile writes one.
     Row { ids: Vec<String> },
+    /// His quiet words up to `upto` went into a turn, or a new session's first message.
+    Delivered { upto: u64 },
     /// A kind this code doesn't know yet.
     #[serde(other)]
     Other,
@@ -135,6 +137,8 @@ pub enum Via {
     /// Said aloud, or spoken to him. Jarvis's spoken lines were heard, so they aren't new to read.
     Voice,
     Typed,
+    /// Held for a turn's end or for him to send it: a `delivered` says when it went in.
+    Quiet,
     #[serde(other)]
     Other,
 }
