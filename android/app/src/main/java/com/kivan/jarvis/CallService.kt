@@ -116,6 +116,9 @@ class CallService : Service() {
     private var press: android.media.session.MediaSession? = null
     /** The phone's own recognizer hearing Aviv's turns (thread #118), when on-device en-US is installed. */
     private var stt: PhoneStt? = null
+    /** The AirPods mic setting's link to the buds, from the first open on their mic to the call's end ([AirPodsMic]). */
+    private var aap: Aap? = null
+    private var buds: BudChoice? = null
 
     override fun onBind(intent: Intent?) = null
 
@@ -487,6 +490,36 @@ class CallService : Service() {
     private var lastWatchReopen = Long.MIN_VALUE / 2
     /** The next open is the call's first. */
     @Volatile private var firstOpen = true
+    /** Once a call, on the first open on the AirPods' mic: pin a bud's mic when the setting asks for it. */
+    private fun talkToBuds(device: AudioDeviceInfo?) {
+        if (aap != null) return
+        val mode = AirPodsMic.mode(this)
+        micNote("airpods mic setting: ${mode.key}")
+        if (!mode.talks) return
+        val b = BudChoice(mode, AirPodsMic.goodBud(this))
+        val a = Aap(this, device?.address, ::micNote)
+        buds = b
+        aap = a
+        a.mic(b.start())
+        a.open()
+    }
+
+    /** His voice reads quiet: on fix, the mic moves to the other bud, each tried once. */
+    private fun budsQuiet(level: Int): Boolean {
+        val next = buds?.quiet() ?: return false
+        micNote("voice at peak $level: mic to the ${next.name.lowercase()} bud")
+        aap?.mic(next)
+        return true
+    }
+
+    /** A window at the usual level: the bud in use works, pinned at the next call's start. */
+    private fun budsFine() {
+        val bud = buds?.fine() ?: return
+        if (AirPodsMic.goodBud(this) == bud) return
+        AirPodsMic.rememberGood(this, bud)
+        micNote("the ${bud.name.lowercase()} bud's mic works: kept for the next call")
+    }
+
     /** The call's device when the mic last opened. */
     @Volatile private var openedOn: Int? = null
 
@@ -533,6 +566,7 @@ class CallService : Service() {
             headsetFrames = 0
         }
         val bluetooth = device?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || device?.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+        if (bluetooth && route.mic == MicPick.AIR_PODS) talkToBuds(device)
         val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val source = if (onHeadset && watch.recognition) MediaRecorder.AudioSource.VOICE_RECOGNITION else MediaRecorder.AudioSource.VOICE_COMMUNICATION
         val rec = try {
@@ -590,7 +624,7 @@ class CallService : Service() {
                         loudest = 0
                     }
                     val ui = Voice.ui.value
-                    if (want != null && watch.frame(p, !ui.muted && ui.state is CallState.Listening, ::micNote)) {
+                    if (want != null && watch.frame(p, !ui.muted && ui.state is CallState.Listening, ::micNote, ::budsQuiet, ::budsFine)) {
                         micNote("reopening after $frames frames")
                         return MicEnd.REROUTE
                     }
@@ -864,6 +898,9 @@ class CallService : Service() {
         keys = null
         press?.release()
         press = null
+        aap?.close()
+        aap = null
+        buds = null
         Updater.callEnded(this)
         val scope = scope
         scope.launch {
@@ -885,6 +922,7 @@ class CallService : Service() {
         call?.hangup()
         keys?.release()
         press?.release()
+        aap?.close()
         senses?.stop()
         super.onDestroy()
     }

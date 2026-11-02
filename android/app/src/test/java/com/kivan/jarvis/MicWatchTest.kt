@@ -118,4 +118,20 @@ class MicWatchTest {
         assertTrue(said.single(), said.single().contains("peak 300"))
         assertFalse(w.frame(300, true) {})
     }
+
+    @Test
+    fun aQuietVoiceMovesTheBudBeforeAnyPlainReopen() {
+        val w = opened()
+        val said = mutableListOf<String>()
+        var moves = 2
+        val quiet = { _: Int -> moves-- > 0 }
+        var fine = 0
+        repeat(2) {
+            repeat(100) { w.frame(300, true, { said += it }, quiet) {} }
+            assertEquals("a move reopens in the next pause", 1, (1..16).count { w.frame(20, true, { said += it }, quiet) {} })
+        }
+        assertEquals("no plain reopen while the buds move", emptyList<String>(), said)
+        repeat(100) { w.frame(3000, true, {}, quiet) { fine++ } }
+        assert(fine > 0)
+    }
 }

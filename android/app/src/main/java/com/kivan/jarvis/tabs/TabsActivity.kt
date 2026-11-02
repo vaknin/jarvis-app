@@ -67,6 +67,7 @@ class TabsActivity : ComponentActivity() {
         AppOpen.resumed(this)
         Updater.onOpen(this, tapped = intent.getBooleanExtra(Updater.EXTRA_INSTALL, false))
         intent.removeExtra(Updater.EXTRA_INSTALL)
+        com.kivan.jarvis.AirPodsMic.ask(this)
     }
 
     override fun onPause() {

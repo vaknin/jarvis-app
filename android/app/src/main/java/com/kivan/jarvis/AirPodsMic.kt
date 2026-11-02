@@ -54,6 +54,17 @@ object AirPodsMic {
     fun needsPermission(context: Context) =
         mode(context).talks && context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
 
+    private var asked = false
+
+    /** On the app's open, once per process: Android's own question, only while a mode needs it. */
+    fun ask(activity: android.app.Activity) {
+        if (asked || !needsPermission(activity)) return
+        asked = true
+        activity.requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), PERMISSION)
+    }
+
+    private const val PERMISSION = 11
+
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
 

@@ -42,6 +42,9 @@ class Alerts private constructor(private val context: Context) : AlertListener {
             url == "/call" -> Callback.ring(context, null, title, text)
             // A tracked task landed or needs him: quiet, and the call is his to place.
             url.startsWith(TASK) -> Notifier.task(context, n, title, text, url.removePrefix(TASK))
+            // A setting from the server, nothing shown: the AirPods mic (thread #125). A value it doesn't know says so.
+            url.startsWith(AirPodsMic.URL) -> AirPodsMic.set(context, url.removePrefix(AirPodsMic.URL))
+                ?.let { Log.i("Jarvis", "airpods mic: ${it.key}"); null } ?: "unknown airpods mic value"
             else -> Notifier.jarvis(context, n, title, text, url)
         }
         if (why == null) prefs.edit().putString(RECENT, (recent + n.toString()).takeLast(KEEP).joinToString(",")).apply()
