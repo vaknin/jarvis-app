@@ -5,6 +5,7 @@
 {"tell":"event","id":"t1","event":{"offset":120,"at":1793430374000,"kind":"said","who":"aviv","text":"go ahead"}}
 {"tell":"event","id":"t1","event":{"offset":200,"at":1793430374000,"kind":"said","who":"jarvis","text":"Done.","via":"typed","files":[{"name":"chord.png","alt":"a chart"}]}}
 {"tell":"event","id":"t1","event":{"offset":300,"at":1793430374000,"kind":"needs","text":"which one?"}}
+{"tell":"event","id":"t1","event":{"offset":350,"at":1793430374000,"kind":"level","level":"urgent","by":"aviv"}}
 {"tell":"event","id":"t1","event":{"offset":400,"at":1793430374000,"kind":"work","id":"w1","state":"started","what":"Testing"}}
 {"tell":"event","id":"t1","event":{"offset":500,"at":1793430374000,"kind":"work","id":"w1","state":"ended","what":"Testing","how":"failed"}}
 {"tell":"text","id":"t1","block":1,"from":0,"text":"The ch"}

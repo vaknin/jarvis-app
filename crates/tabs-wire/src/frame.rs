@@ -10,7 +10,7 @@
 //! **Live text is for clients only.** `Text` carries a reply while it's being written and never
 //! reaches the record; the finished block lands as an `Event`, and a client drops its live text then.
 
-use crate::{Event, Reply, FileRef, Tile, Via};
+use crate::{Event, Reply, FileRef, Tile, Urgency, Via};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +66,9 @@ pub enum Ask {
     /// Send his quiet words that wait in this tab now: into the running turn, or wake a sleeping tab
     /// for them. Answered by `Done`, also when there was nothing to send.
     Release { id: String },
+    /// The tab's level, `low`, `default` or `urgent`. Urgent from his screens or his shell only; a tab's
+    /// session may set its own tab low or default. Answered by `Done`.
+    Level { id: String, level: Urgency },
     /// Every event after `after`, then each new one as it lands, and the live text. 0 is the start.
     Follow {
         id: String,

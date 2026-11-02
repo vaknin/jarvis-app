@@ -124,6 +124,9 @@ pub enum Body {
     Row { ids: Vec<String> },
     /// His quiet words up to `upto` went into a turn, or a new session's first message.
     Delivered { upto: u64 },
+    /// The tab's level: how hard what it asks of him reaches him. Urgent only `by` him, from his
+    /// screens or his shell; a tab's session may set itself low or default.
+    Level { level: Urgency, by: By },
     /// A kind this code doesn't know yet.
     #[serde(other)]
     Other,
@@ -146,6 +149,53 @@ pub enum Via {
     Typed,
     /// Held for a turn's end or for him to send it: a `delivered` says when it went in.
     Quiet,
+    #[serde(other)]
+    Other,
+}
+
+/// How hard a tab's asks reach him. Low: his screens only. Default: notifications too. Urgent: the
+/// voice reach queue too, and it never takes a default; only he sets it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Urgency {
+    Low,
+    #[default]
+    Default,
+    Urgent,
+    #[serde(other)]
+    Other,
+}
+
+impl Urgency {
+    pub fn parse(s: &str) -> Option<Urgency> {
+        match s {
+            "low" => Some(Urgency::Low),
+            "default" => Some(Urgency::Default),
+            "urgent" => Some(Urgency::Urgent),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Urgency::Low => "low",
+            Urgency::Default => "default",
+            Urgency::Urgent => "urgent",
+            Urgency::Other => "other",
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Urgency::Default
+    }
+}
+
+/// Who set something on a tab: him, from his screens or his shell, or the tab's own session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum By {
+    Aviv,
+    Tab,
     #[serde(other)]
     Other,
 }

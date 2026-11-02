@@ -9,7 +9,7 @@
 //!   two.
 //! - **Quiet:** none of them.
 
-use crate::event::{Body, Event, SessionState, Via, Who, WorkState};
+use crate::event::{Body, Event, SessionState, Urgency, Via, Who, WorkState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -44,6 +44,9 @@ pub struct Tile {
     pub jobs_said: String,
     /// The session running, by the record's word.
     pub session: Option<String>,
+    /// The tab's level: how hard what it asks reaches him.
+    #[serde(default, skip_serializing_if = "Urgency::is_default")]
+    pub level: Urgency,
     /// How far he has read.
     pub seen: u64,
     /// The record's end when this was folded: the N to read on from.
@@ -140,6 +143,7 @@ impl Tile {
                 self.jobs_said = line.clone();
             }
             Body::Line { text } => self.line = text.clone(),
+            Body::Level { level, .. } => self.level = *level,
             Body::Named { name } => self.name = name.clone(),
             Body::Mode { mode } => self.mode = mode.clone(),
             Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Delivered { .. } | Body::Other => {}

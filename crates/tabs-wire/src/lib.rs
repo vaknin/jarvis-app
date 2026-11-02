@@ -7,6 +7,6 @@ pub mod frame;
 pub mod mode;
 pub mod tile;
 
-pub use event::{first_line, Body, Event, FileRef, Reply, SessionState, TurnTokens, Via, Who, WorkEnd, WorkState};
+pub use event::{first_line, Body, By, Event, FileRef, Reply, SessionState, TurnTokens, Urgency, Via, Who, WorkEnd, WorkState};
 pub use frame::{decode, encode, Ask, Info, Tell, FrameError, MAX_FRAME, WALL};
 pub use tile::Tile;
