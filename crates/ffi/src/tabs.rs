@@ -8,12 +8,16 @@
 //! crosses to Kotlin: the tail of a record from the first entry that moved.
 //!
 //! Only while the app is on screen: [`tabs_attach`] and [`tabs_detach`] bring the link up and down,
-//! and the desk stays between, so coming back draws at once and reads on from where it stopped.
+//! and the desk stays between, so coming back draws at once and reads on from where it stopped. A
+//! short trip away (a picker, a notification) keeps the link: it goes [`AWAY`] after the screens do.
+//! A drop is redialed at once and read on from each tab's end; the screens call it offline only
+//! once it has lasted [`DOWN_GRACE`], so a new build on the server or a change of network passes
+//! unseen.
 
 use std::{
     collections::{BTreeSet, HashMap, VecDeque},
     sync::{Arc, LazyLock, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -38,6 +42,14 @@ const FRAME: Duration = Duration::from_millis(40);
 const RETRY: (Duration, Duration) = (Duration::from_millis(200), Duration::from_secs(30));
 /// Failed dials before a link may ask for a new endpoint.
 const STALE: u32 = 4;
+/// A link that was up and dropped is still shown as up this long: the server's swap to a new build
+/// takes a few seconds, and so does a phone moving between networks.
+const DOWN_GRACE: Duration = Duration::from_secs(10);
+/// For this long after a drop, redials stay quick (at most [`QUICK`] apart) before backing off.
+const QUICK_FOR: Duration = Duration::from_secs(30);
+const QUICK: Duration = Duration::from_secs(1);
+/// How long the link outlives the screens: coming back from a picker or a glance elsewhere finds it up.
+const AWAY: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TileRec {
@@ -419,6 +431,8 @@ struct Desk {
     closed: Vec<Info>,
     wall_end: u64,
     online: bool,
+    /// A drop of a link that was up: until then the screens still hear it's up.
+    quiet_until: Option<Instant>,
     /// No listing yet on this connection: every tab needs following.
     fresh: bool,
     wall_touched: bool,
@@ -447,6 +461,19 @@ impl Desk {
         self.out.extend([Ask::List, Ask::Closed, Ask::Follow { id: WALL.into(), after: self.wall_end }, Ask::Queue]);
     }
 
+    /// What the screens are told: up, or down for less than [`DOWN_GRACE`].
+    fn shown_online(&self) -> bool {
+        self.online || self.quiet_until.is_some_and(|u| Instant::now() < u)
+    }
+
+    /// The link went down: if it was up, the screens hear nothing of it for a while.
+    fn dropped(&mut self) {
+        if self.online {
+            self.quiet_until = Some(Instant::now() + DOWN_GRACE);
+        }
+        self.disconnected();
+    }
+
     /// Nothing still on its way will land, as far as anyone here can tell: the words go back in their
     /// boxes, so nothing is lost and nothing goes twice.
     fn disconnected(&mut self) {
@@ -471,7 +498,7 @@ impl Desk {
                 files.append(&mut p.files);
                 false
             });
-            t.live = None;
+            // The live text stays: a new follow sends the block again from its start.
             lost.push((id.clone(), back.join("\n\n"), files));
             t.tail();
         }
@@ -482,7 +509,7 @@ impl Desk {
 
     fn tell(&mut self, tell: Tell) {
         self.wall_touched |= !self.online;
-        self.online = true;
+        (self.online, self.quiet_until) = (true, None);
         match tell {
             Tell::Tabs { tabs } => self.listed(tabs),
             Tell::Closed { tabs } => {
@@ -834,7 +861,7 @@ impl Desk {
         if std::mem::take(&mut self.wall_touched) {
             let tiles = self.order.iter().filter_map(|id| self.tabs.get(id).map(|t| self.tile(id, t))).collect();
             let closed = self.closed.iter().map(|c| ClosedRec { id: c.id.clone(), name: c.tile.name.clone(), line: c.tile.line.clone() }).collect();
-            told.push(Told::Wall(tiles, closed, self.online));
+            told.push(Told::Wall(tiles, closed, self.shown_online()));
         }
         if std::mem::take(&mut self.queue_touched) {
             let cards = self.cards.iter().filter(|c| self.shown(&c.tabs)).cloned().collect();
@@ -884,6 +911,8 @@ impl Shared {
 struct Attached {
     listener: Arc<dyn TabsListener>,
     task: tokio::task::JoinHandle<()>,
+    /// The screens went: the link goes when this ends, unless they're back first.
+    leaving: Option<tokio::task::JoinHandle<()>>,
 }
 
 static SHARED: LazyLock<Shared> = LazyLock::new(Shared::default);
@@ -975,7 +1004,7 @@ fn scopeguard(f: impl FnOnce()) -> impl Drop {
 }
 
 async fn keep_linked() {
-    let (mut wait, mut failed) = (RETRY.0, 0);
+    let (mut wait, mut failed, mut down) = (RETRY.0, 0, Instant::now());
     loop {
         let dial = forum::open_stream(TABS_HANDSHAKE, failed >= STALE);
         tokio::pin!(dial);
@@ -994,9 +1023,15 @@ async fn keep_linked() {
                 // A gate with no server behind it opens the pipe and shuts it at once. Only a frame
                 // proves the link, or the dial would hammer the gate five times a second.
                 if desk.online {
-                    wait = RETRY.0;
+                    (wait, down) = (RETRY.0, Instant::now());
+                    // Once the grace is out, the screens hear it's down, unless it's back by then.
+                    RT.spawn(async {
+                        tokio::time::sleep(DOWN_GRACE).await;
+                        SHARED.desk().wall_touched = true;
+                        deliver();
+                    });
                 }
-                desk.disconnected();
+                desk.dropped();
                 drop(desk);
                 end.err().map(|e| format!("{e:#}"))
             }
@@ -1011,23 +1046,42 @@ async fn keep_linked() {
             deliver();
         }
         tokio::time::sleep(wait.saturating_sub(GRACE)).await;
-        wait = (wait * 2).min(RETRY.1);
+        wait = (wait * 2).min(if down.elapsed() < QUICK_FOR { QUICK } else { RETRY.1 });
     }
 }
 
 /// The screens are up and the link comes up. They hear nothing until it's there or the grace has
-/// passed, so a quick link never shows them "offline" on the way.
+/// passed, so a quick link never shows them "offline" on the way. Back within [`AWAY`], the link
+/// they left is still up and they carry on on it.
 #[uniffi::export]
 pub fn tabs_attach(listener: Arc<dyn TabsListener>) {
     let mut attached = SHARED.attached.lock().unwrap();
+    if let Some(a) = attached.as_mut().filter(|a| !a.task.is_finished()) {
+        if let Some(l) = a.leaving.take() {
+            l.abort();
+        }
+        a.listener = listener;
+        drop(attached);
+        let mut desk = SHARED.desk();
+        desk.wall_touched = true;
+        desk.queue_touched = true;
+        for t in desk.tabs.values_mut() {
+            if t.loaded {
+                t.moved(0);
+            }
+        }
+        drop(desk);
+        SHARED.nudge.notify_one();
+        return;
+    }
     let old = attached.take();
-    *attached = Some(Attached { listener, task: RT.spawn(keep_linked()) });
+    *attached = Some(Attached { listener, task: RT.spawn(keep_linked()), leaving: None });
     drop(attached);
     let mut desk = SHARED.desk();
     // The screens came back without the link going down: what it carried goes back as on a drop.
     if let Some(old) = old {
         old.task.abort();
-        desk.disconnected();
+        desk.dropped();
     }
     desk.wall_touched = true;
     for t in desk.tabs.values_mut() {
@@ -1037,13 +1091,22 @@ pub fn tabs_attach(listener: Arc<dyn TabsListener>) {
     }
 }
 
-/// The screens are gone: no link and no battery until they're back.
+/// The screens are gone: no link and no battery once they've been gone [`AWAY`].
 #[uniffi::export]
 pub fn tabs_detach() {
-    if let Some(old) = SHARED.attached.lock().unwrap().take() {
-        old.task.abort();
+    let mut attached = SHARED.attached.lock().unwrap();
+    let Some(a) = attached.as_mut() else { return };
+    if a.leaving.is_some() {
+        return;
     }
-    SHARED.desk().disconnected();
+    a.leaving = Some(RT.spawn(async {
+        tokio::time::sleep(AWAY).await;
+        let gone = SHARED.attached.lock().unwrap().take();
+        if let Some(old) = gone {
+            old.task.abort();
+            SHARED.desk().dropped();
+        }
+    }));
 }
 
 fn with_desk(f: impl FnOnce(&mut Desk)) {
@@ -1365,6 +1428,43 @@ mod tests {
         event(&mut d, "t1", said(20, Who::Jarvis, "late, from the old follow"));
         let r = tab(&d.take(), "t1");
         assert_eq!(texts(&r), ["first", "late, from the old follow"]);
+    }
+
+    fn shown_up(told: &[Told]) -> bool {
+        told.iter().find_map(|t| if let Told::Wall(_, _, up) = t { Some(*up) } else { None }).expect("the wall")
+    }
+
+    /// The server restarts for a new build under a connected screen: the drop isn't shown, the link
+    /// asks on from each tab's end, and every line is there once, the reply mid-way included.
+    #[test]
+    fn a_drop_and_redial_shows_nothing_and_loses_and_doubles_no_line() {
+        let mut d = up(&[("t1", 10)]);
+        d.show(vec!["t1".into()]);
+        event(&mut d, "t1", said(10, Who::Aviv, "first"));
+        event(&mut d, "t1", said(20, Who::Jarvis, "second"));
+        d.tell(Tell::Text { id: "t1".into(), block: 1, from: 0, text: "third, half".into() });
+        d.take();
+
+        d.dropped();
+        assert!(shown_up(&d.take()), "a drop under the grace isn't shown");
+        assert!(texts(&tab(&{ d.tabs.get_mut("t1").unwrap().tail(); d.take() }, "t1")).contains(&"third, half".to_string()), "the reply mid-way stays");
+
+        d.connected();
+        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 30)] });
+        assert!(d.out.contains(&Ask::Follow { id: "t1".into(), after: 20 }), "{:?}", d.out);
+        // The new server sends the live block whole, and the old follow's last line crosses the new one's.
+        d.tell(Tell::Text { id: "t1".into(), block: 1, from: 0, text: "third, half way".into() });
+        event(&mut d, "t1", said(20, Who::Jarvis, "second"));
+        event(&mut d, "t1", said(30, Who::Jarvis, "third, whole"));
+        let told = d.take();
+        assert!(shown_up(&told));
+        let all = { d.tabs.get_mut("t1").unwrap().moved(0); texts(&tab(&d.take(), "t1")) };
+        assert_eq!(all, ["first", "second", "third, whole"]);
+
+        // A drop that outlasts the grace is shown.
+        d.dropped();
+        d.quiet_until = Instant::now().checked_sub(Duration::from_secs(1));
+        assert!(!shown_up(&d.take()));
     }
 
     #[test]
