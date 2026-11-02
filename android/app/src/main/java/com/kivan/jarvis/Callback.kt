@@ -24,7 +24,8 @@ import android.util.Log
  * AirPods' stem press through [MediaKeys.Receiver]) continues the dropped call, or starts one Jarvis
  * opens with why he called. Declining a ring tells the server, which sends what it rang for as text.
  *
- * It rings only with the ringer on and Do Not Disturb off ([loud]); otherwise the same call shows as
+ * With the calling account on ([RingLine]) it is the phone's own incoming call, the dialer's screen. Else
+ * it rings only with the ringer on and Do Not Disturb off ([loud]); otherwise the same call shows as
  * a silent notification. Unanswered after [RING_MS] it becomes a missed call with "Call back" (a ring
  * for an item stops after [REACH_RING_MS] without one: the server texts the item instead);
  * Decline, or dismissing the missed call, hangs the dropped call up for good.
@@ -85,6 +86,28 @@ object Callback {
     fun ring(context: Context, call: String?, title: String, text: String, reach: String? = null): String? {
         if (Voice.ui.value.live) return null
         val ms = if (reach != null) REACH_RING_MS else RING_MS
+        // The phone's own incoming call once Aviv has turned the calling account on ([RingLine]); its ringer,
+        // vibration and Do Not Disturb are the phone's, as for any call.
+        if (RingLine.ring(context, title, text)) {
+            context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
+            ringing(context, call, title, reach, ms, "the phone's call screen")
+            fallback = { notify(context, call, title, text, reach, ms) }
+            return null
+        }
+        return notify(context, call, title, text, reach, ms)
+    }
+
+    /** Telecom's ring, if it fails: the notification's. */
+    @Volatile private var fallback: (() -> String?)? = null
+
+    /** Telecom couldn't place the call after all: ring with the notification. */
+    fun telecomFailed(context: Context) {
+        val f = fallback ?: return
+        fallback = null
+        main.post { if (ringing != null) f() }
+    }
+
+    private fun notify(context: Context, call: String?, title: String, text: String, reach: String?, ms: Long): String? {
         val loud = loud(context)
         val jarvis = Person.Builder().setName("Jarvis").setImportant(true).build()
         val answer = answerIntent(context, call, 50)
@@ -119,27 +142,33 @@ object Callback {
         Notifier.off(nm.areNotificationsEnabled(), null, "")?.let { return it }
         runCatching { nm.notify(RING_ID, n) }.onFailure { Log.w(TAG, "ring not shown", it) }.exceptionOrNull()?.let { return Alerts.threw(it) }
         nm.cancel(MISSED_ID)
+        ringing(context, call, title, reach, ms, if (loud) "loud" else "silent")
+        return null
+    }
+
+    private fun ringing(context: Context, call: String?, title: String, reach: String?, ms: Long, how: String) {
         ringing = call ?: ""
         ringFor = reach
         Voice.update(context) { it.copy(ringing = true) }
-        Log.i(TAG, "ringing (${if (loud) "loud" else "silent"}) for ${call ?: "a new call"}")
+        Log.i(TAG, "ringing ($how) for ${call ?: "a new call"}")
         main.removeCallbacksAndMessages(this)
         main.postAtTime({ missed(context, call, title, reach) }, this, android.os.SystemClock.uptimeMillis() + ms)
-        return null
     }
 
     /** What an answer continues: the call it rang for, or null for a new call. Stops the ringing. */
     fun answered(context: Context, intent: Intent?): String? {
         val call = intent?.getStringExtra(CALL) ?: pending()
         missedCall = null
-        stop(context)
+        stop(context, android.telecom.DisconnectCause.ANSWERED_ELSEWHERE)
         context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
         return call
     }
 
-    private fun stop(context: Context) {
+    private fun stop(context: Context, cause: Int = android.telecom.DisconnectCause.LOCAL) {
         ringing = null
         ringFor = null
+        fallback = null
+        RingLine.end(cause)
         Voice.update(context) { it.copy(ringing = false) }
         main.removeCallbacksAndMessages(this)
         context.getSystemService(NotificationManager::class.java).cancel(RING_ID)
@@ -153,7 +182,8 @@ object Callback {
 
     private fun missed(context: Context, call: String?, title: String, reach: String? = null) {
         if (ringing == null) return
-        stop(context)
+        // Not MISSED: the dialer would post a missed call of its own beside this one, or beside the server's text.
+        stop(context, android.telecom.DisconnectCause.REJECTED)
         // A ring for an item: the server's text of it follows, one notice for one thing.
         if (reach != null) {
             Log.i(TAG, "missed the ring for $reach: the server sends it as text")

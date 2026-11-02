@@ -156,6 +156,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Jarvis's ring as the phone's own incoming call (RingLine.kt): a managed calling account. -->
+        <service
+            android:name=".RingLine$Service"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".CallService"
             android:exported="false"

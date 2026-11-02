@@ -14,6 +14,7 @@ class JarvisApp : Application() {
         Push.init(this)
         Core.init(this)
         Shortcuts.publish(this)
+        RingLine.register(this)
         background()
         LinkService.start(this)
         Move.booted()
