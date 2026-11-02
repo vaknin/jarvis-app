@@ -24,9 +24,10 @@ import android.util.Log
  * AirPods' stem press through [MediaKeys.Receiver]) continues the dropped call, or starts one Jarvis
  * opens with why he called. Declining a ring tells the server, which sends what it rang for as text.
  *
- * With the calling account on ([RingLine]) it is the phone's own incoming call, the dialer's screen. Else
- * it rings only with the ringer on and Do Not Disturb off ([loud]); otherwise the same call shows as
- * a silent notification. Unanswered after [RING_MS] it becomes a missed call with "Call back" (a ring
+ * With the managed calling account on ([RingLine]) it is the phone's own incoming call, the dialer's
+ * screen. Else it rings only with the ringer on and Do Not Disturb off ([loud]), and then Telecom knows of
+ * it as a self-managed call (the AirPods or a car can answer); otherwise the same call shows as a silent
+ * notification. Unanswered after [RING_MS] it becomes a missed call with "Call back" (a ring
  * for an item stops after [REACH_RING_MS] without one: the server texts the item instead);
  * Decline, or dismissing the missed call, hangs the dropped call up for good.
  */
@@ -86,9 +87,10 @@ object Callback {
     fun ring(context: Context, call: String?, title: String, text: String, reach: String? = null): String? {
         if (Voice.ui.value.live) return null
         val ms = if (reach != null) REACH_RING_MS else RING_MS
-        // The phone's own incoming call once Aviv has turned the calling account on ([RingLine]); its ringer,
-        // vibration and Do Not Disturb are the phone's, as for any call.
-        if (RingLine.ring(context, title, text)) {
+        PhoneReport.now(context)
+        // The phone's own incoming call once its calling account is on ([RingLine]); its ringer, vibration
+        // and Do Not Disturb are the phone's, as for any call.
+        if (RingLine.ringPhone(context, title, text)) {
             context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
             ringing(context, call, title, reach, ms, "the phone's call screen")
             fallback = { notify(context, call, title, text, reach, ms) }
@@ -143,6 +145,8 @@ object Callback {
         runCatching { nm.notify(RING_ID, n) }.onFailure { Log.w(TAG, "ring not shown", it) }.exceptionOrNull()?.let { return Alerts.threw(it) }
         nm.cancel(MISSED_ID)
         ringing(context, call, title, reach, ms, if (loud) "loud" else "silent")
+        // Telecom hears of a loud ring too, so the AirPods or a car can answer it; the notification is its screen.
+        if (loud) RingLine.ringSelf(context, title, text)
         return null
     }
 
@@ -167,7 +171,6 @@ object Callback {
     private fun stop(context: Context, cause: Int = android.telecom.DisconnectCause.LOCAL) {
         ringing = null
         ringFor = null
-        fallback = null
         RingLine.end(cause)
         Voice.update(context) { it.copy(ringing = false) }
         main.removeCallbacksAndMessages(this)

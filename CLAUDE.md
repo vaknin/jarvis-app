@@ -83,23 +83,30 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   is in (a restart, an update included, rejoins it at once: `Voice.resume` from `BootReceiver`/`LinkService`) and the
   hangups the server never confirmed (sent again with the ffi's `voice_end`). The server rings for a dropped call
   the app isn't redialing (alert url `/callback/<id>`), and reach rings Aviv when he's available and out (thread #36,
-  `/ring/<item>`; the older `/call` too): `Callback.kt`. Since 2026-11-02 it is the phone's own incoming call: `RingLine.kt`
-  registers a managed calling account "Jarvis" (CAPABILITY_CALL_PROVIDER, scheme `jarvis:`, not self-managed) and rings
-  with `addNewIncomingCall`, so the dialer shows its own screen (heads-up when unlocked, full screen when locked) and
-  rings, vibrates and honours DND as for any call; Answer (the dialer, AirPods, car) opens `CallActivity` answering and
-  ends that call (ANSWERED_ELSEWHERE), so the voice call itself is unchanged; a missed or replaced ring ends REJECTED,
-  so the dialer posts no missed call beside ours. Android lets the account ring only once Aviv turns it on (Settings,
-  Calling accounts); the app opens that screen once (`RingLine.ask`, and once more after a ring finds it off: reading
-  the switch needs READ_PHONE_NUMBERS, so Telecom's refusal tells). Until then, or if Telecom refuses, it falls back to
+  `/ring/<item>`; the older `/call` too): `Callback.kt`, with `RingLine.kt`'s two Telecom accounts. The managed one "Jarvis"
+  (CAPABILITY_CALL_PROVIDER, scheme `jarvis:`, id `jarvis-ring`) makes it the phone's own incoming call (the dialer's
+  screen, ringer, vibration and DND); Answer (the dialer, AirPods, car) opens `CallActivity` answering and ends that call
+  (ANSWERED_ELSEWHERE), so the voice call itself is unchanged; a missed or replaced ring ends REJECTED, so the dialer
+  posts no missed call beside ours. Android rings it only once it's on, and Aviv's Pixel (Android 16, Google's Phone
+  app) has no "All calling accounts" switch (thread t81), so only adb turns it on, as the shell user, no root:
+  `telecom set-phone-account-enabled 'com.kivan.jarvis/com.kivan.jarvis.RingLine$Service' jarvis-ring 0` (quote the `$`
+  through `adb shell "..."`). Telecom refuses a ring on an account that's off, and that's how the app tells. Otherwise
+  (and if Telecom refuses) it rings with
   an incoming-call notification (full screen on the lock screen,
   `CallScreen`'s `Incoming`: "Jarvis", Decline and Answer, like a regular call) with the ringtone only with the ringer
-  on and Do Not Disturb off, else silent; the stem press answers; a missed one says "Call back", and Decline or
+  on and Do Not Disturb off, else silent; a loud one is also a self-managed Telecom call (`jarvis-ring-self`, as
+  WhatsApp's: no switch), so the AirPods' or a car's answer and decline reach `RingLine.Ring`; the stem press answers; a missed one says "Call back", and Decline or
   dismissing it hangs the dropped call up. Declining a ring sends `voice_end` with the item id, and the server texts
   it; unanswered, the ring stops after a minute and the server texts it. The availability chip is available /
   unavailable. Debug: `am startservice -n com.kivan.jarvis.debug/com.kivan.jarvis.LinkService -a
-  com.kivan.jarvis.ALERT --es url /callback/ID` (as root: `adb root`; on the emulator turn the account on with `telecom set-phone-account-enabled 'com.kivan.jarvis.debug/com.kivan.jarvis.RingLine$Service' jarvis-ring 0`, and note jarvis-emu has `heads_up_notifications_enabled` 0, which hides every heads-up; or `--es url /ring/reach-ID --es title Jarvis --es text "Incoming call"`). A stall or break kicks iroh at once (`Events::kick` → `forum_network_changed`) and again 3 s on if the
+  com.kivan.jarvis.ALERT --es url /callback/ID` (as root: `adb root`; on the emulator the managed account goes on and off with `telecom set-phone-account-enabled|disabled 'com.kivan.jarvis.debug/com.kivan.jarvis.RingLine$Service' jarvis-ring 0`; `heads_up_notifications_enabled` 0 hides every heads-up; or `--es url /ring/reach-ID --es title Jarvis --es text "Incoming call"`). A stall or break kicks iroh at once (`Events::kick` → `forum_network_changed`) and again 3 s on if the
   second dial hasn't said hello; a call that went down sends its recent log lines to the server once (`crates/ffi/src/phonelog.rs`,
   handshake `logup`, kept in the server's `~/.jarvis/phone-logs/`).
+  The phone reports itself without adb (`PhoneReport.kt`, thread t81): app version, `heads_up_notifications_enabled`,
+  notification and full-screen permissions, the ring and Jarvis channels' importance, DND, ringer, battery and the
+  managed account, as `GET /phone?k=v...` on the voice port, at process start (until heard), on every app open and with
+  every ring. The jarvis repo's `voice/src/phone.rs` keeps the last in `~/.jarvis/phone.json` (`phone-emu.json` for a
+  debug build); `jarvis phone [--emu]` prints it. The wall's menu shows the version ("Version 1.0.N", a tap checks for an update).
 - adb on any network (`Adb.kt`, `jarvis-link adb [--enable]`, 2026-10-05): dibs asks where the phone's adb listens
   when adb can't see it (the phone's Wi-Fi filter drops multicast mDNS while the screen is off). The daemon wakes
   the phone (FCM), sends a live `App` frame on the reserved channel `_adb` (`{"op":"endpoint","enable":bool}`) and

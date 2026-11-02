@@ -69,6 +69,7 @@ class TabsActivity : ComponentActivity() {
         intent.removeExtra(Updater.EXTRA_INSTALL)
         com.kivan.jarvis.AirPodsMic.ask(this)
         com.kivan.jarvis.RingLine.ask(this)
+        com.kivan.jarvis.PhoneReport.now(this)
     }
 
     override fun onPause() {

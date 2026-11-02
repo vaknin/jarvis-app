@@ -169,6 +169,7 @@ fun Wall(
 @Composable
 private fun WallMenu(onClosedTabs: (() -> Unit)?, needs: Int, onList: () -> Unit) {
     val deck = LocalDeck.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     var menu by remember { mutableStateOf(false) }
     @Composable
     fun item(words: String, go: () -> Unit) = DropdownMenuItem(
@@ -185,6 +186,8 @@ private fun WallMenu(onClosedTabs: (() -> Unit)?, needs: Int, onList: () -> Unit
             if (onClosedTabs != null) item("Search closed tabs", onClosedTabs)
             item("Home") { deck?.home() }
             item("Forum") { deck?.forum() }
+            // Which build this is, as the old home's menu says it; a tap looks for a newer one.
+            item("Version ${com.kivan.jarvis.BuildConfig.VERSION_NAME}") { com.kivan.jarvis.Updater.checkNow(context) }
         }
     }
 }

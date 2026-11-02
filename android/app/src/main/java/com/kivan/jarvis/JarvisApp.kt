@@ -32,5 +32,6 @@ class JarvisApp : Application() {
         Watch.start(this)
         Updater.loop(this)
         Tasks.report(Core.scope)
+        PhoneReport.start(this, Core.scope)
     }
 }
