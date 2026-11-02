@@ -113,6 +113,7 @@ fun TabPage(
     marks: List<QuoteMark> = emptyList(),
     onMarks: (List<QuoteMark>) -> Unit = {},
     onTaken: () -> Unit = {},
+    onMode: (String, String) -> Unit = { _, _ -> },
 ) {
     val attached = LocalTalk.current.attached.isNotEmpty()
     val rows = remember(tab.entries) { tab.entries.asReversed() }
@@ -205,7 +206,7 @@ fun TabPage(
     }
 
     Page(modifier) {
-        Header(tab, onWall, onClose)
+        Header(tab, onWall, onClose, onMode)
         AnimatedVisibility(!online) { OfflineBar() }
         AnimatedVisibility(
             questionHidden,
@@ -311,7 +312,7 @@ fun TabPage(
 }
 
 @Composable
-private fun Header(tab: TabView, onWall: () -> Unit, onClose: () -> Unit) {
+private fun Header(tab: TabView, onWall: () -> Unit, onClose: () -> Unit, onMode: (String, String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 4.dp, end = 4.dp),
@@ -332,6 +333,7 @@ private fun Header(tab: TabView, onWall: () -> Unit, onClose: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (!tab.closed) ModelChip(tab.tile, onMode, Modifier.padding(horizontal = 6.dp))
         if (!tab.closed) {
             Box {
                 Round(R.drawable.lucide_ellipsis_vertical, "More", { menu = true })

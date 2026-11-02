@@ -24,6 +24,8 @@ object Fake {
             needs = i == 1 || (n >= 14 && i == 9),
             unread = i == 3 || i == 7,
             working = i == 0 || i == 1 || i == 3 || i == 12,
+            model = if (i == 2) "sonnet" else "opus",
+            effort = if (i == 2) "high" else "medium",
         )
     }
 
@@ -133,7 +135,7 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     private fun start(text: String) {
         val id = "t${++counter}"
-        val tile = TileView(id, (flow.value.tiles.maxOfOrNull { it.n } ?: 0) + 1, text.take(24), working = true)
+        val tile = TileView(id, (flow.value.tiles.maxOfOrNull { it.n } ?: 0) + 1, text.take(24), working = true, model = "opus", effort = "medium")
         flow.update {
             it.copy(
                 tiles = it.tiles + tile,
@@ -204,6 +206,13 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
         val t = s.tiles.firstOrNull { it.id == id } ?: return@update s
         val rest = s.tiles - t
         s.copy(tiles = rest.take(to) + t + rest.drop(to))
+    }
+
+    override fun mode(id: String, model: String, effort: String) = flow.update { s ->
+        s.copy(
+            tiles = s.tiles.map { if (it.id == id) it.copy(model = model, effort = effort) else it },
+            tabs = s.tabs.mapValues { (k, v) -> if (k == id) v.copy(tile = v.tile.copy(model = model, effort = effort)) else v },
+        )
     }
 
     override fun openedDone() = flow.update { it.copy(opened = null) }

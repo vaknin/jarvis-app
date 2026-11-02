@@ -23,6 +23,7 @@ import com.kivan.jarvis.core.tabsClose
 import com.kivan.jarvis.core.tabsDetach
 import com.kivan.jarvis.core.tabsFile
 import com.kivan.jarvis.core.tabsHold
+import com.kivan.jarvis.core.tabsMode
 import com.kivan.jarvis.core.tabsMove
 import com.kivan.jarvis.core.tabsRelease
 import com.kivan.jarvis.core.tabsReopen
@@ -162,6 +163,16 @@ class RealDeck private constructor(
             s.copy(tiles = rest.take(to) + t + rest.drop(to))
         }
         tabsMove(id, to.toUInt())
+    }
+
+    override fun mode(id: String, model: String, effort: String) {
+        flow.update { s ->
+            s.copy(
+                tiles = s.tiles.map { if (it.id == id) it.copy(model = model, effort = effort) else it },
+                tabs = s.tabs.mapValues { (k, v) -> if (k == id) v.copy(tile = v.tile.copy(model = model, effort = effort)) else v },
+            )
+        }
+        tabsMode(id, model, effort)
     }
 
     override fun here(id: String?) {
@@ -362,7 +373,7 @@ internal fun DeckState.typedBack(id: String, text: String): DeckState {
     return copy(typed = typed + (id to if (now.isBlank()) text else "$text\n\n$now"))
 }
 
-private fun view(t: TileRec) = TileView(t.id, t.n.toInt(), t.name, t.needs, t.unread, t.working)
+private fun view(t: TileRec) = TileView(t.id, t.n.toInt(), t.name, t.needs, t.unread, t.working, t.mode, t.model, t.effort)
 
 private fun entry(e: EntryRec): Entry = when (e) {
     is EntryRec.Yours -> Entry.Yours(

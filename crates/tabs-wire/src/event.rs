@@ -89,7 +89,14 @@ pub enum Body {
         /// On a turn: what it cost, as Claude Code reported it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn: Option<TurnTokens>,
+        /// On a start: the model and effort the session runs on.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        model: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        effort: String,
     },
+    /// His choice of mode for the tab, from `mode::MODES`. It takes hold at the tab's next session.
+    Mode { mode: String },
     /// The jobs this tab started that are still running, a title each, whole every time it changes.
     /// A job outlives its tab's sessions, so a session's start or end leaves this alone. `queued`: the
     /// ones waiting for a slot or held by a limit, not started yet.

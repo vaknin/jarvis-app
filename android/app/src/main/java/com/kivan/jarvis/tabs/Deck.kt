@@ -12,6 +12,10 @@ data class TileView(
     val needs: Boolean = false,
     val unread: Boolean = false,
     val working: Boolean = false,
+    /** His mode for the tab, and the model and effort of it ("opus", "medium"); empty until known. */
+    val mode: String = "",
+    val model: String = "",
+    val effort: String = "",
 )
 
 enum class Sending { Sent, Sending, Refused }
@@ -155,6 +159,8 @@ interface Deck {
     fun close(id: String)
     fun reopen(id: String)
     fun move(id: String, to: Int)
+    /** Sets the tab's model and effort, from its next message. */
+    fun mode(id: String, model: String, effort: String)
     /** He's on this tab now, or at the wall (null). A jump sends what waits. */
     fun here(id: String?)
     /** What he said on screen: `send` sends it, otherwise it was taken into a box. */

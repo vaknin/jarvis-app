@@ -68,6 +68,8 @@ import com.kivan.jarvis.MicLevel
 import com.kivan.jarvis.R
 import com.kivan.jarvis.Voice
 import com.kivan.jarvis.core.CallState
+import com.kivan.jarvis.tabs.ModelChip
+import com.kivan.jarvis.tabs.RealDeck
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -105,6 +107,7 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
                 )
                 Spacer(Modifier.height(10.dp))
                 AvailChip()
+                CallModelChip()
                 Spacer(Modifier.height(12.dp))
                 Transcript(pieces.orEmpty(), Modifier.weight(1f).fillMaxWidth())
                 ui.error?.let {
@@ -403,4 +406,15 @@ internal fun Round(icon: Int, label: String, bg: Color, fg: Color, size: Dp, onC
             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
         )
     }
+}
+
+/** The model and effort of the call's tab, the same chip and picker as the tab page; a pick holds from the next thing he says. */
+@Composable
+private fun CallModelChip() {
+    val ctx = LocalContext.current.applicationContext
+    val tab = Voice.place.collectAsState().value.tab ?: return
+    val deck = remember { RealDeck.get(ctx) }
+    val tile = deck.state.collectAsState().value.tiles.firstOrNull { it.id == tab } ?: return
+    Spacer(Modifier.height(8.dp))
+    ModelChip(tile, { m, e -> deck.mode(tab, m, e) })
 }

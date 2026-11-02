@@ -4,6 +4,7 @@
 
 pub mod event;
 pub mod frame;
+pub mod mode;
 pub mod tile;
 
 pub use event::{first_line, Body, Event, FileRef, Reply, SessionState, TurnTokens, Via, Who, WorkEnd, WorkState};

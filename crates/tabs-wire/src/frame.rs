@@ -35,6 +35,8 @@ pub enum Ask {
         name: String,
     },
     Close { id: String },
+    /// He chose a mode for the tab; its next session starts on it. Answered by `Done`.
+    Mode { id: String, mode: String },
     /// A closed tab opens again with its whole record, at the end of the row: answered by `Opened`.
     Reopen { id: String },
     /// Every closed tab, newest first: answered by `Closed`. Their records stay, so they can be

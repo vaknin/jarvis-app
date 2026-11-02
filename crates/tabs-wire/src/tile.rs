@@ -21,6 +21,14 @@ pub struct Tile {
     /// What it needs from him. Empty when it isn't amber.
     pub needs: String,
     pub amber: bool,
+    /// What the running session is on, from its start; kept after it ends, as the last it ran on.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub effort: String,
+    /// His mode for the tab: empty is the default one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mode: String,
     /// How many things are new to read.
     pub unread: usize,
     /// Open work, by id: what it is.
@@ -104,7 +112,11 @@ impl Tile {
                 self.open.remove(id);
             }
             Body::Work { .. } => {}
-            Body::Session { id, state: SessionState::Started, .. } => {
+            Body::Session { id, state: SessionState::Started, model, effort, .. } => {
+                if !model.is_empty() {
+                    self.model = model.clone();
+                    self.effort = effort.clone();
+                }
                 self.open.clear();
                 self.session = Some(id.clone());
             }
@@ -129,6 +141,7 @@ impl Tile {
             }
             Body::Line { text } => self.line = text.clone(),
             Body::Named { name } => self.name = name.clone(),
+            Body::Mode { mode } => self.mode = mode.clone(),
             Body::Opened { .. } | Body::Closed { .. } | Body::Moved { .. } | Body::Row { .. } | Body::Delivered { .. } | Body::Other => {}
         }
     }
@@ -138,5 +151,34 @@ impl Tile {
             self.new.push(offset);
             self.unread = self.new.len();
         }
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    fn at(body: Body) -> Event {
+        Event { offset: 1, at: 1, body }
+    }
+
+    #[test]
+    fn mode_and_session_model_fold_into_the_tile() {
+        let mut t = Tile::default();
+        t.apply(&at(Body::Mode { mode: "sonnet-high".into() }));
+        assert_eq!(t.mode, "sonnet-high");
+        t.apply(&at(Body::Session {
+            id: "s".into(),
+            state: SessionState::Started,
+            why: String::new(),
+            cut: None,
+            turn: None,
+            model: "claude-opus-4".into(),
+            effort: "high".into(),
+        }));
+        assert_eq!((t.model.as_str(), t.effort.as_str()), ("claude-opus-4", "high"));
+        // A start with no model (an older record) keeps what it had.
+        t.apply(&at(Body::Session { id: "s2".into(), state: SessionState::Started, why: String::new(), cut: None, turn: None, model: String::new(), effort: String::new() }));
+        assert_eq!(t.model, "claude-opus-4");
     }
 }

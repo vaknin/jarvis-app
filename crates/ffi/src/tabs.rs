@@ -47,6 +47,11 @@ pub struct TileRec {
     pub needs: bool,
     pub unread: bool,
     pub working: bool,
+    /// His mode for the tab, canonical; empty is the default.
+    pub mode: String,
+    /// The model and effort of the mode (or of the default), short: "opus", "medium".
+    pub model: String,
+    pub effort: String,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -673,6 +678,9 @@ impl Desk {
             needs: t.tile.amber,
             unread: t.tile.blue(),
             working: t.tile.working(),
+            mode: t.tile.mode.clone(),
+            model: jarvis_tabs_wire::mode::parts(&t.tile.mode).0.to_string(),
+            effort: jarvis_tabs_wire::mode::parts(&t.tile.mode).1.to_string(),
         }
     }
 
@@ -960,6 +968,21 @@ pub fn tabs_file(id: String, name: String) {
 #[uniffi::export]
 pub fn tabs_stop(id: String) {
     with_desk(|d| d.out.push(Ask::Stop { id }));
+}
+
+/// Sets a tab's model and effort for its next message. A pair that has no mode is ignored.
+#[uniffi::export]
+pub fn tabs_mode(id: String, model: String, effort: String) {
+    if let Some(mode) = jarvis_tabs_wire::mode::pick(&model, &effort) {
+        with_desk(|d| {
+            if let Some(t) = d.tabs.get_mut(&id) {
+                t.tile.mode = mode.to_string();
+                d.wall_touched = true;
+                t.touched = true;
+            }
+            d.out.push(Ask::Mode { id, mode: mode.to_string() });
+        });
+    }
 }
 
 #[uniffi::export]

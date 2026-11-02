@@ -381,6 +381,7 @@ private fun TabLayer(
                     onStop = { deck.stop(tabId) },
                     onHold = { deck.hold(tabId, it) },
                     onRelease = { deck.release(tabId) },
+                    onMode = { m, e -> deck.mode(tabId, m, e) },
                 )
             }
         }
