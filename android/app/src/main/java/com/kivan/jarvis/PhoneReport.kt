@@ -60,6 +60,7 @@ object PhoneReport {
             "last_ring" to RingLine.lastRing(context),
             // Hands-free answers after a speaker ask ([Listen]): the server opens the mic only on "ok".
             "listen" to Listen.missing(context).let { if (it.isEmpty()) "ok" else "missing " + it.joinToString() },
+            "bg_mic" to b(Listen.backgroundMic(context)),
         )
     }
 

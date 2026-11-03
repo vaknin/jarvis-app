@@ -10,6 +10,7 @@
 //! - `--stall OVER.wav`: instead of cutting, the line stops carrying anything to the phone, and OVER
 //!   plays as the mic: Aviv talks over Jarvis, whose `flush` is lost with the line, and the phone
 //!   switches to a second socket (the takeover path).
+//! - `--listen`: the phone's mic after a speaker ask (a reply window), not a call he placed.
 //! - `--out OUT.wav`: what the speaker played. `--secs S` (default 30): the call runs that long after the clip.
 //!
 //! At the end it maps what the speaker played against the server's sentences (each whole, as sent):
@@ -197,6 +198,7 @@ async fn main() {
     let a: Vec<String> = std::env::args().collect();
     let mut url = "ws://127.0.0.1:8790/call".to_string();
     let (mut drop_ms, mut down_ms, mut after_said, mut mid, mut stall, mut out, mut secs) = (None, 1000u64, false, false, None, None, 30u64);
+    let mut listen = false;
     let mut it = a[2..].iter();
     while let Some(x) = it.next() {
         match x.as_str() {
@@ -207,6 +209,7 @@ async fn main() {
             "--stall" => stall = it.next().cloned(),
             "--out" => out = it.next().cloned(),
             "--secs" => secs = it.next().unwrap().parse().unwrap(),
+            "--listen" => listen = true,
             u => url = u.to_string(),
         }
     }
@@ -232,7 +235,8 @@ async fn main() {
     });
     tokio::spawn(proxy.clone().serve(l));
     let path = url.splitn(4, '/').nth(3).unwrap_or("call").to_string();
-    let call = Call::start(websocket(format!("ws://127.0.0.1:{port}/{path}")), Arc::new(Log(t0)), Timing::default());
+    let ws = websocket(format!("ws://127.0.0.1:{port}/{path}"));
+    let call = if listen { Call::listen(ws, Arc::new(Log(t0)), Timing::default()) } else { Call::start(ws, Arc::new(Log(t0)), Timing::default()) };
     tokio::time::sleep(Duration::from_millis(800)).await;
 
     let mut played: Vec<i16> = Vec::new();

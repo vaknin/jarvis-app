@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Later on a ring, and the phone listening</title>
+<style>
+  :root { --bg:#0F1114; --ink:#E8EAED; --muted:#8B93A1; --raised:#1C1F24; --mine:#243447; --accent:#95C9FF; --page:#CFD4DC; --go:#3FB97A; --stop:#E5534B; --pick:#F2B33D; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#08090b; color:var(--ink); font:15px/20px system-ui, -apple-system, Roboto, sans-serif; }
+  header { max-width:1180px; margin:0 auto; padding:18px 20px 6px; }
+  h1 { font-size:19px; margin:0 0 4px; } .sub { color:var(--muted); font-size:13px; line-height:18px; }
+  .row { max-width:1180px; margin:0 auto; display:flex; gap:22px; flex-wrap:wrap; padding:12px 20px 40px; align-items:flex-start; }
+  .col { width:340px; max-width:100%; }
+  .col h2 { font-size:15px; margin:0 0 2px; } .col p { margin:0 0 10px; color:var(--muted); font-size:13px; line-height:18px; min-height:54px; }
+  .pick { color:var(--pick); font-weight:700; }
+  .phone { background:var(--bg); border:1px solid #2a2d33; border-radius:26px; padding:28px 18px 26px; height:600px; display:flex; flex-direction:column; align-items:center; }
+  .small { color:var(--muted); font-size:15px; margin-top:20px; }
+  .av { width:110px; height:110px; border-radius:55px; background:var(--mine); color:var(--accent); font-size:44px; display:flex; align-items:center; justify-content:center; margin-top:24px; }
+  .name { font-size:30px; margin-top:20px; }
+  .grow { flex:1; }
+  .btns { width:100%; display:flex; justify-content:space-evenly; align-items:flex-end; }
+  .b { display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--muted); font-size:13px; }
+  .r { border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:22px; }
+  .link { color:var(--accent); font-size:15px; margin-top:22px; }
+  .lock { margin-top:18px; width:100%; }
+  .clock { text-align:center; font-size:54px; font-weight:300; color:var(--ink); margin:30px 0 26px; }
+  .notif { background:#1b1e23; border-radius:18px; padding:12px 14px; display:flex; gap:10px; align-items:flex-start; }
+  .ic { width:28px; height:28px; border-radius:14px; background:var(--mine); color:var(--accent); display:flex; align-items:center; justify-content:center; font-size:15px; flex:none; }
+  .nt { font-weight:600; font-size:14px; } .nx { color:var(--muted); font-size:13px; line-height:17px; }
+  .nb { color:var(--accent); font-size:13px; margin-top:8px; }
+  .wave { margin:22px auto 0; display:flex; gap:4px; justify-content:center; align-items:center; height:40px; }
+  .wave i { width:5px; border-radius:3px; background:var(--accent); display:block; }
+  .label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:14px 0 6px; align-self:flex-start; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Later on Jarvis's ring, and the phone listening after a speaker ask</h1>
+  <div class="sub">Top: the ring screen (Answer and Decline stay; Later puts the item off an hour, or say "later, at 4"). Bottom: the locked phone while Jarvis listens for your answer after asking on the speaker (about 20 seconds, no tap needed).</div>
+</header>
+<div class="row">
+  <div class="col">
+    <h2>A. Later in the middle <span class="pick">· my pick</span></h2>
+    <p>A smaller grey button between Decline and Answer, so a thumb can't hit it by mistake. Listening shows as one quiet line with an ear, like the call's own line.</p>
+    <div class="phone">
+      <div class="small">Jarvis wants to talk</div>
+      <div class="av">J</div>
+      <div class="name">Jarvis</div>
+      <div class="grow"></div>
+      <div class="btns">
+        <div class="b"><div class="r" style="width:84px;height:84px;background:var(--stop)">✕</div>Decline</div>
+        <div class="b"><div class="r" style="width:64px;height:64px;background:var(--raised);color:var(--page)">◷</div>Later</div>
+        <div class="b"><div class="r" style="width:84px;height:84px;background:var(--go)">✆</div>Answer</div>
+      </div>
+    </div>
+    <div class="phone" style="margin-top:16px;height:330px">
+      <div class="label">Locked, while listening</div>
+      <div class="clock">7:42</div>
+      <div class="lock"><div class="notif"><div class="ic">👂</div><div><div class="nt">Jarvis is listening</div><div class="nx">Just answer: Jarvis is listening on your phone</div><div class="nb">Mute</div></div></div></div>
+    </div>
+  </div>
+  <div class="col">
+    <h2>B. Later as a line under the buttons</h2>
+    <p>Two buttons like any call, and "Remind me later" as text under them. Calmer, but easy to miss when it rings. Listening the same.</p>
+    <div class="phone">
+      <div class="small">Jarvis wants to talk</div>
+      <div class="av">J</div>
+      <div class="name">Jarvis</div>
+      <div class="grow"></div>
+      <div class="btns">
+        <div class="b"><div class="r" style="width:84px;height:84px;background:var(--stop)">✕</div>Decline</div>
+        <div class="b"><div class="r" style="width:84px;height:84px;background:var(--go)">✆</div>Answer</div>
+      </div>
+      <div class="link">◷ Remind me later</div>
+    </div>
+    <div class="phone" style="margin-top:16px;height:330px">
+      <div class="label">Locked, while listening</div>
+      <div class="clock">7:42</div>
+      <div class="lock"><div class="notif"><div class="ic">👂</div><div><div class="nt">Jarvis is listening</div><div class="nx">Just answer: Jarvis is listening on your phone</div><div class="nb">Mute</div></div></div></div>
+    </div>
+  </div>
+  <div class="col">
+    <h2>C. Three equal buttons, listening on screen</h2>
+    <p>Later as big as the others. And while listening the screen lights with a live level, so you see it heard you; it wakes the screen each time.</p>
+    <div class="phone">
+      <div class="small">Jarvis wants to talk</div>
+      <div class="av">J</div>
+      <div class="name">Jarvis</div>
+      <div class="grow"></div>
+      <div class="btns">
+        <div class="b"><div class="r" style="width:76px;height:76px;background:var(--stop)">✕</div>Decline</div>
+        <div class="b"><div class="r" style="width:76px;height:76px;background:var(--raised);color:var(--page)">◷</div>Later</div>
+        <div class="b"><div class="r" style="width:76px;height:76px;background:var(--go)">✆</div>Answer</div>
+      </div>
+    </div>
+    <div class="phone" style="margin-top:16px;height:330px">
+      <div class="label">Screen on, while listening</div>
+      <div class="small" style="margin-top:28px">Jarvis is listening</div>
+      <div class="wave"><i style="height:10px"></i><i style="height:22px"></i><i style="height:34px"></i><i style="height:18px"></i><i style="height:28px"></i><i style="height:12px"></i><i style="height:24px"></i></div>
+      <div class="small">Just answer</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

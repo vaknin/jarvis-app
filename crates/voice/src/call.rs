@@ -288,6 +288,9 @@ struct Start {
 }
 
 /// A call in progress. Dropping it hangs up.
+/// How long a reply window's mic waits for its line before giving up (it has 20 s in all).
+const LISTEN_DIAL: Duration = Duration::from_secs(8);
+
 pub struct Call {
     shared: Arc<Shared>,
     cmd: mpsc::UnboundedSender<Cmd>,
@@ -1066,7 +1069,8 @@ impl Run {
             self.rekick();
         }
         let down = self.down?;
-        if self.start.listen {
+        // A reply window never redials: a line that dropped, or never came up, ends it.
+        if self.start.listen && (self.id.is_some() || down.elapsed() >= LISTEN_DIAL) {
             return Some("the reply window's line dropped".into());
         }
         if !self.shown && down.elapsed() >= self.t.grace {

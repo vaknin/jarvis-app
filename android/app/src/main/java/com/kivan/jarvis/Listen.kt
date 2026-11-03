@@ -14,11 +14,11 @@ import android.util.Log
  * (the server times it); Jarvis answers on the speaker. Nothing rings and nothing shows but the
  * call's own "Jarvis is listening" line.
  *
- * Android gives the mic to an app in the background only with these, granted once ([missing]):
- * battery Unrestricted (so the call's service may start from the background), and the mic in the
- * background, which is the RECORD_AUDIO app op set to allow (adb) or Jarvis as the digital assistant.
- * Without the last the call still tries Telecom's own call service ([CallService]'s mic-later path),
- * and gives up quietly if that lends no mic either.
+ * It needs, granted once ([missing]): the mic permission and battery Unrestricted (so the call's service
+ * may start from the background). Telecom's own call then lends the mic from the background, screen off
+ * ([CallService]'s mic-later path; tried on the emulator, 2026-11-03). [backgroundMic] (the RECORD_AUDIO
+ * app op at allow, or Jarvis as the digital assistant) opens it straight away instead; without either
+ * the call gives up quietly.
  */
 object Listen {
     private const val TAG = "JarvisListen"
@@ -61,13 +61,12 @@ object Listen {
     fun missing(context: Context): List<String> = listOfNotNull(
         if (!CallService.micGranted(context)) "microphone permission" else null,
         if (!context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)) "battery Unrestricted" else null,
-        if (!backgroundMic(context)) "mic in the background" else null,
     )
 
     /** At process start: one line in the log, and [PhoneReport] tells the server. */
     fun check(context: Context) {
         val left = missing(context)
-        if (left.isEmpty()) Log.i(TAG, "hands-free answers: ready")
+        if (left.isEmpty()) Log.i(TAG, "hands-free answers: ready${if (backgroundMic(context)) "" else " (mic through Telecom)"}")
         else Log.w(TAG, "hands-free answers need: ${left.joinToString()}")
     }
 }
