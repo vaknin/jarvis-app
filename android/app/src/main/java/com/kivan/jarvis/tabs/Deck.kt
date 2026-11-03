@@ -275,6 +275,8 @@ interface Deck {
     fun answerEach(card: CardView, picks: List<UInt>, text: String)
     /** The Auto button: tab [id]'s autopilot on or off. */
     fun autopilot(id: String, on: Boolean)
+    /** Auto in the new-tab box: a tab now, with [text] and what's attached, its autopilot on once the server has it. */
+    fun autoNew(text: String)
     /** He read the [DeckState.notice]. */
     fun noticed()
 }

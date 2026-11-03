@@ -122,6 +122,7 @@ fun Wall(
     text: String,
     onText: (String) -> Unit,
     onStart: () -> Unit,
+    onAuto: () -> Unit,
     onOpen: (String) -> Unit,
     onClose: (String) -> Unit,
     onMove: (String, Int) -> Unit,
@@ -160,6 +161,7 @@ fun Wall(
             onSend = onStart,
             heard = state.heard,
             onHeard = onHeard,
+            onAuto = onAuto,
             leading = { WallMenu(if (state.closed.isEmpty()) null else onClosedTabs, state.cards.size, onList) },
         )
     }

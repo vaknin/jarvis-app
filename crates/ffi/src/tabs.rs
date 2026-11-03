@@ -451,7 +451,8 @@ struct Desk {
     /// Records in memory, the most recently shown last.
     recent: VecDeque<String>,
     /// What each `Open` or `Reopen` on its way carries: the words and files to say in it, if any.
-    opening: VecDeque<Option<(String, Vec<Upload>)>>,
+    /// Tabs on their way from the wall: his words, files, and whether Auto opened it.
+    opening: VecDeque<Option<(String, Vec<Upload>, bool)>>,
     keys: u64,
     out: Vec<Ask>,
     told: Vec<Told>,
@@ -492,7 +493,7 @@ impl Desk {
         self.wall_touched = true;
         self.out.clear();
         self.asked.clear();
-        for (words, files) in std::mem::take(&mut self.opening).into_iter().flatten() {
+        for (words, files, _) in std::mem::take(&mut self.opening).into_iter().flatten() {
             self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
         }
         let mut lost = vec![];
@@ -684,8 +685,14 @@ impl Desk {
             self.order.push(id.clone());
         }
         self.show(vec![id.clone()]);
-        if let Some((words, files)) = carried {
-            self.say(id.clone(), words, vec![], files);
+        if let Some((words, files, auto)) = carried {
+            // Autopilot first: on, it waits for his first words and drafts from them, no chat turn.
+            if auto {
+                self.autopilot(id.clone(), true);
+            }
+            if !words.trim().is_empty() || !files.is_empty() {
+                self.say(id.clone(), words, vec![], files);
+            }
             self.told.push(Told::Opened(id));
         }
     }
@@ -737,7 +744,7 @@ impl Desk {
             return;
         }
         if id.is_empty() {
-            if let Some((words, files)) = self.opening.pop_front().flatten() {
+            if let Some((words, files, _)) = self.opening.pop_front().flatten() {
                 self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
             }
             return;
@@ -831,10 +838,10 @@ impl Desk {
         }
     }
 
-    fn start(&mut self, text: String, files: Vec<Upload>) {
+    fn start(&mut self, text: String, files: Vec<Upload>, auto: bool) {
         let from = if text.trim().is_empty() { files.first().map_or("", |u| u.file.name.as_str()) } else { &text };
         let name = from.split_whitespace().take(3).collect::<Vec<_>>().join(" ").chars().take(24).collect();
-        self.opening.push_back(Some((text, files)));
+        self.opening.push_back(Some((text, files, auto)));
         self.out.push(Ask::Open { want: None, name });
     }
 
@@ -1148,7 +1155,15 @@ fn uploads(files: Vec<OutFile>) -> Vec<Upload> {
 #[uniffi::export]
 pub fn tabs_start(text: String, files: Vec<OutFile>) {
     let files = uploads(files);
-    with_desk(|d| d.start(text, files));
+    with_desk(|d| d.start(text, files, false));
+}
+
+/// Auto at the wall: a new tab, with whatever is in the box, and its autopilot on once the server has it.
+/// Nothing in the box is fine: autopilot waits for his first words.
+#[uniffi::export]
+pub fn tabs_start_auto(text: String, files: Vec<OutFile>) {
+    let files = uploads(files);
+    with_desk(|d| d.start(text, files, true));
 }
 
 #[uniffi::export]
@@ -1590,7 +1605,7 @@ mod tests {
         d.say("t1".into(), "landed".into(), vec![], vec![]);
         d.tell(Tell::Landed { id: "t1".into(), offset: 10 });
         d.say("t1".into(), "lost".into(), vec![QuoteRec { to: 5, quote: "q".into(), text: "w".into() }], vec![]);
-        d.start("a new thing".into(), vec![]);
+        d.start("a new thing".into(), vec![], false);
         d.take();
         d.disconnected();
         let told = d.take();
@@ -1647,12 +1662,25 @@ mod tests {
     fn words_at_the_wall_open_a_tab_and_land_in_it() {
         let mut d = up(&[]);
         d.out.clear();
-        d.start("Plan the garden sensors please".into(), vec![]);
+        d.start("Plan the garden sensors please".into(), vec![], false);
         assert_eq!(d.out, [Ask::Open { want: None, name: "Plan the garden".into() }]);
         d.out.clear();
         d.tell(Tell::Opened { tab: info("t9", 1, 0) });
         assert!(d.out.contains(&Ask::Follow { id: "t9".into(), after: 0 }));
         assert!(d.out.iter().any(|a| matches!(a, Ask::Say { id, text, .. } if id == "t9" && text.starts_with("Plan"))));
+        assert!(d.take().contains(&Told::Opened("t9".into())));
+    }
+
+    #[test]
+    fn auto_at_the_wall_opens_a_tab_with_autopilot_on_before_any_word() {
+        let mut d = up(&[]);
+        d.out.clear();
+        d.start(String::new(), vec![], true);
+        assert_eq!(d.out, [Ask::Open { want: None, name: String::new() }]);
+        d.out.clear();
+        d.tell(Tell::Opened { tab: info("t9", 1, 0) });
+        assert!(d.out.iter().any(|a| matches!(a, Ask::Autopilot { id, op, .. } if id == "t9" && op == "on")), "{:?}", d.out);
+        assert!(!d.out.iter().any(|a| matches!(a, Ask::Say { .. })), "nothing of his to say yet");
         assert!(d.take().contains(&Told::Opened("t9".into())));
     }
 
@@ -1689,7 +1717,7 @@ mod tests {
     fn a_file_with_no_words_opens_a_tab_named_after_it() {
         let mut d = up(&[]);
         d.out.clear();
-        d.start("  ".into(), vec![up_file("garden plan.png")]);
+        d.start("  ".into(), vec![up_file("garden plan.png")], false);
         assert_eq!(d.out, [Ask::Open { want: None, name: "garden plan.png".into() }]);
         d.out.clear();
         d.tell(Tell::Opened { tab: info("t9", 1, 0) });
@@ -1727,7 +1755,7 @@ mod tests {
         let told = d.take();
         assert!(told.contains(&Told::Back("t1".into(), "look".into())));
         assert!(told.contains(&Told::Unsent(vec![up_file("a.png").file])));
-        d.start("new".into(), vec![up_file("b.png")]);
+        d.start("new".into(), vec![up_file("b.png")], false);
         d.disconnected();
         assert!(d.take().contains(&Told::Unsent(vec![up_file("b.png").file])));
     }

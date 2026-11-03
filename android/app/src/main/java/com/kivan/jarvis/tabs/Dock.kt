@@ -106,6 +106,8 @@ fun Dock(
     above: (@Composable () -> Unit)? = null,
     /** In a tab: its autopilot, for the Auto button beside Call; null shows none. */
     autopilot: Boolean? = null,
+    /** In the new-tab box: Auto opens a tab now, its autopilot on; null shows none. */
+    onAuto: (() -> Unit)? = null,
 ) {
     val on = LocalTalk.current
     Column(modifier.overKeyboard().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp)) {
@@ -120,7 +122,9 @@ fun Dock(
         ) {
             leading?.invoke(this)
             WordsBox(hint, text, onText, onSend, Modifier.weight(1f), focus, showSend, heard, onHeard, onStop, talk, ready, onHold)
-            if (talk && tab != null && autopilot != null) AutoButton(tab, autopilot)
+            val deck = LocalDeck.current
+            if (talk && tab != null && autopilot != null) AutoButton(autopilot) { deck?.autopilot(tab, !autopilot) }
+            if (talk && tab == null && onAuto != null) AutoButton(false, onClick = onAuto)
             if (talk) CallButton(tab)
         }
     }
@@ -144,12 +148,11 @@ private fun CallButton(tab: String?) {
 
 /** Auto: the tab goes on by itself, taking Jarvis's picks, until he stops it. Filled while on. */
 @Composable
-fun AutoButton(tab: String, on: Boolean, height: Dp = 48.dp) {
-    val deck = LocalDeck.current
+fun AutoButton(on: Boolean, height: Dp = 48.dp, onClick: () -> Unit) {
     Box(
         Modifier
             .heightIn(min = Space.target)
-            .clickable(onClickLabel = if (on) "Stop autopilot" else "Autopilot") { deck?.autopilot(tab, !on) }
+            .clickable(onClickLabel = if (on) "Stop autopilot" else "Autopilot", onClick = onClick)
             .semantics { contentDescription = if (on) "Autopilot on" else "Autopilot off" },
         Alignment.Center,
     ) {

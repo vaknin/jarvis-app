@@ -23,6 +23,7 @@ import com.kivan.jarvis.core.TileRec
 import com.kivan.jarvis.core.tabsAnswer
 import com.kivan.jarvis.core.tabsAttach
 import com.kivan.jarvis.core.tabsAutopilot
+import com.kivan.jarvis.core.tabsStartAuto
 import com.kivan.jarvis.core.tabsClose
 import com.kivan.jarvis.core.tabsDetach
 import com.kivan.jarvis.core.tabsFile
@@ -158,6 +159,14 @@ class RealDeck private constructor(
 
     override fun unsent(files: List<OutFile>) = flow.update { s ->
         s.copy(attached = s.attached + files.filter { f -> s.attached.none { it.path == f.path } }.map { Attached(it.path, it.name, Tray.picture(it.name)) })
+    }
+
+    override fun autoNew(text: String) {
+        val going = flow.value.attached
+        val out = going.map { OutFile(it.name, it.path) }
+        flow.update { it.copy(notice = null, attached = emptyList()) }
+        opening = going
+        scope.launch { tabsStartAuto(text, out) }
     }
 
     override fun send(id: String?, text: String, quotes: List<Quoted>) {
