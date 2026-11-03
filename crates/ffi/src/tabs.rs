@@ -83,8 +83,17 @@ pub enum Level {
     Urgent,
 }
 
-/// A card of the Needs you list, or a question still open in its own tab: its first question, which
-/// is the one a tap answers. `pick` is Jarvis's, the highlighted one; `due` when silence takes it.
+/// One question of a card: `pick` is Jarvis's, marked but not chosen.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct QuestionRec {
+    pub text: String,
+    pub options: Vec<String>,
+    pub pick: u32,
+    pub why: String,
+}
+
+/// A card of the Needs you list, or a question still open in its own tab. The flat fields are its first
+/// question, `items` all of them (an autopilot's intake asks several). `due` is when silence takes it.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct CardRec {
     pub tabs: Vec<CardTabRec>,
@@ -97,6 +106,7 @@ pub struct CardRec {
     pub due: Option<u64>,
     pub blocks: bool,
     pub at: u64,
+    pub items: Vec<QuestionRec>,
 }
 
 /// A line of the digest: done, an assumption, a default taken, a stall.
@@ -214,7 +224,8 @@ fn level(l: Urgency) -> Level {
 
 fn card(tabs: Vec<CardTabRec>, kind: &str, lvl: Urgency, items: &[Item], due: Option<u64>, blocks: bool, at: u64) -> CardRec {
     let first = items.first().cloned().unwrap_or_default();
-    CardRec { tabs, kind: kind.to_string(), level: level(lvl), text: first.text, options: first.options, pick: first.pick, why: first.why, due, blocks, at }
+    let items = items.iter().map(|i| QuestionRec { text: i.text.clone(), options: i.options.clone(), pick: i.pick, why: i.why.clone() }).collect();
+    CardRec { tabs, kind: kind.to_string(), level: level(lvl), text: first.text, options: first.options, pick: first.pick, why: first.why, due, blocks, at, items }
 }
 
 fn card_rec(c: &Card) -> CardRec {
@@ -1367,6 +1378,24 @@ mod tests {
         let told = d.take();
         assert!(told.contains(&Told::Refused("t2".into(), "q1 isn't open in t2 any more".into())));
         assert_eq!(queued(&told).0.len(), 1, "back on the list");
+    }
+
+    #[test]
+    fn tabs_a_card_of_several_questions_crosses_with_all_of_them() {
+        let mut d = up(&[("t1", 0)]);
+        let mut c = yes_no("q1", &["t1"]);
+        c.items.push(Item { text: "Which blue?".into(), options: vec!["Navy".into(), "Sky".into()], pick: 1, why: "sky fits".into(), ..Item::default() });
+        c.items.push(Item { text: "Level".into(), options: vec!["Low".into(), "Default".into()], pick: 1, ..Item::default() });
+        d.tell(Tell::Queue { decide: vec![c], digest: vec![] });
+        let cards = queued(&d.take()).0;
+        let items: Vec<_> = cards[0].items.iter().map(|i| (i.text.as_str(), i.pick)).collect();
+        assert_eq!(items, [("Use the phone's mic?", 0), ("Which blue?", 1), ("Level", 1)]);
+        assert_eq!((cards[0].text.as_str(), cards[0].items[1].why.as_str()), ("Use the phone's mic?", "sky fits"), "the flat fields stay the first");
+        // He tapped only the second: the first goes as left open, and the card leaves the list.
+        d.out.clear();
+        d.answer("t1".into(), "q1".into(), vec![jarvis_tabs_wire::OPEN, 0], String::new());
+        assert_eq!(d.out, [Ask::Answer { id: "t1".into(), q: "q1".into(), picks: vec![jarvis_tabs_wire::OPEN, 0], text: String::new() }]);
+        assert!(queued(&d.take()).0.is_empty());
     }
 
     #[test]

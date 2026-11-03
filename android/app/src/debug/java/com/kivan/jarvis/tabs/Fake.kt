@@ -95,6 +95,15 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
         ),
     )
 
+    /** An autopilot's intake: four questions and the level, on one card. */
+    val intake = listOf(
+        Question("How dark should dark mode be?", listOf("True black", "Dark grey", "Follow the phone", ELSE), 1, "Dark grey keeps the key shadows readable."),
+        Question("Where does the switch go?", listOf("Settings", "Top bar", "No switch", ELSE), 0),
+        Question("Keys in dark mode?", listOf("Keep white keys", "Dim the keys", ELSE), 0),
+        Question("Ship to your phone when done?", listOf("Yes", "Ask me first", ELSE), 0),
+        Question("Level for this autopilot", listOf("Low", "Default", "Urgent"), 1),
+    ).let { qs -> CardView(listOf(CardTab("t6", "Piano app", "q2")), qs[0].text, qs[0].options, qs[0].pick, qs[0].why, items = qs) }
+
     val digest = listOf(
         DigestView("t2", "Phone voice", tonight(0, 40), 1, "done", "Ring on the WiiM works, tested twice."),
         DigestView("t5", "Tab numbers", tonight(0, 35), 1, "done", "Renumbering after alt+x landed."),
@@ -296,6 +305,14 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     /** Each answer given, as the server would get it: the card's key, the pick, the note. */
     val answers = mutableListOf<Triple<String, Int?, String>>()
+
+    /** Each answer to a card of several questions, as sent: the card's key, the picks, the words. */
+    val each = mutableListOf<Triple<String, List<UInt>, String>>()
+
+    override fun answerEach(card: CardView, picks: List<UInt>, text: String) {
+        each += Triple(card.key, picks, text)
+        answer(card, picks.firstOrNull()?.takeIf { it != UInt.MAX_VALUE }?.toInt(), text)
+    }
 
     override fun answer(card: CardView, pick: Int?, note: String) {
         answers += Triple(card.key, pick, note)

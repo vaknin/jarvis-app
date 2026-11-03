@@ -172,6 +172,9 @@ pub enum Ask {
 /// The id `Unfollow` takes to stop the queue's updates.
 pub const QUEUE: &str = "queue";
 
+/// A pick for an item he left open, in `Ask::Answer`: the item stays open, never his.
+pub const OPEN: u32 = u32::MAX;
+
 /// One card of the Needs you list: one question, or the same question from several tabs, which one
 /// tap answers in each.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

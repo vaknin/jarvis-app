@@ -141,6 +141,12 @@ class RealDeck private constructor(
         tabsAnswer(tab.id, tab.q, listOfNotNull(pick?.toUInt()), note.trim())
     }
 
+    override fun answerEach(card: CardView, picks: List<UInt>, text: String) {
+        val tab = card.tabs.firstOrNull() ?: return
+        flow.update { s -> s.copy(notice = null, cards = s.cards.filterNot { it.key == card.key }) }
+        tabsAnswer(tab.id, tab.q, picks, text)
+    }
+
     override fun autopilot(id: String, on: Boolean) {
         flow.update { it.copy(notice = null) }
         tabsAutopilot(id, on)
@@ -437,6 +443,7 @@ internal fun card(c: CardRec) = CardView(
     },
     c.due?.toLong(),
     c.at.toLong(),
+    c.items.map { Question(it.text, it.options, it.pick.toInt(), it.why) }.ifEmpty { listOf(Question(c.text, c.options, c.pick.toInt(), c.why)) },
 )
 
 /** Urgent first, then by when Jarvis takes its pick (those waiting on him before), low last. */

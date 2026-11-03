@@ -27,6 +27,32 @@ enum class Level { Low, Default, Urgent }
 @Immutable
 data class CardTab(val id: String, val name: String, val q: String)
 
+/** One question of a card: Jarvis's [pick] is marked, never chosen until he taps it. */
+@Immutable
+data class Question(val text: String, val options: List<String>, val pick: Int = 0, val why: String = "")
+
+/** The option every autopilot question ends with (the jarvis repo's `tabs/src/autopilot.rs` ELSE): his own words. */
+const val ELSE = "Something else (write it)"
+
+/**
+ * What a card of several questions sends: a pick per question up to the last he answered, `OPEN` (the
+ * tabs wire's) for one he left before it, so the server keeps it open; and his words for Something else,
+ * each under its question. Null when he answered nothing.
+ */
+fun CardView.reply(picks: List<Int?>, words: List<String>): Pair<List<UInt>, String>? {
+    val done = items.indices.filter { answered(it, picks, words) }
+    if (done.isEmpty()) return null
+    val sent = (0..done.last()).map { if (it in done) picks[it]!!.toUInt() else UInt.MAX_VALUE }
+    val text = done.filter { items[it].options.getOrNull(picks[it]!!) == ELSE }.joinToString("\n") { "${items[it].text}: ${words[it].trim()}" }
+    return sent to text
+}
+
+/** Whether question [i] is answered: a pick, and words if the pick is Something else. */
+fun CardView.answered(i: Int, picks: List<Int?>, words: List<String>): Boolean {
+    val p = picks.getOrNull(i) ?: return false
+    return items[i].options.getOrNull(p) != ELSE || words.getOrNull(i).orEmpty().isNotBlank()
+}
+
 /**
  * A question of his: a card on the Needs you list, or one still open in its own tab. [options] has
  * Jarvis's [pick] highlighted; [due] (ms) is when silence takes it, null when it waits for him.
@@ -41,7 +67,10 @@ data class CardView(
     val level: Level = Level.Default,
     val due: Long? = null,
     val at: Long = 0,
+    /** All its questions; the fields above are the first. An autopilot's intake asks several. */
+    val items: List<Question> = listOf(Question(text, options, pick, why)),
 ) {
+    val many get() = items.size > 1
     val key get() = tabs.firstOrNull()?.let { "${it.id}/${it.q}" }.orEmpty()
     val name get() = tabs.joinToString(" · ") { it.name }
 }
@@ -242,6 +271,8 @@ interface Deck {
     fun forum()
     /** His answer to [card]: option [pick] (null for only words) and his [note], to every tab it stands in. */
     fun answer(card: CardView, pick: Int?, note: String)
+    /** His answers to a card of several questions, from [reply]: only what he tapped, the rest stay open. */
+    fun answerEach(card: CardView, picks: List<UInt>, text: String)
     /** The Auto button: tab [id]'s autopilot on or off. */
     fun autopilot(id: String, on: Boolean)
     /** He read the [DeckState.notice]. */
