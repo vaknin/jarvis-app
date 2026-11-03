@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.net.toUri
+import com.kivan.jarvis.Listen
 import com.kivan.jarvis.JarvisTile
 import com.kivan.jarvis.Move
 import com.kivan.jarvis.R
@@ -139,6 +140,9 @@ private val setups = listOf(
     Setup("Stay on in the background", "So Jarvis and notifications always reach you.", { c ->
         c.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(c.packageName)
     }, { settings(it, Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg(it)) }),
+    Setup("Answer hands-free", "So you can answer Jarvis on the speaker without touching the phone. Pick Jarvis as the digital assistant.", { c ->
+        Listen.backgroundMic(c)
+    }, { settings(it, Settings.ACTION_VOICE_INPUT_SETTINGS) }),
     Setup("Updates", "So Jarvis can install its own updates.", { c ->
         c.packageManager.canRequestPackageInstalls()
     }, { settings(it, Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, pkg(it)) }),

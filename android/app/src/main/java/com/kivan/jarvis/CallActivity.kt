@@ -35,7 +35,7 @@ class CallActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (Move.forward(this)) return
         setShowWhenLocked(true)
-        setContent { CallScreen(onCall = { call() }, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }, onDecline = { Callback.decline(this); finish() }) }
+        setContent { CallScreen(onCall = { call() }, onMute = { Voice.toggleMute(this) }, onHangup = { Voice.hangup(this) }, onRoute = { Voice.nextRoute(this) }, onPause = { Voice.togglePause(this) }, onDecline = { Callback.decline(this); finish() }, onLater = if (Callback.canLater()) ({ Callback.later(this); finish() }) else null) }
         onBackPressedDispatcher.addCallback(this) {
             // Over the lock screen there's nothing to go to.
             if (!getSystemService(KeyguardManager::class.java).isKeyguardLocked) startActivity(TabsActivity.opening(this@CallActivity, Voice.place.value.tab))

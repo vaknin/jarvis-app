@@ -38,6 +38,8 @@ class Alerts private constructor(private val context: Context) : AlertListener {
             url.startsWith(CALLBACK) -> callBack(url.removePrefix(CALLBACK), title, text)
             // Jarvis calls him (reach, thread #36): a regular incoming call from "Jarvis".
             url.startsWith(RING) -> Callback.ring(context, null, "Jarvis", text.ifEmpty { "Jarvis wants to talk" }, reach = url.removePrefix(RING))
+            // Jarvis asked on the speaker at home (t116): the mic opens for his answer, nothing shown.
+            url.startsWith(LISTEN) -> Listen.open(context, url.removePrefix(LISTEN))
             // Jarvis needs him (reach's "wants to talk"): it rings, if the phone may.
             url == "/call" -> Callback.ring(context, null, title, text)
             // A tracked task landed or needs him: quiet, and the call is his to place.
@@ -74,6 +76,7 @@ class Alerts private constructor(private val context: Context) : AlertListener {
         private const val CALLBACK = "/callback/"
         private const val RING = "/ring/"
         private const val TASK = "/task/"
+        private const val LISTEN = "/listen/"
         private const val RECENT = "shown"
         private const val KEEP = 30
 

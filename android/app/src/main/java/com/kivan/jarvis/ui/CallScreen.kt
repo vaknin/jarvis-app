@@ -85,12 +85,12 @@ private val Stop = Color(0xFFE5534B)
 
 /** The call: who, where it is, what was said (this call and the ones before), and buttons big enough to hit without looking. */
 @Composable
-fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onRoute: () -> Unit, onPause: () -> Unit, onDecline: () -> Unit) {
+fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onRoute: () -> Unit, onPause: () -> Unit, onDecline: () -> Unit, onLater: (() -> Unit)? = null) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Bg)) {
         val ui by Voice.ui.collectAsState()
         val pieces by CallLog.pieces(LocalContext.current.applicationContext).collectAsState()
         Surface(Modifier.fillMaxSize(), color = Bg) {
-            if (ui.ringing && !ui.live) return@Surface Incoming(onCall, onDecline)
+            if (ui.ringing && !ui.live) return@Surface Incoming(onCall, onDecline, onLater)
             Column(
                 Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -164,9 +164,12 @@ fun CallScreen(onCall: () -> Unit, onMute: () -> Unit, onHangup: () -> Unit, onR
     }
 }
 
-/** Jarvis ringing (thread #36): a regular incoming call, "Jarvis" on the screen, Decline and Answer. */
+/**
+ * Jarvis ringing (thread #36): a regular incoming call, "Jarvis" on the screen, Decline and Answer; a ring
+ * for an item also has Later between them, smaller, which puts it off an hour (t116).
+ */
 @Composable
-private fun Incoming(onAnswer: () -> Unit, onDecline: () -> Unit) {
+private fun Incoming(onAnswer: () -> Unit, onDecline: () -> Unit, onLater: (() -> Unit)? = null) {
     Column(
         Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -182,6 +185,7 @@ private fun Incoming(onAnswer: () -> Unit, onDecline: () -> Unit) {
         Spacer(Modifier.weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
             Round(R.drawable.lucide_phone_off, "Decline", Stop, Color.White, 88.dp, onDecline)
+            onLater?.let { Round(R.drawable.lucide_clock, "Later", Raised, Page, 68.dp, it) }
             Round(R.drawable.lucide_phone, "Answer", Go, Color.White, 88.dp, onAnswer)
         }
         Spacer(Modifier.height(56.dp))

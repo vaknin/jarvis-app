@@ -44,6 +44,8 @@ object Callback {
     /** The reach item a ring is for (`reach-...`): Decline sends it to the server. */
     private const val RING = "ring"
     private const val DECLINE = "com.kivan.jarvis.DECLINE"
+    /** Later on a ring for a reach item: the server rings again in an hour. */
+    private const val LATER = "com.kivan.jarvis.LATER"
 
     /** What's ringing now: the dropped call it continues, or "" for a new call. */
     @Volatile var ringing: String? = null
@@ -121,6 +123,16 @@ object Callback {
             context, 51, Intent(context, Action::class.java).setAction(DECLINE).putExtra(CALL, call).putExtra(RING, reach),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // A ring for an item can be put off; Answer and Decline stay as they are.
+        val later = reach?.let {
+            Notification.Action.Builder(
+                Icon.createWithResource(context, R.drawable.lucide_clock), "Later",
+                PendingIntent.getBroadcast(
+                    context, 55, Intent(context, Action::class.java).setAction(LATER).putExtra(RING, it),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ),
+            ).build()
+        }
         val b = Notification.Builder(context, if (loud) CHANNEL else Notifier.JARVIS)
             .setSmallIcon(R.drawable.lucide_phone)
             .setContentTitle(title.ifEmpty { "Jarvis" })
@@ -138,6 +150,7 @@ object Callback {
                 .addAction(Notification.Action.Builder(Icon.createWithResource(context, R.drawable.lucide_phone), "Answer", answer).build())
                 .addAction(Notification.Action.Builder(Icon.createWithResource(context, R.drawable.lucide_phone_off), "Decline", decline).build())
         }
+        later?.let { b.addAction(it) }
         val n = b.build()
         if (loud) n.flags = n.flags or Notification.FLAG_INSISTENT
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -245,11 +258,33 @@ object Callback {
         }, "jarvis-call-decline").start()
     }
 
-    /** Decline, or the missed callback dismissed: that dropped call is hung up. */
+    /** Whether the ring now is for a reach item, so it can be put off. */
+    fun canLater(): Boolean = ringFor != null
+
+    /** Later on the ringing screen: as the notification's. */
+    fun later(context: Context) {
+        ringFor?.let { later(context, it, null) }
+    }
+
+    /** Put off: the ring stops and the server rings again in an hour (`later` on the hangup frame). */
+    private fun later(context: Context, reach: String, done: BroadcastReceiver.PendingResult?) {
+        stop(context)
+        context.getSystemService(NotificationManager::class.java).cancel(MISSED_ID)
+        Log.i(TAG, "later: $reach")
+        Thread({
+            try {
+                Log.i(TAG, "later for $reach: ${if (runCatching { com.kivan.jarvis.core.voiceLater(BuildConfig.VOICE_URL, reach, "") }.getOrDefault(false)) "the server has it" else "not delivered (texted after the minute)"}")
+            } finally { done?.finish() }
+        }, "jarvis-call-later").start()
+    }
+
+    /** Decline or Later, or the missed callback dismissed: that dropped call is hung up. */
     class Action : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != DECLINE) return
-            decline(context, intent.getStringExtra(CALL), intent.getStringExtra(RING), goAsync())
+            when (intent.action) {
+                DECLINE -> decline(context, intent.getStringExtra(CALL), intent.getStringExtra(RING), goAsync())
+                LATER -> later(context, intent.getStringExtra(RING) ?: return, goAsync())
+            }
         }
     }
 }

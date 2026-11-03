@@ -138,7 +138,10 @@ class CallService : Service() {
         // A call placed from a task is that call, even with an old one left behind by a dead process.
         // So is one placed on a tab.
         val tab = intent?.getStringExtra(TAB)
-        val rejoin = intent?.getStringExtra(REJOIN) ?: CallStore.active(this).takeIf { intent?.getStringExtra(TASK) == null && tab == null }
+        // His answer to a speaker ask (`/listen/<item>`, [Listen]): only the mic, opened by itself.
+        val listen = intent?.getBooleanExtra(LISTEN, false) == true
+        listening = listen
+        val rejoin = if (listen) null else intent?.getStringExtra(REJOIN) ?: CallStore.active(this).takeIf { intent?.getStringExtra(TASK) == null && tab == null }
         val auto = intent?.getBooleanExtra(AUTO, false) == true
         if (!micGranted(this)) {
             // Started with startForegroundService, so it must go foreground even to give up.
@@ -160,10 +163,11 @@ class CallService : Service() {
             // from it until the call is Telecom's again, which lends the app its own call service with
             // the mic ([telecom] takes it then). Without even that, Jarvis rings and Aviv's answer
             // brings the call back.
-            val ok = rejoin != null && runCatching {
+            val ok = (rejoin != null || listen) && runCatching {
                 startForeground(ID, notification(CallState.Connecting, false), ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
             }.onFailure { Log.w(TAG, "the call can't start from here", it) }.isSuccess
             if (!ok) {
+                if (listen) Log.w(TAG, "the reply window's mic can't start from here: ${Listen.missing(this).ifEmpty { listOf("no reason known") }.joinToString()}")
                 Voice.update(this) { Voice.Ui() }
                 stopSelf()
                 if (rejoin != null) ringBack(this, rejoin)
@@ -181,7 +185,10 @@ class CallService : Service() {
         watch = MicWatch()
         started = System.currentTimeMillis()
         val listener = Listener(rejoin.takeIf { auto })
-        val c = if (rejoin != null) {
+        val c = if (listen) {
+            Log.i(TAG, "the reply window: the mic opens for his answer${if (micLater) ", once Telecom lends it" else ""}")
+            VoiceCall.listen(BuildConfig.VOICE_URL, listener)
+        } else if (rejoin != null) {
             Log.i(TAG, "rejoining call $rejoin${if (auto) " (the app restarted)" else ""}")
             CallStore.joined(this, rejoin)
             VoiceCall.rejoin(BuildConfig.VOICE_URL, listener, rejoin, !auto)
@@ -200,13 +207,15 @@ class CallService : Service() {
         locks()
         watchNetwork(c)
         watchRoute()
-        audio.requestAudioFocus(focus)
+        // Only a mic: the phone's music, if any, plays on.
+        if (!listen) audio.requestAudioFocus(focus)
         val s = Senses(this, call = true, ::sensed)
         senses = s
         sense = s.sensed().also { route = pickRoute(it) }
         logRoute()
         s.start()
-        scope.launch { Voice.place.collect { tell(c); launch(Dispatchers.Main) { notify(Voice.ui.value.state) } } }
+        // The window's hello names the item; where he is goes once it's a call.
+        if (!listen) scope.launch { Voice.place.collect { tell(c); launch(Dispatchers.Main) { notify(Voice.ui.value.state) } } }
         scope.launch { Voice.line.drop(1).collect { launch(Dispatchers.Main) { notify(Voice.ui.value.state) } } }
         leg(c)
         Thread(::speaker, "jarvis-speaker").apply { priority = Thread.MAX_PRIORITY }.start()
@@ -789,6 +798,9 @@ class CallService : Service() {
         }
     }
 
+    /** A reply window's call ([LISTEN]): it shows as listening, and a mic it can't get ends it quietly. */
+    @Volatile private var listening = false
+
     /** Started in the background: the mic waits for Telecom's call service (see [begin]). */
     @Volatile private var micLater = false
 
@@ -809,6 +821,12 @@ class CallService : Service() {
                 return
             }
             delay(250)
+        }
+        // The reply window: nothing to ring back for; the server keeps the items for his call.
+        if (listening) {
+            Log.w(TAG, "no mic from the background for the reply window after $MIC_WAIT_MS ms: ${Listen.missing(this).joinToString()}")
+            mainExecutor.execute { call?.hangup() ?: stopSelf() }
+            return
         }
         // Aviv would hear Jarvis and never be heard: ring instead, and his answer brings the call back.
         Log.w(TAG, "no mic from the background after $MIC_WAIT_MS ms; ringing instead")
@@ -954,11 +972,11 @@ class CallService : Service() {
         title(), text(state), Voice.ui.value.copy(state = state).pausable, Voice.ui.value.paused, legEnd != null, Voice.place.value.tab,
     )
 
-    private fun title() = Voice.place.value.name.ifEmpty { "Jarvis" }
+    private fun title() = if (listening) "Jarvis is listening" else Voice.place.value.name.ifEmpty { "Jarvis" }
 
     /** The state on the call route; while Jarvis writes, the answer's last line. */
     private fun text(state: CallState) =
-        Voice.line.value.takeIf { it.isNotEmpty() && legEnd == null && !Voice.ui.value.micOff } ?: label(state)
+        if (listening && state !is CallState.Speaking) "Just answer: Jarvis is listening on your phone" else Voice.line.value.takeIf { it.isNotEmpty() && legEnd == null && !Voice.ui.value.micOff } ?: label(state)
 
     private fun notification(state: CallState, muted: Boolean): Notification {
         fun pending(action: String, code: Int) = PendingIntent.getService(
@@ -984,7 +1002,7 @@ class CallService : Service() {
         ).build() else null
         val onCallRoute = legEnd != null
         return Notification.Builder(this, Notifier.CALLS)
-            .setSmallIcon(R.drawable.lucide_phone)
+            .setSmallIcon(if (listening) R.drawable.lucide_ear else R.drawable.lucide_phone)
             .setContentText(text(state).also { shown = key(state) })
             // Updated at every turn: only the first post may alert, or each one can wake the screen.
             .setOnlyAlertOnce(true)
@@ -1014,6 +1032,8 @@ class CallService : Service() {
         const val TASK = "task"
         /** The tab this call starts on, [Voice.NEW_TAB] for a new one; none when it answers a ring. */
         const val TAB = "tab"
+        /** A reply window after a speaker ask ([Listen]). */
+        const val LISTEN = "listen"
         /** Started by the app itself after a restart, not by Aviv (a Boolean extra). */
         const val AUTO = "auto"
         /** A mic frame this loud is Aviv talking: an update waits for a pause ([Voice.quiet]). */

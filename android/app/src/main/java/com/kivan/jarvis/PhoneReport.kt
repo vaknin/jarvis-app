@@ -58,6 +58,8 @@ object PhoneReport {
             "battery_unrestricted" to b(context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)),
             // Reading the calling account's switch takes a phone permission: the last ring says which way it went.
             "last_ring" to RingLine.lastRing(context),
+            // Hands-free answers after a speaker ask ([Listen]): the server opens the mic only on "ok".
+            "listen" to Listen.missing(context).let { if (it.isEmpty()) "ok" else "missing " + it.joinToString() },
         )
     }
 

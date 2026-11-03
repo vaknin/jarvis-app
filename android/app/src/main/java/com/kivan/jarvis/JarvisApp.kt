@@ -33,5 +33,6 @@ class JarvisApp : Application() {
         Updater.loop(this)
         Tasks.report(Core.scope)
         PhoneReport.start(this, Core.scope)
+        Listen.check(this)
     }
 }
