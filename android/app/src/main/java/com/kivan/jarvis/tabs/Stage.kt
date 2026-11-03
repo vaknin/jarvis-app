@@ -419,6 +419,11 @@ private fun TabLayer(
                     onHeard = { deck.edit() },
                     onStop = { deck.stop(tabId) },
                     onRelease = { deck.release(tabId) },
+                    onHoldWords = { words, quotes ->
+                        if (state.heard.isNotBlank()) deck.words(false)
+                        deck.hold(tabId, words, quotes)
+                        deck.type(tabId, "")
+                    },
                     onMode = { m, e -> deck.mode(tabId, m, e) },
                     notice = state.notice?.takeIf { it.id == tabId }?.text,
                 )

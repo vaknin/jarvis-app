@@ -230,6 +230,33 @@ class MarkQuoteTest {
         assertEquals(emptyList<QuoteMark>(), deck.state.value.marks["t1"].orEmpty())
     }
 
+    private fun longSend() {
+        rule.onNodeWithContentDescription("Send").performTouchInput { longClick(durationMillis = 800) }
+        rule.mainClock.advanceTimeBy(300)
+    }
+
+    @Test
+    fun aLongPressOnSendHoldsTheOpenReply() {
+        val deck = deck()
+        val before = deck.yours()
+        swipe(0, 400f)
+        type("note one")
+        longSend()
+        assertEquals(listOf(QuoteMark(41, 0, firstQuote, "note one", quiet = true)), deck.state.value.marks["t1"])
+        assertEquals("nothing goes yet", before, deck.yours())
+        rule.onNodeWithTag("replying").assertDoesNotExist()
+    }
+
+    @Test
+    fun aLongPressOnSendHoldsPlainWordsQuiet() {
+        val deck = deck()
+        type("for later")
+        longSend()
+        assertEquals("for later", deck.sent().text)
+        assertTrue("they wait for send-all", deck.state.value.tabs.getValue("t1").waiting)
+        assertEquals("", deck.state.value.typed["t1"].orEmpty())
+    }
+
     @Test
     fun sendWithNothingTypedTakesWhatsHeld() {
         val deck = deck()

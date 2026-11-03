@@ -10,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -130,7 +131,7 @@ fun Glyph(@DrawableRes icon: Int, tint: Color, size: Dp = 22.dp, modifier: Modif
     Icon(painterResource(icon), label, modifier.size(size), tint)
 }
 
-/** A round button: [size] drawn, never under 48 dp to the finger. */
+/** A round button: [size] drawn, never under 48 dp to the finger. [onLongClick], with its [longLabel], also takes a long press. */
 @Composable
 fun Round(
     @DrawableRes icon: Int,
@@ -140,6 +141,8 @@ fun Round(
     fill: Color = Color.Transparent,
     tint: Color = look.soft,
     size: Dp = 44.dp,
+    onLongClick: (() -> Unit)? = null,
+    longLabel: String? = null,
 ) {
     val press = remember { MutableInteractionSource() }
     val down by press.collectIsPressedAsState()
@@ -147,7 +150,10 @@ fun Round(
     Box(
         modifier
             .size(Space.target)
-            .clickable(press, null, onClickLabel = label, onClick = onClick)
+            .then(
+                if (onLongClick == null) Modifier.clickable(press, null, onClickLabel = label, onClick = onClick)
+                else Modifier.combinedClickable(press, null, onClickLabel = label, onLongClickLabel = longLabel, onLongClick = onLongClick, onClick = onClick),
+            )
             .semantics { contentDescription = label },
         Alignment.Center,
     ) {

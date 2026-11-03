@@ -111,30 +111,6 @@ class RealDeckTest {
     )
 
     @Test
-    fun aTurnsEndTakesOnlyTheQuietRepliesAndOnce() {
-        val (after, going) = at(true).quietAfter(at(false))
-        assertEquals(mapOf("t1" to listOf(Quoted(41, "first", "go at the end"))), going)
-        assertEquals(listOf(editing, marked), after.marks["t1"])
-        // The next frame is no new end: nothing goes twice.
-        assertEquals(emptyMap<String, List<Quoted>>(), at(false).quietAfter(after).second)
-    }
-
-    @Test
-    fun aHeldReplyStaysWhileTheTurnRunsOrNoTurnEnds() {
-        assertEquals(emptyMap<String, List<Quoted>>(), at(true).quietAfter(at(true)).second)
-        assertEquals(emptyMap<String, List<Quoted>>(), at(false).quietAfter(at(false)).second)
-        // A turn starting isn't an end either.
-        assertEquals(emptyMap<String, List<Quoted>>(), at(false).quietAfter(at(true)).second)
-    }
-
-    @Test
-    fun theWallsTileEndingATurnAlsoTakesThem() {
-        val was = at(true).copy(tabs = emptyMap())
-        val now = at(false).copy(tabs = emptyMap())
-        assertEquals(listOf("t1"), was.quietAfter(now).second.keys.toList())
-    }
-
-    @Test
     fun leavingTheAppTakesEveryQuietReplyAndLeavesTheRest() {
         val (after, going) = at(false).quietAll()
         assertEquals(mapOf("t1" to listOf(Quoted(41, "first", "go at the end"))), going)

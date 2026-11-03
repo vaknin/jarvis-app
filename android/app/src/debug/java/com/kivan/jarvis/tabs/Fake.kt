@@ -174,8 +174,8 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
     override fun stop(id: String) {}
 
     /** As the server: held words wait, marked, until a send-now. */
-    override fun hold(id: String, quotes: List<Quoted>) {
-        edit(id) { t -> t.copy(entries = t.entries + Entry.Yours("y${++counter}", "", quotes = quotes, state = Sending.Sent), waiting = true) }
+    override fun hold(id: String, text: String, quotes: List<Quoted>) {
+        edit(id) { t -> t.copy(entries = t.entries + Entry.Yours("y${++counter}", text, quotes = quotes, state = Sending.Sent), waiting = true) }
     }
 
     override fun release(id: String) {

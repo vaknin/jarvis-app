@@ -104,10 +104,11 @@ class RealDeck private constructor(
     }
 
     fun down() {
-        // Leaving the app: what he held goes to the server quiet, so it reaches Jarvis with the phone away.
+        // Leaving the app: what he held goes to the server, still held, so it rides along on a turn that
+        // runs with the phone away (a job's report), or waits for his send-all. It never starts one.
         var going = emptyMap<String, List<Quoted>>()
         flow.update { s -> s.quietAll().also { going = it.second }.first }
-        for ((id, quotes) in going) hold(id, quotes)
+        for ((id, quotes) in going) hold(id, "", quotes)
         tabsDetach()
         Saved.of(flow.value).write(prefs)
     }
@@ -116,12 +117,8 @@ class RealDeck private constructor(
 
     override fun tab(tab: TabRec) = moved { it.with(tab) }
 
-    /** A change from the server; a turn it ended takes what he held there, quiet, once. */
-    private fun moved(change: (DeckState) -> DeckState) {
-        var going = emptyMap<String, List<Quoted>>()
-        flow.update { s -> s.quietAfter(change(s)).also { going = it.second }.first }
-        for ((id, quotes) in going) hold(id, quotes)
-    }
+    /** A change from the server. A turn's end takes nothing he held: sent then, each reply started a turn (t104). */
+    private fun moved(change: (DeckState) -> DeckState) = flow.update(change)
 
     override fun opened(id: String) {
         val going = opening
@@ -296,7 +293,7 @@ class RealDeck private constructor(
 
     override fun stop(id: String) = tabsStop(id)
 
-    override fun hold(id: String, quotes: List<Quoted>) = tabsHold(id, quotes.map { QuoteRec(it.to.toULong(), it.quote, it.text) })
+    override fun hold(id: String, text: String, quotes: List<Quoted>) = tabsHold(id, text, quotes.map { QuoteRec(it.to.toULong(), it.quote, it.text) })
 
     override fun release(id: String) = tabsRelease(id)
 
@@ -406,20 +403,7 @@ internal fun DeckState.foldDrafts(id: String): DeckState {
     return out
 }
 
-/**
- * What he held, from [now] on: a tab whose turn ended between this and [now] takes its quiet replies,
- * once, and they leave the marks. One open for editing isn't quiet until he holds it again.
- */
-internal fun DeckState.quietAfter(now: DeckState): Pair<DeckState, Map<String, List<Quoted>>> {
-    val ended = now.marks.keys.filter { id ->
-        val tab = tabs[id]?.work != null && now.tabs[id]?.let { it.work == null } == true
-        val tile = tiles.any { it.id == id && it.working } && now.tiles.any { it.id == id && !it.working }
-        tab || tile
-    }
-    return now.quietTaken(ended)
-}
-
-/** Every quiet reply he holds, in every tab: leaving the app sends them. */
+/** Every quiet reply he holds, in every tab: leaving the app hands them to the server, still held. One open for editing isn't quiet until he holds it again. */
 internal fun DeckState.quietAll() = quietTaken(marks.keys)
 
 private fun DeckState.quietTaken(ids: Collection<String>): Pair<DeckState, Map<String, List<Quoted>>> {

@@ -688,7 +688,7 @@ impl Desk {
         }
         p.kept.push(file);
         if p.going.is_empty() && p.failed.is_none() {
-            let ask = Ask::Say { id, text: p.text.clone(), via: Some(Via::Typed), replies: p.replies.clone(), files: p.kept.clone(), quiet: p.quiet };
+            let ask = Ask::Say { id, text: p.text.clone(), via: Some(via(p.quiet)), replies: p.replies.clone(), files: p.kept.clone(), quiet: p.quiet };
             self.out.push(ask);
         }
     }
@@ -782,9 +782,10 @@ impl Desk {
         self.say_as(id, text, quotes, files, false);
     }
 
-    /// Words that wait for the turn's end, as the laptop's enter: on a sleeping tab, for a send-now.
-    fn hold(&mut self, id: String, quotes: Vec<QuoteRec>) {
-        self.say_as(id, String::new(), quotes, vec![], true);
+    /// Words he holds, as the laptop's enter: they wait on the server for his send-all, or ride along on a
+    /// turn that runs anyway, and never start one themselves.
+    fn hold(&mut self, id: String, text: String, quotes: Vec<QuoteRec>) {
+        self.say_as(id, text, quotes, vec![], true);
     }
 
     fn say_as(&mut self, id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<Upload>, quiet: bool) {
@@ -811,7 +812,7 @@ impl Desk {
         t.pending.push(pending);
         t.tail();
         if up {
-            self.out.push(Ask::Say { id, text, via: Some(Via::Typed), replies, files: vec![], quiet });
+            self.out.push(Ask::Say { id, text, via: Some(via(quiet)), replies, files: vec![], quiet });
         } else {
             for u in files {
                 self.out.push(Ask::Put { id: id.clone(), name: u.file.name, data: u.data });
@@ -1145,10 +1146,16 @@ pub fn tabs_say(id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<OutF
     with_desk(|d| d.say(id, text, quotes, files));
 }
 
-/// A reply he holds: it goes in at the turn's end, as the laptop's enter.
+/// Words or replies he holds: they wait for his send-all, or ride along on a turn that runs anyway.
 #[uniffi::export]
-pub fn tabs_hold(id: String, quotes: Vec<QuoteRec>) {
-    with_desk(|d| d.hold(id, quotes));
+pub fn tabs_hold(id: String, text: String, quotes: Vec<QuoteRec>) {
+    with_desk(|d| d.hold(id, text, quotes));
+}
+
+/// Held words go as `quiet` too: the server then holds them in every state, an awake idle tab
+/// included, where `quiet` alone would start a turn (t104).
+fn via(quiet: bool) -> Via {
+    if quiet { Via::Quiet } else { Via::Typed }
 }
 
 /// Send-now: what waits in the tab goes in at once, as the laptop's ctrl+enter.
@@ -1570,8 +1577,12 @@ mod tests {
         d.show(vec!["t1".into()]);
         d.out.clear();
         let q = QuoteRec { to: 5, quote: "q".into(), text: "w".into() };
-        d.hold("t1".into(), vec![q]);
-        assert!(matches!(&d.out[..], [Ask::Say { quiet: true, text, replies, .. }] if text.is_empty() && replies.len() == 1));
+        d.hold("t1".into(), String::new(), vec![q]);
+        // Via quiet: the server holds it in every state, an awake idle tab included, so it never starts a turn.
+        assert!(matches!(&d.out[..], [Ask::Say { quiet: true, via: Some(Via::Quiet), text, replies, .. }] if text.is_empty() && replies.len() == 1));
+        d.out.clear();
+        d.hold("t1".into(), "for later".into(), vec![]);
+        assert!(matches!(&d.out[..], [Ask::Say { quiet: true, via: Some(Via::Quiet), text, .. }] if text == "for later"));
         let said: Event = serde_json::from_str(r#"{"offset":7,"at":1,"kind":"said","who":"aviv","text":"","via":"quiet","replies":[{"to":5,"quote":"q","text":"w"}]}"#).unwrap();
         event(&mut d, "t1", said);
         assert!(tab(&d.take(), "t1").waiting);

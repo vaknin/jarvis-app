@@ -92,6 +92,8 @@ fun Dock(
     onText: (String) -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
+    /** A long press on Send: hold what's in the box, quiet, instead of sending it. */
+    onHold: (() -> Unit)? = null,
     leading: (@Composable RowScope.() -> Unit)? = null,
     focus: FocusRequester? = null,
     showSend: Boolean = true,
@@ -117,7 +119,7 @@ fun Dock(
             verticalAlignment = Alignment.Bottom,
         ) {
             leading?.invoke(this)
-            WordsBox(hint, text, onText, onSend, Modifier.weight(1f), focus, showSend, heard, onHeard, onStop, talk, ready)
+            WordsBox(hint, text, onText, onSend, Modifier.weight(1f), focus, showSend, heard, onHeard, onStop, talk, ready, onHold)
             if (talk && tab != null && autopilot != null) AutoButton(tab, autopilot)
             if (talk) CallButton(tab)
         }
@@ -247,6 +249,7 @@ private fun WordsBox(
     onStop: (() -> Unit)?,
     talk: Boolean,
     ready: Boolean,
+    onHold: (() -> Unit)?,
 ) {
     val deck = LocalDeck.current
     val on = LocalTalk.current
@@ -303,7 +306,7 @@ private fun WordsBox(
             enter = fadeIn(tween(Curves.QUICK)) + scaleIn(tween(Curves.QUICK), 0.6f),
             exit = fadeOut(tween(Curves.QUICK)) + scaleOut(tween(Curves.QUICK), 0.6f),
         ) {
-            Round(R.drawable.lucide_arrow_up, "Send", onSend, fill = ink, tint = look.canvas, size = 38.dp)
+            Round(R.drawable.lucide_arrow_up, "Send", onSend, fill = ink, tint = look.canvas, size = 38.dp, onLongClick = onHold, longLabel = "Hold, send later")
         }
         AnimatedVisibility(
             !hasWords && !canSend && onStop != null,

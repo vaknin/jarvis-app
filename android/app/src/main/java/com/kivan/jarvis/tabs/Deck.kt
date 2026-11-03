@@ -109,7 +109,7 @@ data class TabView(
     val loading: Boolean = false,
     /** The one small line about the jobs it started, empty with none. They run on their own: there's nothing to tap. */
     val jobs: String = "",
-    /** His held words wait in it, for the turn's end or for Send with nothing typed. */
+    /** His held words wait in it, for his next message, a turn that runs anyway, or Send with nothing typed. */
     val waiting: Boolean = false,
     /** Its own questions still open, the same cards as on Needs you: answering either clears both. */
     val asks: List<CardView> = emptyList(),
@@ -133,8 +133,9 @@ data class ReplyDraft(val to: Long, val notes: Map<Int, Note> = emptyMap(), val 
  * A paragraph or words of the answer at offset [to], waiting to go as a quote with his next message.
  * With no [text] it's a mark; with [text] it's a held reply, words of its own under the quote. [block]
  * keeps them in the order they were said. What it says is kept here, as the laptop keeps it, so it
- * outlives the record it came from. [quiet]: he pressed Hold on it, so it also goes by itself, quiet,
- * at the end of the tab's turn or when he leaves the app; until then it stays his to edit.
+ * outlives the record it came from. [quiet]: he pressed Hold on it, so leaving the app hands it to the
+ * server, still held; until then it stays his to edit. Nothing here sends it at a turn's end: that
+ * started a turn for each reply (t104).
  */
 @Immutable
 data class QuoteMark(val to: Long, val block: Int, val quote: String, val text: String = "", val quiet: Boolean = false) {
@@ -215,8 +216,11 @@ interface Deck {
     fun edit()
     /** Stops what the tab is writing; what's written stays. */
     fun stop(id: String)
-    /** Replies he held, going quiet: the server keeps them for the turn's end, as the laptop's enter. */
-    fun hold(id: String, quotes: List<Quoted>)
+    /**
+     * Words or replies he held, as the laptop's enter: the server keeps them for his send-all, or they ride
+     * along on a turn that runs anyway. They never start one.
+     */
+    fun hold(id: String, text: String, quotes: List<Quoted>)
     /** What he holds in tab [id] goes in now, as the laptop's ctrl+enter. */
     fun release(id: String)
     /** Asks for a file beside the record; it lands in [DeckState.files]. */

@@ -109,6 +109,8 @@ fun TabPage(
     onHeard: () -> Unit = {},
     onStop: () -> Unit = {},
     onRelease: () -> Unit = {},
+    /** His words, and the quotes they follow, held on the server as the laptop's enter: they wait for send-all. */
+    onHoldWords: (String, List<Quoted>) -> Unit = { _, _ -> },
     marks: List<QuoteMark> = emptyList(),
     onMarks: (List<QuoteMark>) -> Unit = {},
     onTaken: () -> Unit = {},
@@ -211,6 +213,24 @@ fun TabPage(
             buzz.sent()
         }
     }
+    /**
+     * A long press on Send holds, whatever is in the box: an open reply stays here as Hold keeps it; his own
+     * words wait on the server, with what he marked, for send-all or a turn that runs anyway. Before, Hold
+     * showed only on an open reply with words in it, so a plain message had no quiet way out (t104).
+     */
+    val holdAll = {
+        if (reply != null) {
+            hold()
+        } else {
+            val words = said(typed, heard)
+            if (words.isNotEmpty()) {
+                val plain = marks.filterNot { it.held }
+                onHoldWords(words, plain.map { Quoted(it.to, it.quote, "") })
+                if (plain.isNotEmpty()) onMarks(marks.filter { it.held })
+                buzz.sent()
+            }
+        }
+    }
     // With a reply open his spoken words write into it.
     LaunchedEffect(heard, reply) {
         if (heard.isBlank() || reply == null) return@LaunchedEffect
@@ -310,6 +330,7 @@ fun TabPage(
                 text = writing ?: typed,
                 onText = { if (reply != null) write(it) else onType(it) },
                 onSend = { send() },
+                onHold = { holdAll() },
                 focus = ask,
                 heard = if (reply != null) "" else heard,
                 onHeard = onHeard,
@@ -667,8 +688,9 @@ private fun MarkTray(marks: List<QuoteMark>, onMarks: (List<QuoteMark>) -> Unit,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.widthIn(max = 180.dp)) {
-                        Text(m.quote, color = look.soft, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (m.held) Text(m.text, color = look.ink, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // Held, it's greyed: waiting, not gone (Aviv, t104).
+                        Text(m.quote, color = if (m.held) look.faint else look.soft, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (m.held) Text(m.text, color = look.soft, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Round(R.drawable.lucide_x, "Remove the quote: ${m.quote.take(40)}", { onMarks(marks.without(m)) }, size = 38.dp)
                 }

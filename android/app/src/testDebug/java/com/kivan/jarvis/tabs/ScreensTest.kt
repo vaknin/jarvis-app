@@ -86,6 +86,12 @@ class ScreensTest {
         val marks = listOf(1, 3).map { QuoteMark(41, it, blocks[it].quoted) }
         Stage(FakeDeck(deck.copy(marks = mapOf("t1" to marks + QuoteMark(41, 5, blocks[5].quoted, "Yes, keep it")))), Opening(tab = "t1"))
     }
+    @Test fun held() = shot("tab-held") {
+        val deck = Fake.deck(9)
+        val blocks = Prose.parse(deck.tabs.getValue("t1").entries.filterIsInstance<Entry.Answer>().first().text)
+        val held = listOf(1 to "Yes, keep it", 3 to "Not this one", 5 to "Later is fine").map { (i, w) -> QuoteMark(41, i, blocks[i].quoted, w, quiet = true) }
+        Stage(FakeDeck(deck.copy(marks = mapOf("t1" to held))), Opening(tab = "t1"))
+    }
     @Test fun replying() = shot(
         "tab-replying",
         capture = {
