@@ -16,7 +16,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,13 +30,17 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -188,6 +197,8 @@ private fun dueLine(c: CardView): String {
     val pick = c.options.getOrNull(c.pick)
     return when {
         c.level == Level.Urgent -> "Waits for you. The tab keeps working meanwhile."
+        c.many && c.due != null -> "Jarvis takes his picks at ${clock(c.due)} if you don't answer."
+        c.many -> "Waits for you. The tab keeps working meanwhile."
         c.due != null && pick != null -> "Jarvis takes \"$pick\" at ${clock(c.due)} if you don't answer."
         else -> "Waits for you. The tab keeps working meanwhile."
     }
@@ -199,6 +210,7 @@ private fun dueLine(c: CardView): String {
  */
 @Composable
 fun AskCard(c: CardView, note: String, onNote: (String) -> Unit, onOpen: () -> Unit, onAnswer: (Int?) -> Unit, modifier: Modifier = Modifier) {
+    if (c.many) return ManyCard(c, modifier)
     val low = c.level == Level.Low
     val shape = RoundedCornerShape(16.dp)
     val line = look.line
@@ -234,8 +246,170 @@ fun AskCard(c: CardView, note: String, onNote: (String) -> Unit, onOpen: () -> U
             style = if (low) Words.label else Words.label.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.W600),
         )
         Text(dueLine(c), color = look.faint, style = Words.small)
-        NoteBox(note, onNote, "Add a note", onSend = { onAnswer(null) }.takeIf { note.isNotBlank() })
-        Answers(c, note.isNotBlank(), onAnswer, big = false)
+        val focus = remember { FocusRequester() }
+        NoteBox(note, onNote, "Add a note", onSend = { onAnswer(null) }.takeIf { note.isNotBlank() }, focus = focus)
+        Answers(c, note.isNotBlank(), elseWrites(c, note, focus, onAnswer), big = false)
+    }
+}
+
+/** t67: Something else with nothing written opens the note to write it, instead of sending his words lost. */
+private fun elseWrites(c: CardView, note: String, focus: FocusRequester, onAnswer: (Int?) -> Unit): (Int?) -> Unit = { i ->
+    if (i != null && c.options.getOrNull(i) == ELSE && note.isBlank()) runCatching { focus.requestFocus() } else onAnswer(i)
+}
+
+/** The frame of a card, by its level: amber border for urgent, dashed for low. */
+@Composable
+private fun Modifier.cardFrame(level: Level): Modifier {
+    val shape = RoundedCornerShape(16.dp)
+    val line = look.line
+    return fillMaxWidth().clip(shape).then(
+        when (level) {
+            Level.Urgent -> Modifier.background(look.surface).border(2.dp, look.urgent, shape)
+            Level.Low -> Modifier.drawBehind {
+                drawRoundRect(line, cornerRadius = CornerRadius(16.dp.toPx()), style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))))
+            }
+            Level.Default -> Modifier.background(look.surface)
+        },
+    )
+}
+
+/** What he's tapped on a card of several questions so far: a pick each or none, and his words for Something else. */
+private class Chosen(n: Int) {
+    val picks: SnapshotStateList<Int?> = mutableStateListOf<Int?>().apply { repeat(n) { add(null) } }
+    val words: SnapshotStateList<String> = mutableStateListOf<String>().apply { repeat(n) { add("") } }
+}
+
+/**
+ * A card of several questions, an autopilot's intake (t116): all of them on one card, each a short
+ * section with its options. Jarvis's pick is dashed and marked, never chosen until he taps it.
+ * One Send sends only what he tapped; the server keeps the rest open.
+ */
+@Composable
+private fun ManyCard(c: CardView, modifier: Modifier = Modifier) {
+    val chosen = remember(c.key) { Chosen(c.items.size) }
+    Column(
+        modifier.cardFrame(c.level).padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 14.dp).testTag("card"),
+    ) {
+        ManyHead(c, chosen, look.soft)
+        Text(dueLine(c), Modifier.padding(top = 4.dp), look.faint, style = Words.small)
+        ManyBody(c, chosen)
+    }
+}
+
+/** The tab, how far he is (a dot per question, "2 of 5"), and urgent if it is. */
+@Composable
+private fun ManyHead(c: CardView, chosen: Chosen, name: Color, onName: (() -> Unit)? = null) {
+    val done = c.items.indices.map { c.answered(it, chosen.picks, chosen.words) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            c.name,
+            Modifier.weight(1f).then(if (onName != null) Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClickLabel = "Open the tab", onClick = onName) else Modifier),
+            name,
+            style = Words.small.copy(fontWeight = FontWeight.W600),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (c.level == Level.Urgent) Text("Urgent", color = look.urgentText, style = Words.small.copy(fontWeight = FontWeight.W700))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            done.forEach { Box(Modifier.size(6.dp).clip(CircleShape).background(if (it) look.ink else look.line)) }
+        }
+        Text("${done.count { it }} of ${done.size}", color = look.faint, style = Words.small)
+    }
+}
+
+/** The questions and the one Send. [onSent] after it went. */
+@Composable
+private fun ManyBody(c: CardView, chosen: Chosen, onSent: () -> Unit = {}) {
+    val deck = LocalDeck.current
+    val buzz = rememberBuzz()
+    c.items.forEachIndexed { i, q ->
+        Box(Modifier.padding(top = 12.dp).fillMaxWidth().heightIn(min = 1.dp).background(look.line))
+        Asked(
+            i, q, chosen.picks[i], chosen.words[i], c.answered(i, chosen.picks, chosen.words),
+            onPick = { p -> chosen.picks[i] = if (chosen.picks[i] == p) null else p },
+            onWords = { chosen.words[i] = it },
+        )
+    }
+    val done = c.items.indices.count { c.answered(it, chosen.picks, chosen.words) }
+    val ready = done > 0
+    Box(
+        Modifier
+            .padding(top = 16.dp)
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (ready) look.ink else look.raised)
+            .clickable(enabled = ready, onClickLabel = "Send your answers") {
+                val (picks, text) = c.reply(chosen.picks, chosen.words) ?: return@clickable
+                buzz.sent()
+                deck?.answerEach(c, picks, text)
+                onSent()
+            }
+            .testTag("send-all"),
+        Alignment.Center,
+    ) {
+        Text(
+            when (done) {
+                0 -> "Tap an answer to send"
+                c.items.size -> "Send all ${c.items.size}"
+                else -> "Send $done · the rest stay open"
+            },
+            color = if (ready) look.canvas else look.faint,
+            style = Words.label.copy(fontWeight = FontWeight.W600),
+        )
+    }
+}
+
+/** One question of several: its number, words and why, its options, and a box under Something else. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Asked(i: Int, q: Question, pick: Int?, words: String, answered: Boolean, onPick: (Int) -> Unit, onWords: (String) -> Unit) {
+    Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${i + 1}", Modifier.width(14.dp), look.faint, style = Words.label.copy(fontWeight = FontWeight.W500))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(q.text, color = look.ink, style = Words.label.copy(fontWeight = FontWeight.W600))
+                if (q.why.isNotBlank()) Text(q.why, color = look.faint, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (answered) Text("✓", color = look.soft, style = Words.label)
+        }
+        FlowRow(Modifier.padding(start = 22.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            q.options.forEachIndexed { j, o -> Chip(if (o == ELSE) "Something else" else o, rec = j == q.pick, on = pick == j) { onPick(j) } }
+        }
+        if (pick != null && q.options.getOrNull(pick) == ELSE) {
+            val focus = remember { FocusRequester() }
+            Box(Modifier.padding(start = 22.dp)) { NoteBox(words, onWords, "Write your answer", onSend = null, focus = focus) }
+            LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+        }
+    }
+}
+
+/** An option of one of several questions: filled once he taps it; Jarvis's pick dashed, with his name on it. */
+@Composable
+private fun Chip(words: String, rec: Boolean, on: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    val soft = look.soft
+    Row(
+        Modifier
+            .clip(shape)
+            .then(
+                when {
+                    on -> Modifier.background(look.ink)
+                    rec -> Modifier.drawBehind {
+                        drawRoundRect(soft, cornerRadius = CornerRadius(12.dp.toPx()), style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 3.dp.toPx()))))
+                    }
+                    else -> Modifier.border(1.5.dp, look.line, shape)
+                },
+            )
+            .clickable(onClickLabel = if (on) "Take back $words" else words, onClick = onClick)
+            .heightIn(min = 40.dp)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val ink = if (on) look.canvas else look.ink
+        Text(words, color = ink, style = Words.label.copy(fontSize = 14.sp, fontWeight = if (on) FontWeight.W700 else FontWeight.W500))
+        if (rec) Text("Jarvis", color = ink.copy(alpha = 0.6f), style = Words.small.copy(fontSize = 11.sp, lineHeight = 14.sp))
     }
 }
 
@@ -286,7 +460,7 @@ private fun Answers(c: CardView, noted: Boolean, onAnswer: (Int?) -> Unit, big: 
 
 /** A line for his own words, sent with whichever answer he presses; [onSend] sends them alone. */
 @Composable
-private fun NoteBox(note: String, onNote: (String) -> Unit, hint: String, onSend: (() -> Unit)?, big: Boolean = false) {
+private fun NoteBox(note: String, onNote: (String) -> Unit, hint: String, onSend: (() -> Unit)?, big: Boolean = false, focus: FocusRequester? = null) {
     val ink = look.ink
     Row(
         Modifier
@@ -299,7 +473,7 @@ private fun NoteBox(note: String, onNote: (String) -> Unit, hint: String, onSend
         BasicTextField(
             value = note,
             onValueChange = onNote,
-            modifier = Modifier.weight(1f).heightIn(min = if (big) 46.dp else 40.dp).semantics { contentDescription = hint }.testTag("note"),
+            modifier = Modifier.weight(1f).heightIn(min = if (big) 46.dp else 40.dp).then(if (focus != null) Modifier.focusRequester(focus) else Modifier).semantics { contentDescription = hint }.testTag("note"),
             textStyle = Words.small.copy(fontSize = 14.sp, lineHeight = 19.sp, color = ink),
             cursorBrush = SolidColor(ink),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
@@ -345,6 +519,8 @@ private fun Taken(d: DigestView, onOpen: () -> Unit) {
 @Composable
 fun AskSheet(c: CardView, note: String, onNote: (String) -> Unit, onAnswer: (Int?) -> Unit, onDismiss: () -> Unit, onOpen: (String) -> Unit) {
     BackHandler(onBack = onDismiss)
+    val chosen = remember(c.key) { Chosen(c.items.size) }
+    val focus = remember { FocusRequester() }
     Box(
         Modifier
             .fillMaxSize()
@@ -364,6 +540,11 @@ fun AskSheet(c: CardView, note: String, onNote: (String) -> Unit, onAnswer: (Int
                 .testTag("ask"),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (c.many) {
+                ManyHead(c, chosen, look.faint) { c.tabs.firstOrNull()?.let { onDismiss(); onOpen(it.id) } }
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) { ManyBody(c, chosen, onSent = onDismiss) }
+                return@Column
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     c.name,
@@ -385,8 +566,9 @@ fun AskSheet(c: CardView, note: String, onNote: (String) -> Unit, onAnswer: (Int
                 if (c.options.isEmpty()) "Your answer" else "Add a note (optional), sent with your answer",
                 onSend = { onAnswer(null) }.takeIf { note.isNotBlank() },
                 big = true,
+                focus = focus,
             )
-            if (c.options.isNotEmpty()) Answers(c, note.isNotBlank(), onAnswer, big = true)
+            if (c.options.isNotEmpty()) Answers(c, note.isNotBlank(), elseWrites(c, note, focus, onAnswer), big = true)
             Text(
                 if (note.isNotBlank() && c.options.isNotEmpty()) "Your note goes with whichever you press." else "The tab keeps working meanwhile.",
                 color = look.faint,

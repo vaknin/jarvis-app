@@ -19,6 +19,9 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.swipeUp
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
@@ -74,6 +77,21 @@ class ScreensTest {
     @Test fun digest() = shot("digest") { Stage(FakeDeck(Fake.deck(9)), Opening(digest = true)) }
     @Test fun dialog() = shot("ask-dialog") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[0].key)) }
     @Test fun dialogThree() = shot("ask-dialog-3") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[2].key)) }
+    // t116: an autopilot's intake is one card with all its questions.
+    @Test fun needsMulti() = shot("needs-you-multi") { Stage(FakeDeck(Fake.deck(9).copy(cards = listOf(Fake.intake, Fake.cards[1])))) }
+    @Test fun needsMultiTapped() = shot(
+        "needs-you-multi-tapped",
+        capture = {
+            rule.onAllNodesWithText("Top bar")[0].performClick()
+            rule.onAllNodesWithText("Dim the keys")[0].performClick()
+            rule.onAllNodesWithText("Something else")[3].performClick()
+            rule.mainClock.advanceTimeBy(300)
+            rule.onAllNodes(hasSetTextAction())[0].performTextInput("Ask me only if it's past 10 p.m.")
+            rule.onNodeWithTag("needs").performTouchInput { swipeUp() }
+            rule.mainClock.advanceTimeBy(1200)
+        },
+    ) { Stage(FakeDeck(Fake.deck(9).copy(cards = listOf(Fake.intake, Fake.cards[1])))) }
+    @Test fun needsMultiLight() = shot("needs-you-multi-light", dark = false) { Stage(FakeDeck(Fake.deck(9).copy(cards = listOf(Fake.intake)))) }
     @Test fun dialogLight() = shot("ask-dialog-light", dark = false) { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[0].key)) }
     @Test fun tabNotice() = shot("tab-auto-refused") {
         Stage(FakeDeck(Fake.deck(9).copy(notice = Notice("t2", "autopilot isn't built yet"))), Opening(tab = "t2"))

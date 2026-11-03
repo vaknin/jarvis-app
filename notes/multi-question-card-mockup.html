@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One card, several questions</title>
+<style>
+  /* LOOK.md roles, phone values (dark). */
+  :root { --canvas:#0F1115; --ink:#E8EAED; --soft:#B0B2B5; --faint:#96989C; --line:#3A3C40; --surface:#1E2024; --raised:#2B2D31; --urgent:#F2B33D; --onurgent:#241A00; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:#08090b; color:var(--ink); font:15px/20px system-ui, -apple-system, Roboto, sans-serif; }
+  header { max-width:1180px; margin:0 auto; padding:18px 20px 6px; }
+  h1 { font-size:19px; margin:0 0 4px; } .sub { color:var(--faint); font-size:13px; line-height:18px; }
+  .row { max-width:1180px; margin:0 auto; display:flex; gap:22px; flex-wrap:wrap; padding:12px 20px 40px; align-items:flex-start; }
+  .col { width:360px; max-width:100%; }
+  .col h2 { font-size:15px; margin:0 0 2px; } .col p { margin:0 0 10px; color:var(--faint); font-size:13px; line-height:18px; min-height:54px; }
+  .pick { color:var(--urgent); font-weight:700; }
+  .phone { background:var(--canvas); border:1px solid var(--line); border-radius:26px; padding:14px 12px 18px; min-height:640px; }
+  .top { display:flex; align-items:center; gap:8px; padding:4px 6px 12px; font-size:20px; line-height:26px; font-weight:600; }
+  .top .g { width:28px; height:28px; border-radius:8px; border:1.5px solid var(--faint); }
+  .card { background:var(--surface); border-radius:16px; padding:12px 14px 14px; }
+  .head { display:flex; align-items:center; gap:8px; font-size:13px; line-height:18px; }
+  .head .name { color:var(--soft); font-weight:600; flex:1; }
+  .count { color:var(--faint); }
+  .dots { display:flex; gap:4px; } .dots i { width:6px; height:6px; border-radius:3px; background:var(--line); } .dots i.on { background:var(--ink); }
+  .title { font-size:16px; line-height:22px; font-weight:600; margin:6px 0 2px; }
+  .due { color:var(--faint); font-size:13px; line-height:18px; }
+  .q { padding:12px 0 2px; border-top:1px solid var(--line); margin-top:12px; }
+  .qt { display:flex; gap:8px; font-size:15px; line-height:20px; font-weight:600; margin-bottom:8px; }
+  .qt .n { color:var(--faint); font-weight:500; width:14px; flex:none; }
+  .qt .tick { margin-left:auto; color:var(--faint); font-size:13px; font-weight:500; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; padding-left:22px; }
+  .chip { border:1.5px solid var(--line); background:transparent; color:var(--ink); border-radius:12px; padding:0 12px; min-height:40px; font:500 14px/18px system-ui, Roboto, sans-serif; cursor:pointer; display:flex; align-items:center; gap:6px; }
+  .chip.rec { border-style:dashed; border-color:var(--soft); }
+  .chip.rec::after { content:"Jarvis"; font-size:11px; color:var(--faint); }
+  .chip.on { background:var(--ink); color:var(--canvas); border-color:var(--ink); font-weight:700; }
+  .chip.on::after { color:rgba(15,17,21,.6); }
+  .else { display:none; margin:8px 0 0 22px; }
+  .else.open { display:block; }
+  .else input { width:100%; background:var(--canvas); border:1.5px solid var(--soft); border-radius:12px; color:var(--ink); padding:10px 12px; font:14px/19px system-ui, Roboto, sans-serif; outline:none; }
+  .send { margin-top:14px; width:100%; min-height:48px; border:0; border-radius:14px; background:var(--raised); color:var(--faint); font:600 15px/20px system-ui, Roboto, sans-serif; }
+  .send.ready { background:var(--ink); color:var(--canvas); cursor:pointer; }
+  .hint { color:var(--faint); font-size:12px; line-height:16px; margin-top:8px; text-align:center; }
+  /* B: one at a time */
+  .step .q { border-top:0; margin-top:8px; }
+  .nav { display:flex; gap:8px; margin-top:12px; } .nav button { flex:1; min-height:44px; border-radius:12px; border:1.5px solid var(--line); background:transparent; color:var(--ink); font:500 14px system-ui; }
+  /* C: rows that open */
+  .acc .q { cursor:pointer; }
+  .acc .ans { color:var(--soft); font-size:14px; line-height:19px; padding-left:22px; }
+  .acc .ans.none { color:var(--faint); font-style:italic; }
+  .acc .chips, .acc .else { display:none; } .acc .q.open .chips { display:flex; } .acc .q.open .else.open { display:block; } .acc .q.open .ans { display:none; }
+  .other { margin-top:10px; background:var(--surface); border-radius:16px; padding:12px 14px; opacity:.55; }
+</style>
+</head>
+<body>
+<header>
+  <h1>One card, several questions</h1>
+  <div class="sub">An autopilot intake asks four things and the level. Today the phone shows only the first. Each design shows them all in one card. Jarvis's pick has a dashed outline and isn't chosen until you tap it. "Something else" opens a box right under its question. Send sends only what you tapped, and the rest stay open. Tap around: the cards work.</div>
+</header>
+<div class="row" id="row"></div>
+<script>
+const Q = [
+  ["How dark should dark mode be?", ["True black", "Dark grey", "Follow the phone"], 1],
+  ["Where does the switch go?", ["Settings", "Top bar", "No switch"], 0],
+  ["Keys in dark mode?", ["Keep white keys", "Dim the keys"], 0],
+  ["Ship to your phone when done?", ["Yes", "Ask me first"], 0],
+  ["Level", ["Low", "Default", "Urgent"], 1],
+];
+const ELSE = "Something else";
+const V = [
+  ["A. All on the card", true, "Every question is a short section on one card, separated by a hairline. A dot row and \"2 of 5\" show how far you are. One Send at the bottom."],
+  ["B. One at a time", false, "The card holds one question at a time, with Back and Next. Each screen is quieter, but you can't see the whole intake at once."],
+  ["C. Rows that open", false, "Each question is one row showing its answer. A tap opens that row's options. It's the shortest card, but every answer takes two taps."],
+];
+const row = document.getElementById("row");
+V.forEach(([name, pick, why], v) => {
+  const col = document.createElement("div"); col.className = "col";
+  col.innerHTML = `<h2>${name}${pick ? ' <span class="pick">· Jarvis\'s pick</span>' : ''}</h2><p>${why}</p>`;
+  const ph = document.createElement("div"); ph.className = "phone";
+  ph.innerHTML = `<div class="top"><span class="g"></span>Needs you</div>`;
+  const card = document.createElement("div"); card.className = "card" + (v == 1 ? " step" : v == 2 ? " acc" : "");
+  const st = { picks: Q.map(() => null), words: Q.map(() => ""), at: 0, open: -1 };
+  const draw = () => {
+    const done = st.picks.filter((p, i) => p !== null && (Q[i][1].concat(ELSE)[p] != ELSE || st.words[i].trim())).length;
+    let h = `<div class="head"><span class="name">Piano app · dark mode</span><span class="dots">${Q.map((_, i) => `<i class="${st.picks[i] !== null ? 'on' : ''}"></i>`).join("")}</span><span class="count">${done} of ${Q.length}</span></div>`;
+    h += `<div class="title">Before I start: five quick ones</div><div class="due">Waits for you · the tab keeps working meanwhile</div>`;
+    Q.forEach(([t, opts, rec], i) => {
+      if (v == 1 && i != st.at) return;
+      const all = opts.concat(ELSE), p = st.picks[i];
+      const ans = p === null ? `<div class="ans none">Not answered · Jarvis would pick ${opts[rec]}</div>` : `<div class="ans">${all[p] == ELSE ? (st.words[i] || "Something else…") : all[p]}</div>`;
+      h += `<div class="q ${st.open == i ? 'open' : ''}" data-q="${i}"><div class="qt"><span class="n">${i + 1}</span>${t}${p !== null ? '<span class="tick">✓</span>' : ''}</div>`;
+      if (v == 2) h += ans;
+      h += `<div class="chips">${all.map((o, j) => `<button class="chip ${j == rec ? 'rec' : ''} ${p === j ? 'on' : ''}" data-q="${i}" data-o="${j}">${o}</button>`).join("")}</div>`;
+      h += `<div class="else ${all[p] == ELSE ? 'open' : ''}"><input data-w="${i}" placeholder="Write your answer" value="${st.words[i]}"></div></div>`;
+    });
+    if (v == 1) h += `<div class="nav"><button data-nav="-1">Back</button><button data-nav="1">${st.at == Q.length - 1 ? 'Review' : 'Next'}</button></div>`;
+    h += `<button class="send ${done ? 'ready' : ''}">${done ? (done == Q.length ? 'Send all 5' : `Send ${done} · the rest stay open`) : 'Tap an answer to send'}</button>`;
+    card.innerHTML = h;
+  };
+  card.addEventListener("click", e => {
+    const c = e.target.closest(".chip"), n = e.target.closest("[data-nav]"), q = e.target.closest(".q");
+    if (c) { const i = +c.dataset.q, j = +c.dataset.o; st.picks[i] = st.picks[i] === j ? null : j; draw(); const w = card.querySelector(`[data-w="${i}"]`); if (w && w.parentElement.classList.contains("open")) w.focus(); return; }
+    if (n) { st.at = Math.max(0, Math.min(Q.length - 1, st.at + +n.dataset.nav)); draw(); return; }
+    if (v == 2 && q && !e.target.closest("input")) { st.open = st.open == +q.dataset.q ? -1 : +q.dataset.q; draw(); }
+  });
+  card.addEventListener("input", e => { if (e.target.dataset.w) { st.words[+e.target.dataset.w] = e.target.value; const s = e.target.selectionStart; draw(); const w = card.querySelector(`[data-w="${e.target.dataset.w}"]`); w.focus(); w.setSelectionRange(s, s); } });
+  draw();
+  ph.appendChild(card);
+  ph.insertAdjacentHTML("beforeend", `<div class="other"><div class="head"><span class="name">Forum · cleanup</span></div><div class="title" style="font-size:15px">Archive threads older than a year?</div></div>`);
+  col.appendChild(ph); row.appendChild(col);
+});
+</script>
+</body>
+</html>
