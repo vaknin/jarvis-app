@@ -283,6 +283,8 @@ impl Shared {
 struct Start {
     tab: Option<String>,
     speak: Option<bool>,
+    /// The mic opened by itself after Jarvis asked on the speaker (`hello`'s `listen`).
+    listen: bool,
 }
 
 /// A call in progress. Dropping it hangs up.
@@ -302,13 +304,19 @@ impl Call {
     /// A call that stands at `tab` from its first hello: a tab's id, or `""` the wall, where his
     /// first words open a new tab. `about`: Jarvis opens with it.
     pub fn start_at(connector: Connector, events: Arc<dyn Events>, timing: Timing, about: Option<About>, tab: String) -> Call {
-        Self::begin(connector, events, timing, about, None, Start { tab: Some(tab), speak: None })
+        Self::begin(connector, events, timing, about, None, Start { tab: Some(tab), speak: None, listen: false })
     }
 
     /// Dictation in `tab` (`""` the wall): the same line, and nothing about it sounds. His words come
     /// back through [`Events::words`], Jarvis stays silent, and no hangup is ever owed.
     pub fn dictate(connector: Connector, events: Arc<dyn Events>, timing: Timing, tab: String) -> Call {
-        Self::begin(connector, events, timing, None, None, Start { tab: Some(tab), speak: Some(false) })
+        Self::begin(connector, events, timing, None, None, Start { tab: Some(tab), speak: Some(false), listen: false })
+    }
+
+    /// The phone's mic for his answer to what Jarvis just asked on the speaker at home: the server
+    /// stands it where the ask came from and keeps Jarvis's voice on the speaker; his silence ends it.
+    pub fn listen(connector: Connector, events: Arc<dyn Events>, timing: Timing) -> Call {
+        Self::begin(connector, events, timing, None, None, Start { listen: true, ..Start::default() })
     }
 
     /// [`Call::start`], for a call about one thread: the first hello says which, so Jarvis opens with it.
@@ -333,7 +341,8 @@ impl Call {
             muted: AtomicBool::new(false),
             voice_muted: AtomicBool::new(false),
             place: Mutex::new(None),
-            quiet: AtomicBool::new(dictating),
+            // Nor does a reply window: no sound on the phone that he didn't ask for.
+            quiet: AtomicBool::new(dictating || start.listen),
             dictating: AtomicBool::new(dictating),
             pausing: AtomicBool::new(false),
             paused: AtomicBool::new(false),
@@ -452,8 +461,18 @@ impl Drop for Call {
 /// Hangs up the dropped call `id` without joining it (Aviv declined Jarvis calling back, or the
 /// line didn't carry his hangup): an `"end":true` hello, and the server closes once it has it.
 pub async fn end(connector: Connector, id: String, t: Timing) -> Result<()> {
+    end_or_later(connector, id, None, t).await
+}
+
+/// Later on Jarvis's ring for reach item `id`: it rings again at the time in `words` ("at 4", "in 3
+/// hours"), an hour on for `""`. Declining's hello, with `later`.
+pub async fn later(connector: Connector, id: String, words: String, t: Timing) -> Result<()> {
+    end_or_later(connector, id, Some(words), t).await
+}
+
+async fn end_or_later(connector: Connector, id: String, later: Option<String>, t: Timing) -> Result<()> {
     let (mut tx, mut rx) = timeout(t.connect_timeout, connector()).await.context("connect timed out")??;
-    let hello = Up::Hello { version: 1, resume: Some(id), about: None, rejoin: false, end: true, have: None, queued_ms: None, tab: None, speak: None };
+    let hello = Up::Hello { version: 1, resume: Some(id), about: None, rejoin: false, end: true, have: None, queued_ms: None, tab: None, speak: None, listen: false, later };
     timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await.context("send timed out")??;
     timeout(t.connect_timeout, async {
         loop {
@@ -527,7 +546,7 @@ fn dial(connector: &Connector, sh: Arc<Shared>, t: &Timing, resume: Option<Strin
         } else {
             (None, None)
         };
-        let hello = Up::Hello { version: 1, resume, about, rejoin, end: false, have, queued_ms, tab: start.tab, speak: start.speak };
+        let hello = Up::Hello { version: 1, resume, about, rejoin, end: false, have, queued_ms, tab: start.tab, speak: start.speak, listen: start.listen, later: None };
         match timeout(t.send_timeout, tx.send(Frame::Text(hello.json()))).await {
             Ok(Ok(())) => said.store(true, Ordering::SeqCst),
             Ok(Err(e)) => return Dialed::Failed(format!("send: {e:#}")),
@@ -734,7 +753,8 @@ impl Run {
             self.down = Some(Instant::now());
             self.kick();
         }
-        if self.next.is_none() {
+        // A reply window isn't redialled: the server ends it on a drop, and he calls if he wants.
+        if self.next.is_none() && !self.start.listen {
             self.redial();
         }
     }
@@ -1046,6 +1066,9 @@ impl Run {
             self.rekick();
         }
         let down = self.down?;
+        if self.start.listen {
+            return Some("the reply window's line dropped".into());
+        }
         if !self.shown && down.elapsed() >= self.t.grace {
             self.shown = true;
             self.sh.live.store(false, Ordering::SeqCst);

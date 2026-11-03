@@ -254,6 +254,23 @@ pub fn voice_end(url: String, id: String) -> bool {
     }
 }
 
+/// Later on Jarvis's ring for reach item `id`: the server rings again at the time in `words`, an hour
+/// on for `""`. Blocks like [`voice_end`]. True once the server has it.
+#[uniffi::export]
+pub fn voice_later(url: String, id: String, words: String) -> bool {
+    crate::init_logging();
+    match RT.block_on(jarvis_voice::call::later(websocket(url), id.clone(), words, Timing::default())) {
+        Ok(()) => {
+            tracing::info!("voice: put the ring for {id} off");
+            true
+        }
+        Err(e) => {
+            tracing::warn!("voice: couldn't put the ring for {id} off: {e:#}");
+            false
+        }
+    }
+}
+
 fn bridge(listener: Box<dyn VoiceListener>) -> Arc<Bridge> {
     Arc::new(Bridge(listener, Default::default()))
 }
@@ -279,6 +296,15 @@ impl VoiceCall {
         let _rt = RT.enter();
         let about = task.map(|slug| jarvis_voice::proto::About { topic: 0, title: String::new(), text: String::new(), task: Some(slug) });
         Arc::new(VoiceCall(Call::start_at(websocket(url), bridge(listener), Timing::default(), about, tab)))
+    }
+
+    /// The mic for his answer to what Jarvis asked on the speaker at home (`/listen/<item>`): Jarvis's
+    /// voice stays on the speaker, and his silence ends it.
+    #[uniffi::constructor]
+    pub fn listen(url: String, listener: Box<dyn VoiceListener>) -> Arc<Self> {
+        crate::init_logging();
+        let _rt = RT.enter();
+        Arc::new(VoiceCall(Call::listen(websocket(url), bridge(listener), Timing::default())))
     }
 
     /// Dictation in `tab` (`""` the wall): his words come back through `on_words`, nothing sounds,

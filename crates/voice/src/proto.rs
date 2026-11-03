@@ -34,6 +34,13 @@ pub enum Up {
         /// (A new call) `Some(false)`: he dictates, Jarvis writes. `None` is a call.
         #[serde(skip_serializing_if = "Option::is_none")]
         speak: Option<bool>,
+        /// (A new call) the phone opened its mic by itself after Jarvis asked on the speaker at
+        /// home: a reply window, Jarvis's voice on the speaker.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        listen: bool,
+        /// With `end` and a ring's id: Later, not Decline. His words for when, `""` for an hour.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        later: Option<String>,
     },
     Mute { on: bool },
     /// Aviv tapped pause (Jarvis goes quiet, his reply kept) or play (it goes on).
@@ -120,23 +127,31 @@ mod tests {
 
     #[test]
     fn up_is_the_contracts_json() {
-        assert_eq!(Up::Hello { version: 1, resume: None, about: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None }.json(), r#"{"type":"hello","version":1,"resume":null}"#);
+        assert_eq!(Up::Hello { version: 1, resume: None, about: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None, listen: false, later: None }.json(), r#"{"type":"hello","version":1,"resume":null}"#);
         assert_eq!(
-            Up::Hello { version: 1, resume: Some("c1".into()), about: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None }.json(),
+            Up::Hello { version: 1, resume: Some("c1".into()), about: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None, listen: false, later: None }.json(),
             r#"{"type":"hello","version":1,"resume":"c1"}"#
         );
         assert_eq!(
-            Up::Hello { version: 1, resume: None, about: None, rejoin: false, end: false, have: None, queued_ms: None, tab: Some(String::new()), speak: Some(false) }.json(),
+            Up::Hello { version: 1, resume: None, about: None, rejoin: false, end: false, have: None, queued_ms: None, tab: Some(String::new()), speak: Some(false), listen: false, later: None }.json(),
             r#"{"type":"hello","version":1,"resume":null,"tab":"","speak":false}"#
         );
         let about = About { topic: 112, title: "One app".into(), text: "Keep it?".into(), task: None };
         assert_eq!(
-            Up::Hello { version: 1, resume: None, about: Some(about), rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None }.json(),
+            Up::Hello { version: 1, resume: None, about: Some(about), rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None, listen: false, later: None }.json(),
             r#"{"type":"hello","version":1,"resume":null,"about":{"topic":112,"title":"One app","text":"Keep it?"}}"#
         );
         assert_eq!(
-            Up::Hello { version: 1, resume: Some("c1".into()), about: None, rejoin: false, end: false, have: Some(7), queued_ms: Some(1200), tab: None, speak: None }.json(),
+            Up::Hello { version: 1, resume: Some("c1".into()), about: None, rejoin: false, end: false, have: Some(7), queued_ms: Some(1200), tab: None, speak: None, listen: false, later: None }.json(),
             r#"{"type":"hello","version":1,"resume":"c1","have":7,"queued_ms":1200}"#
+        );
+        assert_eq!(
+            Up::Hello { version: 1, resume: None, about: None, rejoin: false, end: false, have: None, queued_ms: None, tab: None, speak: None, listen: true, later: None }.json(),
+            r#"{"type":"hello","version":1,"resume":null,"listen":true}"#
+        );
+        assert_eq!(
+            Up::Hello { version: 1, resume: Some("reach-1".into()), about: None, rejoin: false, end: true, have: None, queued_ms: None, tab: None, speak: None, listen: false, later: Some(String::new()) }.json(),
+            r#"{"type":"hello","version":1,"resume":"reach-1","end":true,"later":""}"#
         );
         assert_eq!(Up::Mute { on: true }.json(), r#"{"type":"mute","on":true}"#);
         assert_eq!(Up::Pause { on: false }.json(), r#"{"type":"pause","on":false}"#);
