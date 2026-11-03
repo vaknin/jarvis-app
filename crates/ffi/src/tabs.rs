@@ -64,7 +64,7 @@ pub struct TileRec {
     /// The model and effort of the mode (or of the default), short: "opus", "medium".
     pub model: String,
     pub effort: String,
-    /// Its autopilot runs: on, and not yet done, accepted or dropped.
+    /// Its autopilot is on, as the server reads it (`autopilot_on`).
     pub autopilot: bool,
 }
 
@@ -851,7 +851,7 @@ impl Desk {
             mode: t.tile.mode.clone(),
             model: jarvis_tabs_wire::mode::parts(&t.tile.mode).0.to_string(),
             effort: jarvis_tabs_wire::mode::parts(&t.tile.mode).1.to_string(),
-            autopilot: t.tile.autopilot.as_ref().is_some_and(|a| !matches!(a.state, ApState::Done | ApState::Accepted | ApState::Dropped)),
+            autopilot: autopilot_on(&t.tile),
         }
     }
 
@@ -1238,6 +1238,14 @@ pub fn tabs_move(id: String, to: u32) {
     with_desk(|d| d.out.push(Ask::Move { id, to: to as usize }));
 }
 
+/// On unless it's finished, dropped or switched off, as the server reads it: paused with why "off" is his
+/// switch, so Auto shows off and a tap sends "on"; paused for any other reason (parked, esc, closed) is
+/// still on. Aviv, t67, 2026-11-03: the phone showed a switched-off autopilot as on, and each tap sent an
+/// "off" the server ignored.
+fn autopilot_on(t: &Tile) -> bool {
+    t.autopilot.as_ref().is_some_and(|a| !matches!(a.state, ApState::Done | ApState::Accepted | ApState::Dropped) && !(a.state == ApState::Paused && a.why == "off"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1363,6 +1371,20 @@ mod tests {
         assert!(d.tabs["t1"].pending.iter().all(|p| !p.landed), "the answer's landing is its own");
         d.tell(Tell::Landed { id: "t1".into(), offset: 51 });
         assert!(d.tabs["t1"].pending[0].landed);
+    }
+
+    #[test]
+    fn tabs_auto_reads_a_switched_off_autopilot_as_off_and_a_parked_one_as_on() {
+        let tile = |state, why: &str| {
+            let mut t = Tile::default();
+            t.autopilot = Some(jarvis_tabs_wire::ApTile { id: "a1".into(), state, passed: 0, of: 0, spent: 0, why: why.into() });
+            t
+        };
+        assert!(!autopilot_on(&tile(ApState::Paused, "off")), "his switch: a tap must send on");
+        assert!(autopilot_on(&tile(ApState::Paused, "parked")));
+        assert!(autopilot_on(&tile(ApState::Running, "")));
+        assert!(!autopilot_on(&tile(ApState::Done, "")));
+        assert!(!autopilot_on(&Tile::default()));
     }
 
     #[test]
