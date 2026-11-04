@@ -217,7 +217,11 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   only 0.13), and the panel hides until the chooser closes.
   Ctrl+V on an image runs `jarvis-link paste` (saves the clipboard image under `~/.local/state/jarvis/pasted`,
   pruned after 14 days, and prints its path), which goes into an attach strip above the input and is not
-  sent; Enter sends the strip and the text through `ui.sendWith`. Otherwise Ctrl+V pastes text. Right-click
+  sent; Enter sends the strip and the text through `ui.sendWith`. Otherwise Ctrl+V pastes text. Alt+Print or
+  Ctrl+Print (Omarchy binds Alt+Print to screen recording globally, so only Ctrl+Print reaches the box) runs
+  `jarvis-link pixel-shot`: `adb exec-out screencap -p` on a phone local adb already sees, else over
+  `ssh jarvis` with the server's paired adb (`pixel`), 15 s cap; the PNG lands in the same `pasted` dir and goes
+  in the strip labelled `[Pixel Screenshot #N]` (numbered per message). A failure shows in the hint line. Right-click
   on a file: Open, and Copy image (`jarvis-link copy <file>`, PNG on the clipboard) or Copy path.
   Chat and ping toasts run `omarchy-shell jarvis open` on click.
 - Image bubbles fit the whole image at its own aspect on both sides: the laptop inside 220×220

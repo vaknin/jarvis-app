@@ -30,9 +30,23 @@ BorderSurface {
   function scrollToEnd() { list.positionViewAtEnd() }
   function pasteText() { input.paste() }
 
-  // Images pasted with Ctrl+V, waiting for Enter.
+  // Images pasted with Ctrl+V or phone screenshots (Alt/Ctrl+Print), waiting for Enter.
   property var attachments: []
   function attach(path) { attachments = attachments.concat([path]); focusInput() }
+  // Phone screenshots are numbered, "[Pixel Screenshot #1]", until the message goes.
+  property var shotNumbers: ({})
+  property int shots: 0
+  function attachShot(path) {
+    shots += 1
+    var n = Object.assign({}, shotNumbers); n[path] = shots; shotNumbers = n
+    note = ""
+    attach(path)
+  }
+  // One line under the box while a phone screenshot runs, or why it failed.
+  property string note: ""
+  function shotStarted() { note = "Taking a phone screenshot…"; noteClear.stop() }
+  function shotFailed(why) { note = "Phone screenshot failed: " + (why || "no output"); noteClear.restart() }
+  Timer { id: noteClear; interval: 8000; onTriggered: chat.note = "" }
   function detach(i) { var a = attachments.slice(); a.splice(i, 1); attachments = a }
 
   function isImage(name) {
@@ -392,11 +406,23 @@ BorderSurface {
         Item {
           required property string modelData
           required property int index
-          width: Style.space(48)
+          readonly property int shot: chat.shotNumbers[modelData] || 0
+          width: Style.space(48) + (shot ? shotLabel.implicitWidth + Style.space(6) : 0)
           height: Style.space(48)
 
+          Text {
+            id: shotLabel
+            visible: parent.shot > 0
+            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+            text: "[Pixel Screenshot #" + parent.shot + "]"
+            color: Util.alpha(chat.fg, 0.7)
+            font.family: chat.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
           Image {
-            anchors.fill: parent
+            width: Style.space(48)
+            height: Style.space(48)
             source: "file://" + parent.modelData
             sourceSize.width: width * 2
             fillMode: Image.PreserveAspectCrop
@@ -482,7 +508,7 @@ BorderSurface {
             background: null
 
             // Enter sends, Shift+Enter adds a line, Ctrl+V attaches a clipboard image (or pastes
-            // text), Esc closes.
+            // text), Alt/Ctrl+Print attaches a screenshot of the phone, Esc closes.
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) {
                 event.accepted = true
@@ -494,6 +520,11 @@ BorderSurface {
               } else if (event.matches(StandardKey.Paste)) {
                 event.accepted = true
                 ui.paste()
+              } else if ((event.key === Qt.Key_Print || event.key === Qt.Key_SysReq)
+                         && (event.modifiers & (Qt.AltModifier | Qt.ControlModifier))) {
+                // Omarchy binds Alt+Print to screen recording, so Ctrl+Print does the same here.
+                event.accepted = true
+                ui.pixelShot()
               }
             }
           }
@@ -512,12 +543,12 @@ BorderSurface {
 
     Text {
       id: hint
-      visible: chat.roomy
+      visible: chat.roomy || chat.note !== ""
       anchors { top: inputRow.bottom; topMargin: Style.space(4); horizontalCenter: parent.horizontalCenter }
       width: Math.min(implicitWidth, parent.width)
       wrapMode: Text.Wrap
-      text: "Enter sends · Shift+Enter line · Ctrl+V attaches · right-click menu"
-      color: Util.alpha(chat.fg, 0.4)
+      text: chat.note || "Enter sends · Shift+Enter line · Ctrl+V attaches · Ctrl+Print phone · right-click menu"
+      color: Util.alpha(chat.fg, chat.note ? 0.75 : 0.4)
       font.family: chat.fontFamily
       font.pixelSize: Style.font.caption
     }
@@ -595,6 +626,8 @@ BorderSurface {
     if (attachments.length > 0) {
       ui.sendWith(attachments, t)
       attachments = []
+      shotNumbers = ({})
+      shots = 0
     } else if (t) {
       ui.sendText(t)
     } else {
