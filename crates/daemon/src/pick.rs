@@ -1,7 +1,7 @@
 //! Where `jarvis-link send --pick` and `--clipboard` get their files: the desktop's file chooser (the
 //! XDG FileChooser portal, GTK here) and an image on the Wayland clipboard. Both run in the CLI, so
 //! the chat panel can call them like any other `jarvis-link send`. `jarvis-link pixel-shot` adds a
-//! screenshot of the phone, from the server's adb.
+//! screenshot of the phone, from the laptop's own adb.
 
 use std::{
     collections::HashMap,
@@ -105,19 +105,41 @@ fn save(dir: &Path, prefix: &str, ext: &str, data: &[u8]) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// How long a phone screenshot may take, adb connect over the server included.
+/// How long the screenshot itself may take.
 const SHOT_TIMEOUT: Duration = Duration::from_secs(15);
-/// The server's adb is paired with the phone; `pixel` connects it and prints the serial.
-const SERVER_SHOT: &str = "S=$(~/.local/bin/pixel) || exit 3; exec ~/Android/Sdk/platform-tools/adb -s \"$S\" exec-out screencap -p";
+/// How long to wait for the phone to show up in adb, which finds it over mDNS a moment after it starts.
+const FIND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Saves a screenshot of the phone under `dir`, next to pasted images, and returns its path. It
-/// comes from the server's adb (`ssh jarvis`), the one paired with the phone; the laptop's own adb
-/// isn't used. `screencap` only reads the screen, so nothing changes on the phone.
+/// comes only from this laptop's own adb (the phone it already sees); there's no other route.
+/// `screencap` only reads the screen, so nothing changes on the phone.
 pub async fn phone_screenshot(dir: &Path) -> Result<PathBuf> {
-    let png = run_png(Command::new("ssh").args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "jarvis", SERVER_SHOT]))
+    let serial = match local_serial().await {
+        Some(s) => s,
+        None => {
+            let wait = Command::new("adb").arg("wait-for-device").kill_on_drop(true).status();
+            let _ = tokio::time::timeout(FIND_TIMEOUT, wait).await;
+            local_serial().await.context("no phone on the laptop's adb (wireless debugging off, or not on this Wi-Fi?)")?
+        }
+    };
+    let png = run_png(Command::new("adb").args(["-s", &serial, "exec-out", "screencap", "-p"]))
         .await
-        .context("phone screenshot through the server")?;
+        .context("adb screencap")?;
     save(dir, "pixel", "png", &png)
+}
+
+async fn local_serial() -> Option<String> {
+    let out = Command::new("adb").arg("devices").kill_on_drop(true).output();
+    let out = tokio::time::timeout(FIND_TIMEOUT, out).await.ok()?.ok()?;
+    first_device(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The first serial `adb devices` lists as ready ("device", not "offline" or "unauthorized").
+fn first_device(list: &str) -> Option<String> {
+    list.lines().skip(1).find_map(|l| match l.split_whitespace().collect::<Vec<_>>()[..] {
+        [serial, "device", ..] => Some(serial.to_string()),
+        _ => None,
+    })
 }
 
 async fn run_png(cmd: &mut Command) -> Result<Vec<u8>> {
@@ -157,6 +179,13 @@ mod tests {
     fn uri_path_decodes_escapes() {
         assert_eq!(uri_path("file:///home/k/My%20File%C3%A9.txt").unwrap(), PathBuf::from("/home/k/My Fileé.txt"));
         assert!(uri_path("https://example.com/x").is_err());
+    }
+
+    #[test]
+    fn first_device_skips_offline_and_unauthorized() {
+        let list = "List of devices attached\nAAA\toffline\nBBB\tunauthorized usb:1\nadb-37171-x._adb-tls-connect._tcp\tdevice product:shiba\n\n";
+        assert_eq!(first_device(list).as_deref(), Some("adb-37171-x._adb-tls-connect._tcp"));
+        assert_eq!(first_device("List of devices attached\n\n"), None);
     }
 
     #[test]

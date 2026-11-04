@@ -371,7 +371,7 @@ Item {
     onExited: function(code) { if (code === 7) card.pasteText() }
   }
 
-  // Alt/Ctrl+Print: a screenshot of the phone from the server's adb, attached like a
+  // Alt/Ctrl+Print: a screenshot of the phone from the laptop's adb, attached like a
   // pasted image; a failure shows its reason under the box.
   function pixelShot() {
     if (shooter.running) return

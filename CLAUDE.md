@@ -219,8 +219,9 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   pruned after 14 days, and prints its path), which goes into an attach strip above the input and is not
   sent; Enter sends the strip and the text through `ui.sendWith`. Otherwise Ctrl+V pastes text. Alt+Print or
   Ctrl+Print (Omarchy binds Alt+Print to screen recording globally, so only Ctrl+Print reaches the box) runs
-  `jarvis-link pixel-shot`: `adb exec-out screencap -p` over `ssh jarvis` with the server's paired adb
-  (`pixel`; server only, Aviv 2026-11-04: "I think server only is the way to go"), 15 s cap; the PNG lands in the same `pasted` dir and goes
+  `jarvis-link pixel-shot`: `adb exec-out screencap -p` on the phone the laptop's own adb sees (it finds it
+  over mDNS), and nothing else: no server fallback (Aviv 2026-11-04: "use the laptop connection then, don't delete
+  it, don't rename it. if the laptop connection won't work, don't try the server"), 15 s cap; the PNG lands in the same `pasted` dir and goes
   in the strip labelled `[Pixel Screenshot #N]` (numbered per message). A failure shows in the hint line. Right-click
   on a file: Open, and Copy image (`jarvis-link copy <file>`, PNG on the clipboard) or Copy path.
   Chat and ping toasts run `omarchy-shell jarvis open` on click.
