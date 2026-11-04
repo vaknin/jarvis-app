@@ -65,4 +65,12 @@ class ManyQuestionsTest {
         tap(ELSE)
         assertEquals(listOf(Triple("t9/q1", 1 as Int?, "my way")), deck.answers)
     }
+
+    /** t67, 2026-11-04: silence never decides for him, so a card with no deadline says it waits. */
+    @Test fun aCardWithNoDeadlineWaitsForHim() {
+        val c = CardView(listOf(CardTab("t9", "Tab", "q1")), "Blue or green?", listOf("Blue", "Green"), level = Level.Low)
+        stage(FakeDeck(Fake.deck(3).copy(cards = listOf(c))))
+        assertTrue(rule.onAllNodesWithText("Waits for you", substring = true).fetchSemanticsNodes().isNotEmpty())
+        assertTrue(rule.onAllNodesWithText("Jarvis takes", substring = true).fetchSemanticsNodes().isEmpty())
+    }
 }

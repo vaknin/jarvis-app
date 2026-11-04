@@ -132,9 +132,19 @@ pub enum Body {
     /// The tab's level: how hard what it asks of him reaches him. Urgent only `by` him, from his
     /// screens or his shell; a tab's session may set itself low or default.
     Level { level: Urgency, by: By },
+    /// Whether the tab's cards may take their pick when he's silent: off unless he said so in words
+    /// (`jarvis tabs defaults on --asked`). Off, a card waits for him whatever its level. On, `arm` holds the
+    /// deadline each card already open takes from now: `[q, due]`.
+    Defaults {
+        on: bool,
+        by: By,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        arm: Vec<(String, u64)>,
+    },
     /// A question for him, through the one door (`jarvis ask`, `asks.rs`): one card on the Needs you
     /// list. `q` is its id in the tab. Each item is one question with its options and Jarvis's pick.
-    /// `due` is when silence takes the picks: none for urgent, and for a kind that never defaults. A
+    /// `due` is when silence takes the picks: only while the tab's defaults are on, never for urgent or
+    /// for a kind that never defaults. A
     /// blocking one also writes a `needs` naming it, so a screen from before this shows it amber.
     Question {
         q: String,

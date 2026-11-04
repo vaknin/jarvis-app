@@ -49,6 +49,9 @@ pub struct Tile {
     /// The tab's level: how hard what it asks reaches him.
     #[serde(default, skip_serializing_if = "Urgency::is_default")]
     pub level: Urgency,
+    /// He let its cards take their pick when he's silent (`Body::Defaults`). Off, none has a `due`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub defaults: bool,
     /// Its autopilot, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub autopilot: Option<ApTile>,
@@ -82,7 +85,7 @@ pub struct OpenAsk {
     #[serde(default, skip_serializing_if = "Urgency::is_default")]
     pub level: Urgency,
     pub items: Vec<Item>,
-    /// When silence takes the picks: none, never.
+    /// When silence takes the picks: none, never, as when the tab's defaults are off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due: Option<u64>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -199,11 +202,17 @@ impl Tile {
             }
             Body::Line { text } => self.line = text.clone(),
             Body::Level { level, .. } => self.level = *level,
+            Body::Defaults { on, arm, .. } => {
+                self.defaults = *on;
+                for a in &mut self.asks {
+                    a.due = arm.iter().find(|(q, _)| *q == a.q).map(|(_, d)| *d).filter(|_| *on);
+                }
+            }
             Body::Named { name } => self.name = name.clone(),
             Body::Mode { mode } => self.mode = mode.clone(),
             Body::Question { q, ap, ask, level, suggest_urgent, items, due, blocks } => {
                 self.asks.retain(|a| a.q != *q);
-                self.asks.push(OpenAsk { q: q.clone(), offset: e.offset, at: e.at, ask: Some(*ask), level: *level, items: items.clone(), due: *due, blocks: *blocks, suggest_urgent: *suggest_urgent, ap: ap.clone() });
+                self.asks.push(OpenAsk { q: q.clone(), offset: e.offset, at: e.at, ask: Some(*ask), level: *level, items: items.clone(), due: due.filter(|_| self.defaults), blocks: *blocks, suggest_urgent: *suggest_urgent, ap: ap.clone() });
                 self.mark_new(e.offset);
             }
             Body::Answer { q, by, .. } => {
