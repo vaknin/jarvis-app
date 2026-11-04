@@ -91,8 +91,6 @@ enum Cmd {
     Copy { file: PathBuf },
     /// Save the image on the clipboard and print its path (the chat attaches it on Ctrl+V).
     Paste,
-    /// Save a screenshot of the phone over adb and print its path (the chat attaches it on Alt+Print).
-    PixelShot,
     /// Send a chat message.
     Msg {
         #[arg(required = true)]
@@ -407,10 +405,6 @@ async fn run(cmd: Cmd, sock: PathBuf) -> Result<()> {
         Cmd::Copy { file } => desktop::copy_image(&file).await,
         Cmd::Paste => {
             println!("{}", pick::clipboard_image(&default_state_dir()?.join("pasted")).await?.display());
-            Ok(())
-        }
-        Cmd::PixelShot => {
-            println!("{}", pick::phone_screenshot(&default_state_dir()?.join("pasted")).await?.display());
             Ok(())
         }
         Cmd::Msg { text } => print_state(call(&sock, &Request::Msg { text: text.join(" ") }).await?),

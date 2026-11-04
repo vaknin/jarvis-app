@@ -371,28 +371,6 @@ Item {
     onExited: function(code) { if (code === 7) card.pasteText() }
   }
 
-  // Alt/Ctrl+Print: a screenshot of the phone from the laptop's adb, attached like a
-  // pasted image; a failure shows its reason under the box.
-  function pixelShot() {
-    if (shooter.running) return
-    card.shotStarted()
-    shooter.running = true
-  }
-
-  Process {
-    id: shooter
-    command: [root.cli, "pixel-shot"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { var p = text.trim(); if (p) card.attachShot(p) }
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { var e = text.trim(); if (e) card.shotFailed(e.split("\n").pop().replace(/^jarvis-link: /, "")) }
-    }
-    onExited: function(code) { if (code !== 0 && card.note.startsWith("Taking")) card.shotFailed("exit " + code) }
-  }
-
   // --- Surface ----------------------------------------------------------------------------------
 
   PanelWindow {
