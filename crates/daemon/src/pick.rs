@@ -112,7 +112,8 @@ const FIND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Saves a screenshot of the phone under `dir`, next to pasted images, and returns its path. It
 /// comes only from this laptop's own adb (the phone it already sees); there's no other route.
-/// `screencap` only reads the screen, so nothing changes on the phone.
+/// A phone with its screen off is refused, not woken: the shot would come back black.
+/// `dumpsys` and `screencap` only read the phone, so nothing changes on it.
 pub async fn phone_screenshot(dir: &Path) -> Result<PathBuf> {
     let serial = match local_serial().await {
         Some(s) => s,
@@ -122,10 +123,23 @@ pub async fn phone_screenshot(dir: &Path) -> Result<PathBuf> {
             local_serial().await.context("no phone on the laptop's adb (wireless debugging off, or not on this Wi-Fi?)")?
         }
     };
-    let png = run_png(Command::new("adb").args(["-s", &serial, "exec-out", "screencap", "-p"]))
+    let power = run_adb(Command::new("adb").args(["-s", &serial, "shell", "dumpsys", "power"]))
+        .await
+        .context("adb dumpsys power")?;
+    if !screen_on(&String::from_utf8_lossy(&power)) {
+        bail!("the phone's screen is off");
+    }
+    let png = run_adb(Command::new("adb").args(["-s", &serial, "exec-out", "screencap", "-p"]))
         .await
         .context("adb screencap")?;
+    anyhow::ensure!(is_png(&png), "the phone gave no PNG");
     save(dir, "pixel", "png", &png)
+}
+
+/// Whether `adb shell dumpsys power` shows the screen on: the power manager is Awake, or the
+/// display's power state is ON.
+fn screen_on(dumpsys: &str) -> bool {
+    dumpsys.lines().any(|l| l.contains("mWakefulness=Awake") || l.contains("Display Power: state=ON"))
 }
 
 async fn local_serial() -> Option<String> {
@@ -142,7 +156,8 @@ fn first_device(list: &str) -> Option<String> {
     })
 }
 
-async fn run_png(cmd: &mut Command) -> Result<Vec<u8>> {
+/// Runs one adb command under the screenshot's time cap and returns its stdout.
+async fn run_adb(cmd: &mut Command) -> Result<Vec<u8>> {
     let out = cmd.stdin(Stdio::null()).kill_on_drop(true).output();
     let out = tokio::time::timeout(SHOT_TIMEOUT, out)
         .await
@@ -153,7 +168,6 @@ async fn run_png(cmd: &mut Command) -> Result<Vec<u8>> {
         let why = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("no output").trim();
         bail!("failed ({why})");
     }
-    anyhow::ensure!(is_png(&out.stdout), "the phone gave no PNG");
     Ok(out.stdout)
 }
 
@@ -186,6 +200,15 @@ mod tests {
         let list = "List of devices attached\nAAA\toffline\nBBB\tunauthorized usb:1\nadb-37171-x._adb-tls-connect._tcp\tdevice product:shiba\n\n";
         assert_eq!(first_device(list).as_deref(), Some("adb-37171-x._adb-tls-connect._tcp"));
         assert_eq!(first_device("List of devices attached\n\n"), None);
+    }
+
+    #[test]
+    fn screen_on_reads_dumpsys_power() {
+        assert!(screen_on("Power Manager State:\n  mWakefulness=Awake\n  mWakefulnessChanging=false\n"));
+        assert!(screen_on("  Display Power: state=ON\n"));
+        assert!(!screen_on("Power Manager State:\n  mWakefulness=Dozing\n  mWakefulnessChanging=false\n"));
+        assert!(!screen_on("  mWakefulness=Asleep\n  Display Power: state=OFF\n"));
+        assert!(!screen_on(""));
     }
 
     #[test]

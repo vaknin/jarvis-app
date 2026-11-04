@@ -223,7 +223,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   sent; Enter sends the strip and the text through `ui.sendWith`. Otherwise Ctrl+V pastes text. Alt+Print or
   Ctrl+Print (Omarchy binds Alt+Print to screen recording globally, so only Ctrl+Print reaches the box) runs
   `jarvis-link pixel-shot`: `adb exec-out screencap -p` on the phone the laptop's own adb sees (it finds it
-  over mDNS), and nothing else: no server fallback (Aviv 2026-11-04: "use the laptop connection then, don't delete
+  over mDNS), and nothing else: no server fallback; if `dumpsys power` shows the screen off (not Awake), it fails with "the phone's screen is off" and doesn't wake it (Aviv 2026-11-04: "use the laptop connection then, don't delete
   it, don't rename it. if the laptop connection won't work, don't try the server"), 15 s cap; the PNG lands in the same `pasted` dir and goes
   in the strip labelled `[Pixel Screenshot #N]` (numbered per message). A failure shows in the hint line. Right-click
   on a file: Open, and Copy image (`jarvis-link copy <file>`, PNG on the clipboard) or Copy path.
