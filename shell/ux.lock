@@ -5,6 +5,7 @@ changed flow laptop-tether-to-jarvis
   what: The laptop stopped running the old Tether build (tether.service, the kivan.tether panel from ~/Projects/tether) and runs jarvis-link.service and the kivan.jarvis panel from this repo; state stays in the old directory through crates/core/src/compat.rs.
   approved: 2026-11-04 "Cut over to Jarvis."
 
-changed flow laptop-phone-shot-laptop-adb-only
-  what: Ctrl/Alt+Print's phone screenshot comes only from the laptop's own adb; no server fallback. The laptop's adb setup stays as it is.
+removed flow laptop-phone-shot-laptop-adb-only
+  what: Ctrl/Alt+Print's phone screenshot comes only from the laptop's own adb; no server fallback. The laptop's adb setup stays as it is. It moved to the Jarvis app's text box (jarvis repo, tabs/tui: Ctrl+Print, the server's adb), and the laptop's adb server is stopped.
   approved: 2026-11-04 "use the laptop connection then, don't delete it, don't rename it. if the laptop connection won't work, don't try the server"
+  approved: 2026-11-04 "then in that case, we can drop the laptop's adb connection, and move everything (including the widget, to the server)"
