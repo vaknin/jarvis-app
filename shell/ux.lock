@@ -1,0 +1,10 @@
+# The laptop panel's UX lock: what Aviv agreed to change on his laptop, in his words, so it isn't
+# brought back or taken for a mistake. Same format as android/ux.lock.
+
+changed flow laptop-tether-to-jarvis
+  what: The laptop stopped running the old Tether build (tether.service, the kivan.tether panel from ~/Projects/tether) and runs jarvis-link.service and the kivan.jarvis panel from this repo; state stays in the old directory through crates/core/src/compat.rs.
+  approved: 2026-11-04 "Cut over to Jarvis."
+
+changed flow laptop-phone-shot-server-only
+  what: Ctrl/Alt+Print's phone screenshot comes only from the server's paired adb; the laptop's own adb isn't tried.
+  approved: 2026-11-04 "Nope, why does the laptop has an adb connection? do we even ever use it? I think server only is the way to go"
