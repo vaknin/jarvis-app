@@ -100,7 +100,7 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         effort: String,
     },
-    /// His choice of mode for the tab, from `mode::MODES`. It takes hold at the tab's next session.
+    /// His choice of mode for the tab, from `mode::MODES` (MODEL-EFFORT). It takes hold at the tab's next session.
     Mode { mode: String },
     /// The jobs this tab started that are still running, a title each, whole every time it changes.
     /// A job outlives its tab's sessions, so a session's start or end leaves this alone. `queued`: the
