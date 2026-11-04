@@ -1,9 +1,10 @@
-//! The old name, and the only place it's still spoken. The laptop runs the daemon built before the
-//! rename to Jarvis (thread #190), and laptop work is on hold, so the phone must keep speaking its
-//! protocol, and a future `jarvis-link` must find its identity where that daemon left it.
+//! The old name, and the only place it's still spoken. The laptop ran the daemon built before the
+//! rename to Jarvis (thread #190) until 2026-11-04, when it moved to `jarvis-link` with its state
+//! where the old daemon left it. The phone still speaks the old protocol, and the laptop's other
+//! widgets and scripts use the old socket and MPRIS names.
 //!
-//! Drop all of this once the laptop runs `jarvis-link`: the ALPNs and the pairing code change together
-//! on both ends, and the directories and the socket move in one step there.
+//! To drop this: the ALPNs and the pairing code change together on both ends, and the directories,
+//! the socket and the MPRIS name move in one step on the laptop, with what uses them there.
 
 use std::path::{Path, PathBuf};
 
@@ -19,6 +20,9 @@ pub const PAIR_WORD: &str = "tether";
 pub const SOCKET: &str = "tether.sock";
 /// The daemon's directory, under `$XDG_STATE_HOME` and `$XDG_CONFIG_HOME`.
 pub const DIR: &str = "tether";
+/// The phone's MPRIS player name: the laptop's phone-media widget and dictation script look for
+/// `org.mpris.MediaPlayer2.tether.` (kept 2026-11-04 when the laptop moved to `jarvis-link`).
+pub const MPRIS: &str = "org.mpris.MediaPlayer2.tether.pixel";
 
 /// The chat database's old file name.
 const OLD_DB: &str = "tether.db";

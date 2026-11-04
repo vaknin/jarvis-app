@@ -19,7 +19,10 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   removed from the laptop, nftables opens only UDP 47114 from the LAN for Jarvis): binary from
   `cargo install --path crates/daemon --locked` (`~/.cargo/bin/jarvis-link`), state and the paired identity in
   `~/.local/state/jarvis` (moved from the old dev dir), unit listed in `~/.config/laptop/paths`.
-  After daemon changes: reinstall, then `systemctl --user restart jarvis-link`.
+  After daemon changes: reinstall, then `systemctl --user restart jarvis-link`. The laptop's checkout is
+  `~/Projects/jarvis-app` (since the 2026-11-04 cut-over from `tether.service` and `~/Projects/tether`); its cargo is
+  mise's, with no global default: `mise exec rust@1.98.1 -- cargo install --path crates/daemon --locked`, with
+  `RUSTC_WRAPPER=` (its sccache server fails).
 - `android/`: **the lean app (2026-10-26, `docs/LEAN.md`)**, rebuilt from scratch after dibs was shut down: one chat
   with the laptop, files both ways (share tile "Laptop", attach), notifications with Reply, pairing, and the forum
   tunnel (`crates/ffi/src/forum.rs`). Package `com.kivan.jarvis`, signed with `~/.config/jarvis/jarvis.keystore`.
@@ -203,7 +206,7 @@ The full plan is in `docs/PLAN.md`. Read it before changing scope.
   Channel notifications (`Notifier.app`) alert once: one per channel, or one per post `tag`
   (`jarvis-link post --tag`, Android tag `app:<channel>:<tag>`); a button tap cancels only its own, and a
   view's `open_tags` cancels the tagged ones it no longer lists.
-- Daemon Phase 3: `mpris.rs` (zbus) holds `org.mpris.MediaPlayer2.jarvis.pixel` only while the
+- Daemon Phase 3: `mpris.rs` (zbus) holds `org.mpris.MediaPlayer2.tether.pixel` (`compat::MPRIS`, the name the laptop's widgets look for) only while the
   phone reports a session. `jarvis-link notifications --fresh` wakes the phone (FCM), waits for the
   snapshot and keeps the link up 2 min (rami-login polls it). `jarvis-link ring --stop`.
 - Phase 4, laptop chat: `shell/kivan.jarvis` (Omarchy plugin, linked and enabled by `shell/install.sh`,
@@ -257,8 +260,8 @@ The app was `com.kivan.tether` until 2026-10-30. Android treats the new id as an
 in instead of updating: tag `old-app-last` is the old app's last build, which offers the new one and hands over its
 data through a signature-only provider. The new app sits in standby, link off (`Move.off`, enforced in `Forum.start`,
 `Core.start`, `Voice.start`), until it has everything; `Move.kt` holds the steps. Exactly one app may hold the phone's
-iroh key. Only two places may still say the old name: `crates/core/src/compat.rs` (the laptop's daemon predates the
-rename: ALPNs, pairing code, socket, directories; drop it once the laptop runs `jarvis-link`) and `OLD_APP` in
+iroh key. Only two places may still say the old name: `crates/core/src/compat.rs` (ALPNs, pairing code, socket, directories and the MPRIS name; the
+laptop moved to `jarvis-link` on 2026-11-04 but the phone and the laptop's other scripts still use them) and `OLD_APP` in
 `android/app/build.gradle.kts` (drop `Move` once no phone can have the old app).
 
 ## Commits
@@ -322,7 +325,7 @@ Android: `cd android && ANDROID_HOME=~/Android/Sdk PATH=~/.cargo/bin:$PATH ./gra
     orientation);
   - a toast with `omarchy-notification-send --image file://… --exec xdg-open`, because DND drops
     toasts from other senders;
-  - MPRIS `org.mpris.MediaPlayer2.jarvis.pixel` through zbus.
+  - MPRIS `org.mpris.MediaPlayer2.tether.pixel` (`compat::MPRIS`) through zbus.
 
 ## Machine notes
 - Phone over adb: `pixel` (in `~/.local/bin`) connects to the Pixel over Wi-Fi and prints its serial: last address that

@@ -1,4 +1,4 @@
-//! The phone's media session as an MPRIS player, `org.mpris.MediaPlayer2.jarvis.pixel`, so the bar
+//! The phone's media session as an MPRIS player, `compat::MPRIS` (still the old `tether.pixel` name), so the bar
 //! widget, playerctl and media keys control the phone. The bus name is held only while the phone
 //! reports a session; the phone sends state on every change and the position is extrapolated here.
 
@@ -22,7 +22,7 @@ use zbus::{
     zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
 };
 
-pub const BUS_NAME: &str = "org.mpris.MediaPlayer2.jarvis.pixel";
+pub const BUS_NAME: &str = jarvis_core::compat::MPRIS;
 const PATH: &str = "/org/mpris/MediaPlayer2";
 /// A reported position this far from the extrapolated one counts as a seek.
 const SEEK_SLACK_MS: i64 = 1500;
