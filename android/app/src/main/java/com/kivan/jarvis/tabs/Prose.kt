@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -94,6 +95,7 @@ object Prose {
     private val BULLET = Regex("""^(\s*)[-*•]\s+(.*)$""")
     private val NUMBER = Regex("""^(\s*)(\d{1,3}[.)])\s+(.*)$""")
     private val HEAD = Regex("""^#{1,4}\s+(.*)$""")
+    private val LINK = Regex("""\[([^\]]+)]\((https?://[^)\s]+)\)|(https?://[^\s)]*[^\s).,;:!?])""")
     private val INLINE = Regex("""\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)]\((https?://[^)\s]+)\)|(?<![\w*])\*([^*\s][^*]*?)\*(?![\w*])|(https?://[^\s)]*[^\s).,;:!?])""")
 
     fun parse(text: String): List<Block> {
@@ -170,6 +172,34 @@ object Prose {
         if (at < text.length) out += Span(text.substring(at))
         return out
     }
+
+    /** Only the links in a line of words, the rest as written: a card's text keeps its stars and backticks. */
+    fun links(text: String): List<Span> {
+        val out = ArrayList<Span>()
+        var at = 0
+        for (m in LINK.findAll(text)) {
+            if (m.range.first > at) out += Span(text.substring(at, m.range.first))
+            val g = m.groupValues
+            out += if (g[1].isNotEmpty()) Span(g[1], Kind.Link, g[2]) else Span(g[3], Kind.Link, g[3])
+            at = m.range.last + 1
+        }
+        if (at < text.length) out += Span(text.substring(at))
+        return out
+    }
+}
+
+/** A card's words with their links live: a tap on a link opens it, anywhere else falls through to the card. */
+@Composable
+fun Linked(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = look.ink,
+    style: TextStyle = Words.label,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+) {
+    val spans = remember(text) { Prose.links(text) }
+    Text(annotated(spans), modifier, color, style = style, maxLines = maxLines, overflow = overflow)
 }
 
 /**

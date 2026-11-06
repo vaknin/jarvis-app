@@ -242,7 +242,7 @@ fun AskCard(c: CardView, note: String, onNote: (String) -> Unit, onOpen: () -> U
                 c.tabs.size > 1 -> Text("${c.tabs.size} tabs", color = look.faint, style = Words.small)
             }
         }
-        Text(
+        Linked(
             c.text,
             color = if (low) look.soft else look.ink,
             style = if (low) Words.label else Words.label.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.W600),
@@ -370,8 +370,8 @@ private fun Asked(i: Int, q: Question, pick: Int?, words: String, answered: Bool
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("${i + 1}", Modifier.width(14.dp), look.faint, style = Words.label.copy(fontWeight = FontWeight.W500))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(q.text, color = look.ink, style = Words.label.copy(fontWeight = FontWeight.W600))
-                if (q.why.isNotBlank()) Text(q.why, color = look.faint, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Linked(q.text, color = look.ink, style = Words.label.copy(fontWeight = FontWeight.W600))
+                if (q.why.isNotBlank()) Linked(q.why, color = look.faint, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (answered) Text("✓", color = look.soft, style = Words.label)
         }
@@ -561,8 +561,8 @@ fun AskSheet(c: CardView, note: String, onNote: (String) -> Unit, onAnswer: (Int
                     c.due != null && c.options.getOrNull(c.pick) != null -> Text(" · takes ${c.options[c.pick]} at ${clock(c.due)}", color = look.faint, style = Words.small, maxLines = 1)
                 }
             }
-            Text(c.text, color = look.ink, style = Words.title.copy(fontSize = 19.sp, lineHeight = 25.sp))
-            if (c.why.isNotBlank() && note.isEmpty()) Text(c.why, color = look.soft, style = Words.small.copy(fontSize = 14.sp, lineHeight = 20.sp))
+            Linked(c.text, color = look.ink, style = Words.title.copy(fontSize = 19.sp, lineHeight = 25.sp))
+            if (c.why.isNotBlank() && note.isEmpty()) Linked(c.why, color = look.soft, style = Words.small.copy(fontSize = 14.sp, lineHeight = 20.sp))
             NoteBox(
                 note, onNote,
                 if (c.options.isEmpty()) "Your answer" else "Add a note (optional), sent with your answer",

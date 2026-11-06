@@ -418,7 +418,7 @@ private fun Strip(text: String, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Triangle(look.onUrgent, 14.dp)
-        Text(text, color = look.onUrgent, style = Words.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Linked(text, color = look.onUrgent, style = Words.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
