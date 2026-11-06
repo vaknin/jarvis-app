@@ -28,13 +28,23 @@ class IssuesTest {
         rule.mainClock.advanceTimeBy(1200)
     }
 
-    @Test fun theBarIsTheAverageStepOfTheOpenOnes() {
+    @Test fun theBarIsOneSegmentPerIssueFilledByItsOwnStep() {
         val bar = issuesBar(Fake.issues)!!
-        // Testing (2), Building (1), Planning (0); the done one doesn't count.
-        assertEquals(3f / 12f, bar.done, 0.001f)
-        assertEquals("3 issues · held", bar.words)
-        assertNull("nothing open, no bar", issuesBar(Fake.issues.filter { !it.open }))
-        assertEquals("1 issue", issuesBar(listOf(IssueView(1, "x", "b", 3)))!!.words)
+        assertEquals(listOf(39L, 40L, 41L, 42L, 43L), bar.segments.map { it.id })
+        assertEquals(listOf(4, 4, 2, 1, 0), bar.segments.map { it.step })
+        assertEquals("2 of 5 done · held", bar.words)
+        assertNull("no issues, no bar", issuesBar(emptyList()))
+        assertEquals("done today still shows", "1 of 1 done", issuesBar(listOf(IssueView(1, "x", "b", 4)))!!.words)
+        assertEquals("0 of 1 done · held", issuesBar(listOf(IssueView(1, "x", "b", 0, held = true)))!!.words)
+    }
+
+    @Test fun pastEightTheBarKeepsTheMostRecentOpenOnesAndTheWordsCountAll() {
+        val many = (1L..10L).map { IssueView(it, "issue $it", "b", if (it <= 2) 4 else 1) }
+        val bar = issuesBar(many)!!
+        assertEquals(MAX_SEGMENTS, bar.segments.size)
+        // The eight most recent open ones, in filing order; the done ones go first.
+        assertEquals((3L..10L).toList(), bar.segments.map { it.id })
+        assertEquals("2 of 10 done", bar.words)
     }
 
     @Test fun whereSaysTheTryFromTwoOn() {

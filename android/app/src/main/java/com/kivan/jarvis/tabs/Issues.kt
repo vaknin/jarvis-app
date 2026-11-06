@@ -59,18 +59,25 @@ data class IssueView(
     val open: Boolean get() = step < 4
 }
 
-/** The tab's bar: how far its open issues are on average (0 to 1), how many, and whether the freeze holds any. */
+/** The most segments the bar draws; the words still count every issue (the jarvis repo's tabs/wire `SEGMENTS`). */
+const val MAX_SEGMENTS = 8
+
+/**
+ * The tab's bar, the wall's (tabs/wire `issues_bar`): one segment per issue in filing order, each filled by its
+ * own step, so a new issue adds a segment instead of pulling the rest back. Past [MAX_SEGMENTS], the most
+ * recent open ones.
+ */
 @Immutable
-data class IssuesBar(val done: Float, val open: Int, val held: Boolean) {
-    /** "3 issues · held", the words beside the bar. */
-    val words: String get() = "$open issue${if (open == 1) "" else "s"}" + if (held) " · held" else ""
+data class IssuesBar(val segments: List<IssueView>, val done: Int, val total: Int, val held: Boolean) {
+    /** "2 of 5 done · held", the words beside the bar. */
+    val words: String get() = "$done of $total done" + if (held) " · held" else ""
 }
 
-/** The bar, as the wall's: null with nothing open. */
+/** The bar: null with no issues. Done ones stay on it for the day they went live, as the server sends them. */
 fun issuesBar(issues: List<IssueView>): IssuesBar? {
-    val open = issues.filter { it.open }
-    if (open.isEmpty()) return null
-    return IssuesBar(open.sumOf { it.step.coerceIn(0, 4) } / (open.size * 4f), open.size, open.any { it.held })
+    if (issues.isEmpty()) return null
+    val shown = if (issues.size <= MAX_SEGMENTS) issues else issues.filter { it.open }.takeLast(MAX_SEGMENTS)
+    return IssuesBar(shown, issues.count { !it.open }, issues.size, issues.any { it.held })
 }
 
 private val STEPS = listOf("Planning", "Building", "Testing", "Shipping", "Done")
@@ -87,13 +94,19 @@ fun IssuesBarRow(bar: IssuesBar, onOpen: () -> Unit, modifier: Modifier = Modifi
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClickLabel = "See this tab's issues") { onOpen() }
             .heightIn(min = 40.dp)
-            .semantics { contentDescription = "${bar.words}, ${(bar.done * 100).toInt()}% along" }
+            .semantics { contentDescription = bar.words }
             .testTag("issues"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.width(88.dp).height(4.dp).clip(CircleShape).background(look.line)) {
-            Box(Modifier.fillMaxWidth(bar.done.coerceIn(0.04f, 1f)).fillMaxHeight().clip(CircleShape).background(look.working))
+        Row(Modifier.width(112.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            for (i in bar.segments) {
+                Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(look.line)) {
+                    if (i.step > 0) {
+                        Box(Modifier.fillMaxWidth(i.step.coerceIn(0, 4) / 4f).fillMaxHeight().clip(CircleShape).background(look.working))
+                    }
+                }
+            }
         }
         Text(bar.words, color = look.soft, style = Words.small, maxLines = 1)
     }

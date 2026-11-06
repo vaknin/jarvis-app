@@ -123,12 +123,13 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
 
 *Took 1 h 40 min · Piano board · from this tab*"""
 
-    /** A tab's issues under 2.0, one of each kind of state. */
+    /** A tab's issues under 2.0, one of each kind of state, in filing order as the server sends them. */
     val issues = listOf(
+        IssueView(39, "Keys light up with the detector", "Piano", 4, label = "Done", detail = listOf("Live on your phone since 7:40 p.m.")),
+        IssueView(40, "The update prompt shows once", "Piano", 4, label = "Done", detail = listOf("Live on your phone since 8:55 p.m.")),
         IssueView(41, "Dark mode for the piano app", "Piano", 2, 2, "Testing · try 2", eta = "about 40 min", detail = listOf("Try 1 failed: the key shadows were unreadable on true black.", "Now on dark grey, testing on the emulator.")),
         IssueView(42, "Chord colours follow dark mode", "Piano", 1, label = "Building", detail = listOf("Filed from your message at 9:12 p.m.")),
         IssueView(43, "Lesson screen layout for tablets", "Piano", 0, label = "Planning", held = true, detail = listOf("Held: the usage freeze is on until 11:00 p.m.")),
-        IssueView(40, "The update prompt shows once", "Piano", 4, label = "Done", detail = listOf("Live on your phone since 8:55 p.m.")),
     )
 
     fun deck(n: Int = 9, online: Boolean = true, v2: Boolean = false): DeckState {

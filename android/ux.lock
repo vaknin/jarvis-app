@@ -30,3 +30,12 @@ added flow android-card-note-line
 added flow android-auto-button
   what: Autopilot is option B: an "Auto" button next to Call in a tab's box, and the same between Mute and End on that tab's call screen. Until the server builds autopilot it says so in a line.
   approved: 2026-11-02 "Now I like B. You can tell the tab that I went with B, which is what I pressed by mistake, but I actually want it anyway."
+
+added flow android-issues-bar
+  what: Under Jarvis 2.0 a tab's jobs line becomes its issues bar: one segment per issue, each filled by its own step, with "2 of 5 done" (and "held" under the usage freeze); past 8 it shows the most recent open ones. A tap opens the tab's issues as a sheet (the phone's alt+j), and a tap on an issue shows why it's where it is. Without 2.0 the jobs line stays as it was.
+  approved: 2026-11-06 "agreed"
+  approved: 2026-11-06 "I already agree. you can drop the pages and continue with executing"
+
+added flow android-done-line
+  what: Under Jarvis 2.0 a "✅ Done:" answer has its headline in bold and its last line, how long it took and where, small and dim.
+  approved: 2026-11-06 "agreed"

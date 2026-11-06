@@ -5,7 +5,7 @@ Branch only, not on master: waits on Aviv's ux answer (plan section 15 row 9). u
 - Wire: `crates/tabs-wire` gets D1's additive `IssueBar`, `Tile.issues` and `Body::Jobs.issues` (same shape as the
   jarvis repo's branch jarvis/read-home-jarvis-jarvis-briefs-1793922773). `crates/ffi` carries them as `TabRec.issues`
   (`IssueRec`). Outside android/** because the phone reads the wire through the ffi; additive, serde default.
-- Phone (`tabs/Issues.kt`): with open issues the jobs line's slot shows the bar (average step, "N issues · held");
+- Phone (`tabs/Issues.kt`): with any issues the jobs line's slot shows the bar (one segment per issue in filing order, each filled by its own step, at most 8, the most recent open ones; "2 of 5 done · held", as D1's tabs/wire `issues_bar`);
   a tap opens the overview sheet ("Issues from TAB": title, 4-dot stepper, label/try, held, eta, board); a tap on a
   row shows its detail. A Jarvis answer starting "✅ Done: " gets a bolder headline and a dim footer. Without issues
   from the server everything is as today (IssuesTest.withoutIssuesTheTabLooksAsToday).

@@ -116,11 +116,22 @@ impl IssueBar {
     }
 }
 
-/// The tab's bar: the average step of its open issues, 0.0 to 1.0, how many, and whether the freeze holds any.
-/// None with nothing open.
-pub fn issues_bar(issues: &[IssueBar]) -> Option<(f64, usize, bool)> {
-    let open: Vec<&IssueBar> = issues.iter().filter(|i| i.open()).collect();
-    (!open.is_empty()).then(|| (open.iter().map(|i| f64::from(i.step)).sum::<f64>() / (open.len() as f64 * 4.0), open.len(), open.iter().any(|i| i.held)))
+/// Segments the bar shows at most (boards/src/progress.rs `SEGMENTS`).
+pub const SEGMENTS: usize = 8;
+
+/// The tab's bar: one segment per issue on the tile, in filing order, each its own step (0 to 4); past `SEGMENTS`
+/// the most recent open ones. Then how many are done of all, and whether the freeze holds any. None with none.
+pub fn issues_bar(issues: &[IssueBar]) -> Option<(Vec<u8>, usize, usize, bool)> {
+    if issues.is_empty() {
+        return None;
+    }
+    let steps: Vec<u8> = if issues.len() <= SEGMENTS {
+        issues.iter().map(|i| i.step).collect()
+    } else {
+        let open: Vec<u8> = issues.iter().filter(|i| i.open()).map(|i| i.step).collect();
+        open[open.len().saturating_sub(SEGMENTS)..].to_vec()
+    };
+    Some((steps, issues.iter().filter(|i| !i.open()).count(), issues.len(), issues.iter().any(|i| i.held)))
 }
 
 /// A question of the tab's that's still open: answered by his `said` replying to `offset`, or closed
