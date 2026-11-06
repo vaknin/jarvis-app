@@ -1463,9 +1463,18 @@ mod tests {
         let r = tab(&d.take(), "t1");
         assert!(r.entries.is_empty(), "its needs line stands for the card, which already shows");
         assert_eq!(r.asks.len(), 1);
-        assert_eq!((r.asks[0].tabs[0].q.as_str(), r.asks[0].pick, r.asks[0].due, r.asks[0].level), ("q9", 1, Some(99), Level::Low));
+        assert_eq!((r.asks[0].tabs[0].q.as_str(), r.asks[0].pick, r.asks[0].due, r.asks[0].level), ("q9", 1, None, Level::Low), "defaults off: no deadline");
         d.answer("t1".into(), "q9".into(), vec![0], String::new());
         assert!(tab(&d.take(), "t1").asks.is_empty(), "answered here, gone here too");
+
+        // He lets the tab decide: a question asked from then on keeps its deadline.
+        event(&mut d, "t1", Event { offset: 12, at: 6, body: Body::Defaults { on: true, by: jarvis_tabs_wire::By::Aviv, arm: vec![] } });
+        let item = Item { text: "Red or gold?".into(), options: vec!["Red".into(), "Gold".into()], pick: 0, ..Item::default() };
+        let body = Body::Question { q: "q10".into(), ap: None, ask: jarvis_tabs_wire::AskKind::Tie, level: Urgency::Low, suggest_urgent: false, items: vec![item], due: Some(99), blocks: false };
+        event(&mut d, "t1", Event { offset: 13, at: 6, body });
+        let r = tab(&d.take(), "t1");
+        assert_eq!(r.asks.len(), 1);
+        assert_eq!((r.asks[0].tabs[0].q.as_str(), r.asks[0].pick, r.asks[0].due, r.asks[0].level), ("q10", 0, Some(99), Level::Low), "defaults on: the deadline crosses");
     }
 
     #[test]
