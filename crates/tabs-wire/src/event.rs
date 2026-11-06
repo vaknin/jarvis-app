@@ -112,6 +112,9 @@ pub enum Body {
         /// The line every screen shows about them, written by the server so none counts for itself.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         line: String,
+        /// Jarvis 2.0 only: the tab's issues, as the bar and alt+j show them. Empty, it's today's line.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        issues: Vec<crate::tile::IssueBar>,
     },
     /// In the wall's own record: a tab came onto the wall, at the end of the row, at place `n`.
     Opened { n: u32, id: String },

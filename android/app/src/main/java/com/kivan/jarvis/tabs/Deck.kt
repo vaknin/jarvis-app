@@ -142,6 +142,8 @@ data class TabView(
     val waiting: Boolean = false,
     /** Its own questions still open, the same cards as on Needs you: answering either clears both. */
     val asks: List<CardView> = emptyList(),
+    /** Jarvis 2.0 only: the issues it filed. Open ones put the bar where [jobs] stood; empty, it's today's look. */
+    val issues: List<IssueView> = emptyList(),
 )
 
 @Immutable

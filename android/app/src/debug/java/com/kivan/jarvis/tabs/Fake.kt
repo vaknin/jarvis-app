@@ -113,7 +113,25 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
         DigestView("t8", "Jarvis", tonight(0, 5), 1, "report", "A turn stalled 6 min, resumed once."),
     )
 
-    fun deck(n: Int = 9, online: Boolean = true): DeckState {
+    /** Jarvis 2.0's Done line, as the jarvis repo's cli/src/done.rs writes it. */
+    const val DONE = """✅ Done: The update prompt shows once, on the next app open
+- It no longer pops up mid-call
+- "Later" really waits a day now
+- Your phone has it already
+
+Changed: the prompt's "Remind me" button is gone; "Later" does the same.
+
+*Took 1 h 40 min · Piano board · from this tab*"""
+
+    /** A tab's issues under 2.0, one of each kind of state. */
+    val issues = listOf(
+        IssueView(41, "Dark mode for the piano app", "Piano", 2, 2, "Testing · try 2", eta = "about 40 min", detail = listOf("Try 1 failed: the key shadows were unreadable on true black.", "Now on dark grey, testing on the emulator.")),
+        IssueView(42, "Chord colours follow dark mode", "Piano", 1, label = "Building", detail = listOf("Filed from your message at 9:12 p.m.")),
+        IssueView(43, "Lesson screen layout for tablets", "Piano", 0, label = "Planning", held = true, detail = listOf("Held: the usage freeze is on until 11:00 p.m.")),
+        IssueView(40, "The update prompt shows once", "Piano", 4, label = "Done", detail = listOf("Live on your phone since 8:55 p.m.")),
+    )
+
+    fun deck(n: Int = 9, online: Boolean = true, v2: Boolean = false): DeckState {
         val tiles = tiles(n)
         val tabs = tiles.associate { t ->
             t.id to when (t.id) {
@@ -128,7 +146,15 @@ Do you want the fix in today's build, or should it wait for the piano lesson scr
                     WorkView("Waiting on your answer", System.currentTimeMillis() - 2_000).takeIf { false },
                     asks = listOf(cards[0].copy(tabs = listOf(CardTab("t2", t.name, "q1")))),
                 )
-                "t3" -> TabView(
+                "t3" -> if (v2) TabView(
+                    t.copy(working = true),
+                    listOf(
+                        Entry.Yours("y1", "Add dark mode and fix the update prompt"),
+                        Entry.Answer("a1", 6, "Both are filed on the Piano board. I'll tell you when each is live."),
+                        Entry.Answer("a2", 14, DONE),
+                    ),
+                    issues = issues,
+                ) else TabView(
                     t.copy(working = true),
                     listOf(Entry.Yours("y1", "Add dark mode and fix the update prompt"), Entry.Answer("a1", 6, "Both are running side by side. I'll check them and tell you.")),
                     jobs = "2 jobs running: Dark mode, The update prompt",

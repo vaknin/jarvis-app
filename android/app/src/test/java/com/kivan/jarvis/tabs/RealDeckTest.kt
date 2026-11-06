@@ -16,7 +16,7 @@ class RealDeckTest {
     private val rec = TileRec("t1", 3u, "Piano app", needs = false, unread = true, working = false, mode = "", model = "opus", effort = "medium", autopilot = false)
 
     private fun tab(from: UInt, vararg entries: EntryRec) =
-        TabRec(rec, from, entries.toList(), working = false, what = "", since = 0u, jobs = "", waiting = false, closed = false, loading = false, asks = emptyList())
+        TabRec(rec, from, entries.toList(), working = false, what = "", since = 0u, jobs = "", issues = emptyList(), waiting = false, closed = false, loading = false, asks = emptyList())
 
     private fun quiet(key: String) = EntryRec.Quiet(key, key)
 
@@ -24,6 +24,12 @@ class RealDeckTest {
     fun aTabFrameReplacesFromItsFromOn() {
         val s = DeckState().with(tab(0u, quiet("a"), quiet("b"), quiet("c"))).with(tab(1u, quiet("x")))
         assertEquals(listOf("a", "x"), s.tabs["t1"]!!.entries.map { it.key })
+    }
+
+    @Test
+    fun aTabsIssuesCrossAsTheServerSaysThem() {
+        val r = com.kivan.jarvis.core.IssueRec(7, "Dark mode", "Piano", 2u, 2u, "Testing · try 2", true, "about 40 min", listOf("why"))
+        assertEquals(IssueView(7, "Dark mode", "Piano", 2, 2, "Testing · try 2", true, "about 40 min", listOf("why")), issue(r))
     }
 
     @Test

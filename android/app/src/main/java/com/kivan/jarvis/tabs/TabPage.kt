@@ -238,6 +238,10 @@ fun TabPage(
         onTaken()
     }
 
+    val bar = remember(tab.issues) { issuesBar(tab.issues) }
+    var issuesOpen by remember { mutableStateOf(false) }
+    if (issuesOpen) IssuesSheet(tab.tile.name, tab.issues) { issuesOpen = false }
+
     Box(modifier.fillMaxSize()) {
     Page {
         Header(tab, onWall, onClose, onMode)
@@ -257,7 +261,7 @@ fun TabPage(
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Box(Modifier.width(96.dp).height(2.dp).workLine(look.faint, LocalGlide.current))
                 }
-            } else if (rows.isEmpty() && tab.work == null && tab.jobs.isEmpty()) {
+            } else if (rows.isEmpty() && tab.work == null && tab.jobs.isEmpty() && bar == null) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text("Nothing here yet", color = look.faint, style = Words.label)
                 }
@@ -276,7 +280,10 @@ fun TabPage(
                     if (tab.work != null) {
                         item(key = "work", contentType = "work") { WorkRow(tab.work, active && online) }
                     }
-                    if (tab.jobs.isNotEmpty()) {
+                    if (bar != null) {
+                        // 2.0: its issues' bar stands where the jobs line was.
+                        item(key = "issues", contentType = "issues") { IssuesBarRow(bar, { issuesOpen = true }) }
+                    } else if (tab.jobs.isNotEmpty()) {
                         item(key = "jobs", contentType = "jobs") {
                             Text(tab.jobs, Modifier.testTag("jobs"), look.faint, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
@@ -479,6 +486,8 @@ private fun AnswerView(
     onOpen: (QuoteMark) -> Unit,
 ) {
     val blocks = remember(entry.text) { Prose.parse(entry.text) }
+    // 2.0's Done line: its headline bolder, its footer dim. Only that server writes one.
+    val done = isDoneLine(entry.text)
     val buzz = rememberBuzz()
     val to = entry.offset
     // A hold that ends where it began is a mark, not the word Compose picked on the way: only a fresh
@@ -487,7 +496,9 @@ private fun AnswerView(
     Column {
         key(unselect) {
             if (!canMark || to == null) {
-                SelectionContainer { ProseView(blocks) }
+                SelectionContainer {
+                    ProseView(blocks) { i, b, m -> if (done) DoneBlock(i, blocks.lastIndex, b, m) { BlockView(b, modifier = it) } else BlockView(b, modifier = m) }
+                }
             } else {
                 Quotable({ words -> onOpen(QuoteMark(to, blocks.place(words), words)) }) {
                     ProseView(blocks) { i, block, spaced ->
@@ -522,7 +533,7 @@ private fun AnswerView(
                                 }
                             },
                             modifier = spaced,
-                        )
+                        ) { if (done) DoneBlock(i, blocks.lastIndex, block, Modifier) { BlockView(block) } else BlockView(block) }
                     }
                 }
             }
@@ -547,7 +558,15 @@ private val SWIPE = 64.dp
  * next tab; a swipe right over an answer replies instead of going back a tab, which the header still does.
  */
 @Composable
-private fun MarkableBlock(block: Block, state: Paragraph, onSwipe: () -> Unit, onHold: () -> Unit, onTap: () -> Unit, modifier: Modifier) {
+private fun MarkableBlock(
+    block: Block,
+    state: Paragraph,
+    onSwipe: () -> Unit,
+    onHold: () -> Unit,
+    onTap: () -> Unit,
+    modifier: Modifier,
+    content: @Composable () -> Unit = { BlockView(block) },
+) {
     val scope = rememberCoroutineScope()
     val buzz = rememberBuzz()
     var holding by remember { mutableStateOf(false) }
@@ -662,7 +681,7 @@ private fun MarkableBlock(block: Block, state: Paragraph, onSwipe: () -> Unit, o
                 translationX = pull.value / 2 - 9.dp.toPx()
             },
         )
-        Box(Modifier.graphicsLayer { translationX = pull.value }) { BlockView(block) }
+        Box(Modifier.graphicsLayer { translationX = pull.value }) { content() }
     }
 }
 

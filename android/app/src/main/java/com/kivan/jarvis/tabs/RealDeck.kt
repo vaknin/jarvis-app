@@ -14,6 +14,7 @@ import com.kivan.jarvis.core.CardRec
 import com.kivan.jarvis.core.ClosedRec
 import com.kivan.jarvis.core.DigestRec
 import com.kivan.jarvis.core.EntryRec
+import com.kivan.jarvis.core.IssueRec
 import com.kivan.jarvis.core.Landing
 import com.kivan.jarvis.core.OutFile
 import com.kivan.jarvis.core.QuoteRec
@@ -367,9 +368,13 @@ internal fun DeckState.with(tab: TabRec): DeckState {
         tab.jobs,
         tab.waiting,
         tab.asks.map(::card),
+        tab.issues.map(::issue),
     )
     return copy(tabs = tabs + (id to view)).foldDrafts(id)
 }
+
+internal fun issue(r: IssueRec) =
+    IssueView(r.id, r.title, r.board, r.step.toInt(), r.tryN.toInt(), r.label, r.held, r.eta, r.detail)
 
 /** How much of a whole answer travels as its quote: enough to say which one, the session has the rest. */
 private const val WHOLE_ANSWER = 280

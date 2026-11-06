@@ -150,6 +150,35 @@ pub enum EntryRec {
     Quiet { key: String, text: String },
 }
 
+/// One issue a tab filed, as the bar and the overview show it (the wire's `IssueBar`).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct IssueRec {
+    pub id: i64,
+    pub title: String,
+    pub board: String,
+    /// 0 Planning, 1 Building, 2 Testing, 3 Shipping, 4 Done.
+    pub step: u8,
+    pub try_n: u32,
+    pub label: String,
+    pub held: bool,
+    pub eta: String,
+    pub detail: Vec<String>,
+}
+
+fn issue_rec(i: &jarvis_tabs_wire::IssueBar) -> IssueRec {
+    IssueRec {
+        id: i.id,
+        title: i.title.clone(),
+        board: i.board.clone(),
+        step: i.step.min(4),
+        try_n: i.try_n,
+        label: i.label.clone(),
+        held: i.held,
+        eta: i.eta.clone(),
+        detail: i.detail.clone(),
+    }
+}
+
 /// A tab that changed. `entries` replace everything from `from` on.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TabRec {
@@ -162,6 +191,8 @@ pub struct TabRec {
     pub since: u64,
     /// The one small line about the jobs it started, empty with none.
     pub jobs: String,
+    /// Jarvis 2.0 only: the issues it filed, open ones and those done today. Empty, the jobs line shows as today.
+    pub issues: Vec<IssueRec>,
     /// His quiet words wait in it, for the turn's end or for a send-now.
     pub waiting: bool,
     pub closed: bool,
@@ -899,6 +930,7 @@ impl Desk {
                 what: open.map_or(String::new(), |(_, what)| what.clone()),
                 since: open.and_then(|(id, _)| t.began.get(id).copied()).unwrap_or(0),
                 jobs: t.tile.jobs_line().unwrap_or_default(),
+                issues: t.tile.issues.iter().map(issue_rec).collect(),
                 waiting: t.waiting > 0,
                 closed: t.closed,
                 loading: t.end < t.tile.end,
@@ -1450,6 +1482,20 @@ mod tests {
         assert!(told.contains(&Told::Refused("t1".into(), "autopilot isn't built yet".into())));
         assert!(!told.iter().any(|t| matches!(t, Told::Back(..))), "his words aren't sent back");
         assert!(d.tabs["t1"].pending[0].failed.is_none());
+    }
+
+    #[test]
+    fn tabs_a_tabs_issues_cross_with_it_and_none_is_todays_jobs_line() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        let jobs = |issues| Body::Jobs { jobs: vec!["Dark mode".into()], queued: vec![], line: "1 job running: Dark mode".into(), issues };
+        event(&mut d, "t1", Event { offset: 10, at: 5, body: jobs(vec![]) });
+        let r = tab(&d.take(), "t1");
+        assert_eq!((r.jobs.as_str(), r.issues.len()), ("1 job running: Dark mode", 0), "without 2.0, today's line alone");
+        let i = jarvis_tabs_wire::IssueBar { id: 7, title: "Dark mode".into(), board: "Piano".into(), step: 2, try_n: 2, label: "Testing · try 2".into(), held: true, ..Default::default() };
+        event(&mut d, "t1", Event { offset: 11, at: 6, body: jobs(vec![i]) });
+        let r = tab(&d.take(), "t1");
+        assert_eq!((r.issues[0].id, r.issues[0].step, r.issues[0].try_n, r.issues[0].held, r.issues[0].label.as_str()), (7, 2, 2, true, "Testing · try 2"));
     }
 
     #[test]

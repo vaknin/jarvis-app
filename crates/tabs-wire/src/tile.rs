@@ -44,6 +44,10 @@ pub struct Tile {
     /// The line about them, in the server's words (`jobs_line`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub jobs_said: String,
+    /// Jarvis 2.0 only (`~/.jarvis/v2`): the issues this tab filed, open ones and those done today, as the server
+    /// reads them from boards.db. Their bar stands where the jobs line was; alt+j lists them. Empty without 2.0.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<IssueBar>,
     /// The session running, by the record's word.
     pub session: Option<String>,
     /// The tab's level: how hard what it asks reaches him.
@@ -71,6 +75,52 @@ pub struct Tile {
     /// The offsets behind `digest_new`, the same way.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     digest: Vec<u64>,
+}
+
+/// One issue a tab filed, as its screens show it (plan section 10). The server fills it from
+/// `jarvis_boards::progress`, so every screen says the same.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct IssueBar {
+    pub id: i64,
+    pub title: String,
+    /// Its board's name.
+    pub board: String,
+    /// 0 Planning, 1 Building, 2 Testing, 3 Shipping, 4 Done: never moves back.
+    pub step: u8,
+    /// The try running or next; the screens say it from 2 on.
+    #[serde(default, skip_serializing_if = "is_one")]
+    pub try_n: u32,
+    /// Where it is, in words: "Testing · try 2", "Planning (try 3)", "Waiting on you".
+    pub label: String,
+    /// The usage freeze holds it back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
+    /// "about 40 min", once five like it are done on its board; else empty and nothing shows.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub eta: String,
+    /// Shown only when he opens its row: why it's where it is, and the rest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub detail: Vec<String>,
+}
+
+fn is_one(n: &u32) -> bool {
+    *n <= 1
+}
+
+/// The steps by name, for the stepper.
+pub const STEPS: [&str; 5] = ["Planning", "Building", "Testing", "Shipping", "Done"];
+
+impl IssueBar {
+    pub fn open(&self) -> bool {
+        self.step < 4
+    }
+}
+
+/// The tab's bar: the average step of its open issues, 0.0 to 1.0, how many, and whether the freeze holds any.
+/// None with nothing open.
+pub fn issues_bar(issues: &[IssueBar]) -> Option<(f64, usize, bool)> {
+    let open: Vec<&IssueBar> = issues.iter().filter(|i| i.open()).collect();
+    (!open.is_empty()).then(|| (open.iter().map(|i| f64::from(i.step)).sum::<f64>() / (open.len() as f64 * 4.0), open.len(), open.iter().any(|i| i.held)))
 }
 
 /// A question of the tab's that's still open: answered by his `said` replying to `offset`, or closed
@@ -195,7 +245,8 @@ impl Tile {
                 self.digest.retain(|o| *o > seen);
                 self.digest_new = self.digest.len() as u32;
             }
-            Body::Jobs { jobs, queued, line } => {
+            Body::Jobs { jobs, queued, line, issues } => {
+                self.issues = issues.clone();
                 self.jobs = jobs.clone();
                 self.queued = queued.clone();
                 self.jobs_said = line.clone();

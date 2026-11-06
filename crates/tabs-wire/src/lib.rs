@@ -11,4 +11,4 @@ pub mod tile;
 pub use event::{first_line, Body, By, Event, FileRef, Reply, SessionState, TurnTokens, Urgency, Via, Who, WorkEnd, WorkState};
 pub use frame::{decode, encode, Ask, Card, CardTab, DigestLine, Info, Tell, FrameError, MAX_FRAME, OPEN, QUEUE, WALL};
 pub use autopilot::{ApState, ApTile, AskKind, Autopilot, Check, Criterion, Item, QuietWhy, Status};
-pub use tile::{OpenAsk, Tile};
+pub use tile::{issues_bar, IssueBar, OpenAsk, Tile};
