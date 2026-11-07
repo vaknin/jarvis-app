@@ -179,6 +179,26 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
             digest = digest,
         )
     }
+
+    /**
+     * The library fold's main chat and threads over today's data: threads with step blocks (one waits on
+     * him, one runs, one is done), report lines, and two cards waiting for his answer, at their times.
+     */
+    fun fold(n: Int = 6): DeckState {
+        val base = deck(n, v2 = true)
+        fun steps(done: Int, open: Int) = List(done) { IssueView(100L + it, "Step ${it + 1}", "Memory", 4) } +
+            List(open) { IssueView(200L + it, "Step ${done + it + 1}", "Memory", if (it == 0) 2 else 0, label = if (it == 0) "Testing" else "") }
+        val issues = mapOf("t1" to steps(1, 3), "t2" to steps(2, 2), "t4" to steps(3, 0), "t5" to steps(1, 2))
+        val tabs = base.tabs.mapValues { (id, t) -> issues[id]?.let { t.copy(issues = it) } ?: t }
+        return base.copy(
+            tabs = tabs,
+            cards = listOf(
+                cards[0].copy(at = tonight(0, 42)),
+                cards[2].copy(at = tonight(0, 44)),
+            ),
+            digest = digest + DigestView("t4", "Lisbon trip", tonight(0, 41), 1, "done", "Fixed and landed, screenshot inside."),
+        )
+    }
 }
 
 /** The screens with no server: answers are made up here, so everything can be tried by hand. */

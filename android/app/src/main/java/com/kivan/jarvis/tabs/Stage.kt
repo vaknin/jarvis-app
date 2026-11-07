@@ -65,6 +65,8 @@ data class Opening(
     val digest: Boolean = false,
     /** The card whose dialog is open, by its key. */
     val asking: String? = null,
+    /** The library fold's main chat and threads (FoldStage) instead of Needs you and the wall: off until the switch. */
+    val fold: Boolean = false,
 )
 
 /** The tabs open when a tab was: frozen, so tiles don't reorder under his finger mid-swipe. */
@@ -80,6 +82,7 @@ private class Open(val order: List<String>, val first: Int)
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Stage(deck: Deck, opening: Opening = Opening()) {
+    if (opening.fold) return FoldStage(deck, opening.tab)
     // Immediate, so what's typed is back in the field before the next key: the field reads from here.
     val state by deck.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val scope = rememberCoroutineScope()

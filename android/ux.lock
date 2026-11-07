@@ -39,3 +39,17 @@ added flow android-issues-bar
 added flow android-done-line
   what: Under Jarvis 2.0 a "✅ Done:" answer has its headline in bold and its last line, how long it took and where, small and dim.
   approved: 2026-11-06 "agreed"
+
+removed flow android-tab-row
+  what: Under the library fold (behind its switch until the switch stage) there's no wall of tabs, no tab row and no Needs you list: one main chat where he talks, and a thread per subject that works and reports back to it. Threads (alt+l) lists them, + or alt+n opens one at once (his first line names it), alt+1..9 opens thread N. Mockup: jarvis-picks/fold-home-tabs.html, option A.
+  approved: 2026-11-07 "Yes, main chat and threads"
+  approved: 2026-11-07 "yes, but not as tabs / we don't want tabs"
+
+added flow android-fold-report-look
+  what: In the main chat a finished report is one calm grey line, and a card waiting on him is an orange-edged block with its answers as buttons. Out of view, a small jump chip counts only cards still waiting for his answer; finished reports never remind, an unread one keeps a small dot until seen. Mockup: jarvis-picks/fold-home-look.html, the in-view look and A3.
+  approved: 2026-11-08 "I like A3"
+  approved: 2026-11-08 "for cards it makes sense that i didn't reply yet and you 'remind' me / but how would we do that for reports? perhaps skip it, and do it only for cards waiting for my answer?"
+
+added flow android-fold-progress-bars
+  what: Threads show Iris's step blocks in the list and at the top of a thread: grey done, sky blue running, orange needs him, a hollow outline still to come (Okabe-Ito, protan-safe), with words beside them, never colour alone. Mockup: jarvis-picks/fold-progress-bars.html, option A.
+  approved: 2026-11-07 "Progress bars for threads - let's go with 'A', but use protan colorblind friendly colors instead"

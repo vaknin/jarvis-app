@@ -117,6 +117,8 @@ fun TabPage(
     onMode: (String, String) -> Unit = { _, _ -> },
     /** The server's no to an answer or to Auto here, in its words. */
     notice: String? = null,
+    /** The library fold's thread top in place of the tab's header; null keeps the header. */
+    top: (@Composable () -> Unit)? = null,
 ) {
     val deck = LocalDeck.current
     val notes = rememberNotes()
@@ -244,7 +246,7 @@ fun TabPage(
 
     Box(modifier.fillMaxSize()) {
     Page {
-        Header(tab, onWall, onClose, onMode)
+        if (top != null) top() else Header(tab, onWall, onClose, onMode)
         AnimatedVisibility(!online) { OfflineBar() }
         AnimatedVisibility(
             questionHidden,

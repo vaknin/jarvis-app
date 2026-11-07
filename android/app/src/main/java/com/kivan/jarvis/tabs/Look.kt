@@ -52,6 +52,10 @@ data class Look(
     /** A tile's fill while Jarvis is on it, and when it has something new: the wall reads by colour. */
     val workingFill: Color,
     val newFill: Color,
+    /** The library fold's step blocks (Okabe-Ito, safe for protan eyes; a word beside them always says it too). */
+    val stepRun: Color,
+    val stepNeed: Color,
+    val stepDone: Color,
 )
 
 private val Dark = Look(
@@ -70,6 +74,9 @@ private val Dark = Look(
     working = Color(0xFF6FD08C),
     workingFill = Color(0xFF263F32),
     newFill = Color(0xFF26384B),
+    stepRun = Color(0xFF56B4E9),
+    stepNeed = Color(0xFFE69F00),
+    stepDone = Color(0xFF8C8E92),
 )
 
 private val Light = Look(
@@ -88,6 +95,9 @@ private val Light = Look(
     working = Color(0xFF1F7A3D),
     workingFill = Color(0xFFCBDFD0),
     newFill = Color(0xFFC6DAF0),
+    stepRun = Color(0xFF0072B2),
+    stepNeed = Color(0xFFB86E00),
+    stepDone = Color(0xFF7A7C80),
 )
 
 val LocalLook = staticCompositionLocalOf { Dark }

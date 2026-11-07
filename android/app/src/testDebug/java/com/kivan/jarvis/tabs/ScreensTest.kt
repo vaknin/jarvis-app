@@ -77,6 +77,17 @@ class ScreensTest {
     @Test fun needsLight() = shot("needs-you-light", dark = false) { Stage(FakeDeck(Fake.deck(9))) }
     @Test fun needsEmpty() = shot("needs-you-empty") { Stage(FakeDeck(Fake.deck(9).copy(cards = emptyList()))) }
     @Test fun digest() = shot("digest") { Stage(FakeDeck(Fake.deck(9)), Opening(digest = true)) }
+    // The library fold (behind its switch): the main chat, the jump chip, the thread list, a thread, a new thread.
+    @Test fun foldHome() = shot("fold-home") { Stage(FakeDeck(Fake.fold()), Opening(fold = true)) }
+    // Newer reports push both cards out of view: the chip counts them, the reports never.
+    @Test fun foldChip() = shot("fold-home-chip") { Stage(FakeDeck(Fake.fold().let { s -> s.copy(digest = s.digest + List(20) { DigestView("t${it % 6 + 1}x$it", "Thread ${it + 1}", Long.MAX_VALUE / 2 + it, 1, "done", "Fixed and landed.") }) }), Opening(fold = true)) }
+    @Test fun foldThreads() = shot("fold-threads", capture = {
+        rule.onAllNodesWithText("Threads")[0].performClick()
+        rule.mainClock.advanceTimeBy(600)
+    }) { Stage(FakeDeck(Fake.fold()), Opening(fold = true)) }
+    @Test fun foldThread() = shot("fold-thread") { Stage(FakeDeck(Fake.fold()), Opening(tab = "t1", fold = true)) }
+    @Test fun foldThreadNeeds() = shot("fold-thread-needs") { Stage(FakeDeck(Fake.fold()), Opening(tab = "t2", fold = true)) }
+    @Test fun foldHomeLight() = shot("fold-home-light", dark = false) { Stage(FakeDeck(Fake.fold()), Opening(fold = true)) }
     @Test fun dialog() = shot("ask-dialog") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[0].key)) }
     @Test fun dialogThree() = shot("ask-dialog-3") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[2].key)) }
     // t116: an autopilot's intake is one card with all its questions.
