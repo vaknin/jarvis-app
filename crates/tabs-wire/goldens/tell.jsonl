@@ -1,4 +1,5 @@
 {"tell":"tabs","tabs":[{"n":1,"id":"t1","mirrored":false,"tile":{"name":"Piano app","line":"","needs":"","amber":false,"unread":0,"open":{},"session":null,"seen":0,"end":0}}]}
+{"tell":"tabs","tabs":[],"fold":true}
 {"tell":"closed","tabs":[]}
 {"tell":"opened","tab":{"n":2,"id":"t2","mirrored":true,"tile":{"name":"","line":"a line","needs":"which one?","amber":true,"unread":1,"open":{"w1":"Testing"},"session":"s1","seen":10,"end":40,"new":[40]}}}
 {"tell":"landed","id":"t1","offset":120}

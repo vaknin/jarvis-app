@@ -224,6 +224,8 @@ pub trait TabsListener: Send + Sync {
     fn queue(&self, cards: Vec<CardRec>, digest: Vec<DigestRec>);
     /// An answer or an autopilot switch the server refused, in its words, for tab `id`.
     fn refused(&self, id: String, why: String);
+    /// The library fold's switch on the server (`~/.jarvis/fold/threads-on`), whenever the screen hasn't heard it.
+    fn fold(&self, on: bool);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,6 +238,7 @@ enum Told {
     Unsent(Vec<OutFile>),
     Queue(Vec<CardRec>, Vec<DigestRec>),
     Refused(String, String),
+    Fold(bool),
 }
 
 /// An ask whose answer isn't about words: its `Landed` or `Refused` is its own.
@@ -494,6 +497,8 @@ struct Desk {
     asked: VecDeque<(String, Asked)>,
     /// Questions he just answered, hidden until the server's list drops them: the tab ids and q.
     answered: Vec<(String, String)>,
+    /// The fold's switch as the screen last heard it: none yet on this run.
+    fold: Option<bool>,
 }
 
 impl Desk {
@@ -554,7 +559,13 @@ impl Desk {
         self.wall_touched |= !self.online;
         (self.online, self.quiet_until) = (true, None);
         match tell {
-            Tell::Tabs { tabs } => self.listed(tabs),
+            Tell::Tabs { tabs, fold } => {
+                if self.fold != Some(fold) {
+                    self.fold = Some(fold);
+                    self.told.push(Told::Fold(fold));
+                }
+                self.listed(tabs)
+            }
             Tell::Closed { tabs } => {
                 self.closed = tabs;
                 self.wall_touched = true;
@@ -982,6 +993,7 @@ fn deliver() {
             Told::Unsent(files) => listener.unsent(files),
             Told::Queue(cards, digest) => listener.queue(cards, digest),
             Told::Refused(id, why) => listener.refused(id, why),
+            Told::Fold(on) => listener.fold(on),
         }
     }
 }
@@ -1330,16 +1342,29 @@ mod tests {
         let mut d = Desk::default();
         d.connected();
         assert!(!d.online);
-        d.tell(Tell::Tabs { tabs: vec![] });
+        d.tell(Tell::Tabs { tabs: vec![], fold: false });
         assert!(d.online);
         d.disconnected();
         assert!(!d.online);
     }
 
+    #[test]
+    fn the_fold_switch_reaches_the_screen_once_per_change() {
+        let mut d = Desk::default();
+        d.connected();
+        let folds = |d: &mut Desk| d.take().into_iter().filter_map(|t| if let Told::Fold(on) = t { Some(on) } else { None }).collect::<Vec<_>>();
+        d.tell(Tell::Tabs { tabs: vec![], fold: false });
+        assert_eq!(folds(&mut d), [false], "the first listing says where it stands");
+        d.tell(Tell::Tabs { tabs: vec![], fold: false });
+        assert!(folds(&mut d).is_empty());
+        d.tell(Tell::Tabs { tabs: vec![], fold: true });
+        assert_eq!(folds(&mut d), [true]);
+    }
+
     fn up(tabs: &[(&str, u64)]) -> Desk {
         let mut d = Desk::default();
         d.connected();
-        d.tell(Tell::Tabs { tabs: tabs.iter().enumerate().map(|(i, (id, end))| info(id, i as u32 + 1, *end)).collect() });
+        d.tell(Tell::Tabs { tabs: tabs.iter().enumerate().map(|(i, (id, end))| info(id, i as u32 + 1, *end)).collect(), fold: false });
         d
     }
 
@@ -1355,7 +1380,7 @@ mod tests {
             d.settle();
             assert_eq!(d.out, [Ask::List, Ask::Closed], "{kind}");
         }
-        d.tell(Tell::Tabs { tabs: vec![info("t3", 1, 10), info("t2", 2, 10)] });
+        d.tell(Tell::Tabs { tabs: vec![info("t3", 1, 10), info("t2", 2, 10)], fold: false });
         let told = d.take();
         let tiles = told.iter().find_map(|t| if let Told::Wall(tiles, ..) = t { Some(tiles) } else { None }).expect("the wall");
         let row: Vec<(&str, u32)> = tiles.iter().map(|t| (t.id.as_str(), t.n)).collect();
@@ -1578,7 +1603,7 @@ mod tests {
         assert!(texts(&tab(&{ d.tabs.get_mut("t1").unwrap().tail(); d.take() }, "t1")).contains(&"third, half".to_string()), "the reply mid-way stays");
 
         d.connected();
-        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 30)] });
+        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 30)], fold: false });
         assert!(d.out.contains(&Ask::Follow { id: "t1".into(), after: 20 }), "{:?}", d.out);
         // The new server sends the live block whole, and the old follow's last line crosses the new one's.
         d.tell(Tell::Text { id: "t1".into(), block: 1, from: 0, text: "third, half way".into() });
@@ -1823,7 +1848,7 @@ mod tests {
         d.disconnected();
         d.connected();
         d.out.clear();
-        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 10), info("t2", 2, 40)] });
+        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 10), info("t2", 2, 40)], fold: false });
         assert_eq!(d.out, [Ask::Follow { id: "t1".into(), after: 10 }, Ask::Follow { id: "t2".into(), after: 40 }]);
         event(&mut d, "t1", said(10, Who::Aviv, "hi"));
         assert_eq!(d.tabs["t1"].items.len(), 1);
@@ -1901,6 +1926,7 @@ mod road {
             panic!("words came back to {id}: {text}");
         }
         fn queue(&self, _cards: Vec<CardRec>, _digest: Vec<DigestRec>) {}
+        fn fold(&self, _on: bool) {}
         fn refused(&self, id: String, why: String) {
             panic!("{id} refused: {why}");
         }

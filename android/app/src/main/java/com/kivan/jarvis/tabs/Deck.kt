@@ -216,6 +216,8 @@ data class DeckState(
     val cards: List<CardView> = emptyList(),
     val digest: List<DigestView> = emptyList(),
     val notice: Notice? = null,
+    /** The library fold's switch, as the server last said it (`~/.jarvis/fold/threads-on`): main chat and threads instead of the wall. */
+    val fold: Boolean = false,
 )
 
 /** The key of the wall's own box in [DeckState.typed]. */

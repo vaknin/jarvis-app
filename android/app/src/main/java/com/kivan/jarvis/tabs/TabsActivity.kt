@@ -32,10 +32,8 @@ class TabsActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         deck = (lastNonConfigurationInstance as? Deck) ?: trialDeck(intent) ?: RealDeck.get(this)
-        // The library fold's off switch: `--ez fold true|false` sets it; off until the switch stage.
-        if (intent.hasExtra(FOLD)) Fold.set(this, intent.getBooleanExtra(FOLD, false))
-        val fold = Fold.on(this)
-        setContent { TabsTheme { Stage(deck, Opening(fold = fold)) } }
+        // The library fold's switch comes from the server (DeckState.fold), never from his screen.
+        setContent { TabsTheme { Stage(deck) } }
         (deck as? RealDeck)?.let { real ->
             real.asks.onEach(::ask).launchIn(lifecycleScope)
             if (savedInstanceState == null) AppOpen.asks(this)
@@ -120,7 +118,6 @@ class TabsActivity : ComponentActivity() {
 
     companion object {
         private const val TAB = "tab"
-        private const val FOLD = "fold"
         internal const val MIC = 10
         private const val PICK = 11
         private const val AWAY_MS = 10 * 60 * 1000L

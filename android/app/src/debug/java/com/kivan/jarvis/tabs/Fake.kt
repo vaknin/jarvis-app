@@ -191,6 +191,7 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
         val issues = mapOf("t1" to steps(1, 3), "t2" to steps(2, 2), "t4" to steps(3, 0), "t5" to steps(1, 2))
         val tabs = base.tabs.mapValues { (id, t) -> issues[id]?.let { t.copy(issues = it) } ?: t }
         return base.copy(
+            fold = true,
             tabs = tabs,
             cards = listOf(
                 cards[0].copy(at = tonight(0, 42)),

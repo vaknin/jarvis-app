@@ -255,7 +255,12 @@ pub struct Info {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "tell", rename_all = "lowercase")]
 pub enum Tell {
-    Tabs { tabs: Vec<Info> },
+    /// The wall's tabs; `fold` while the library fold's switch is on (`~/.jarvis/fold/threads-on`).
+    Tabs {
+        tabs: Vec<Info>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fold: bool,
+    },
     /// The closed tabs, newest first. `n` is the number each last had.
     Closed { tabs: Vec<Info> },
     Opened { tab: Info },

@@ -68,7 +68,7 @@ class RealDeck private constructor(
     private val prefs: SharedPreferences,
     private val files: File,
 ) : Deck, TabsListener {
-    private val flow = MutableStateFlow(Saved.read(prefs).let { s -> s.copy(attached = s.attached.filter { File(it.path).exists() }) })
+    private val flow = MutableStateFlow(Saved.read(prefs).let { s -> s.copy(attached = s.attached.filter { File(it.path).exists() }, fold = Fold.on(app)) })
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     override val state: StateFlow<DeckState> = flow
 
@@ -135,6 +135,11 @@ class RealDeck private constructor(
     }
 
     override fun refused(id: String, why: String) = flow.update { it.copy(notice = Notice(id, why)) }
+
+    override fun fold(on: Boolean) {
+        Fold.set(app, on)
+        flow.update { it.copy(fold = on) }
+    }
 
     // The ffi hides the card at once, everywhere, and brings it back if the server says no.
     override fun answer(card: CardView, pick: Int?, note: String) {

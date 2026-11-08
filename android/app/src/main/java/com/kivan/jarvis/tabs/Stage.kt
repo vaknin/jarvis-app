@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -65,7 +67,7 @@ data class Opening(
     val digest: Boolean = false,
     /** The card whose dialog is open, by its key. */
     val asking: String? = null,
-    /** The library fold's main chat and threads (FoldStage) instead of Needs you and the wall: off until the switch. */
+    /** The library fold's main chat and threads (FoldStage) whatever the server's switch says: for the screenshots. */
     val fold: Boolean = false,
 )
 
@@ -82,7 +84,8 @@ private class Open(val order: List<String>, val first: Int)
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Stage(deck: Deck, opening: Opening = Opening()) {
-    if (opening.fold) return FoldStage(deck, opening.tab)
+    val folded by remember(deck) { deck.state.map { it.fold }.distinctUntilChanged() }.collectAsStateWithLifecycle(deck.state.value.fold)
+    if (opening.fold || folded) return FoldStage(deck, opening.tab)
     // Immediate, so what's typed is back in the field before the next key: the field reads from here.
     val state by deck.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val scope = rememberCoroutineScope()
