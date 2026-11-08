@@ -240,9 +240,9 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
                             l,
                             l.key in lit,
                             parting = parting == l.key,
-                            onQuote = if (main != null && l.offset != null) ({ words ->
+                            onQuote = if (main != null && l.offset != null) ({ part, words ->
                                 parting = null
-                                quote(QuoteMark(l.offset, 0, words))
+                                quote(QuoteMark(l.offset, part, words))
                             }) else null,
                             onPart = { parting = l.key },
                             onPartDone = { parting = null },
@@ -292,7 +292,9 @@ private fun saidText(l: FoldLine.Said): String = when (val e = l.entry) {
 
 /**
  * A message of the main chat's talk: his words on a panel to the right, Jarvis's open on the page. A swipe to the
- * right quotes it in a reply ([onQuote]); a long-press opens the small menu: Quote part, Copy, Open thread. Quote
+ * right quotes the part under the finger in a reply ([onQuote], with that part's place): each of Jarvis's blocks (a
+ * paragraph, a bullet) as a thread's are, each of his lines as he typed it. A long-press on the whole message opens
+ * the small menu: Quote part, Copy, Open thread. Quote
  * part ([parting]) makes it selectable in place, and Quote this quotes only the words he picked. Open thread moves
  * its subject into a thread ([onMove]; none while one is under way). Lit (the server named it as moving), it takes
  * the wall's look: a sky-blue edge and a raised fill.
@@ -303,7 +305,7 @@ private fun SaidLine(
     l: FoldLine.Said,
     lit: Boolean,
     parting: Boolean,
-    onQuote: ((String) -> Unit)?,
+    onQuote: ((Int, String) -> Unit)?,
     onPart: () -> Unit,
     onPartDone: () -> Unit,
     onCopy: () -> Unit,
@@ -329,6 +331,7 @@ private fun SaidLine(
         mine || parting -> look.surface
         else -> Color.Transparent
     }
+    val swipes = onQuote != null && !parting
     val bubble = @Composable {
         Box(
             Modifier
@@ -340,15 +343,24 @@ private fun SaidLine(
                 .semantics { if (lit) contentDescription = "Moves with the subject" },
         ) {
             when {
-                parting && onQuote != null -> QuotePart(remember(l) { saidText(l) }, onQuote, onPartDone)
-                mine -> Text(text, color = look.ink, style = Words.yours)
+                parting && onQuote != null -> QuotePart(remember(l) { saidText(l) }, { onQuote(0, it) }, onPartDone)
+                // His lines as typed, never parsed: each its own Text, stacked as one Text would draw them.
+                mine -> Column {
+                    remember(text) { text.split('\n') }.forEachIndexed { i, line ->
+                        val drawn = @Composable { Text(line, color = look.ink, style = Words.yours) }
+                        if (swipes && line.isNotBlank()) SwipeReply({ onQuote?.invoke(i, line) }) { drawn() } else drawn()
+                    }
+                }
+                swipes -> ProseView(remember(text) { Prose.parse(text) }) { i, b, m ->
+                    SwipeReply({ onQuote?.invoke(i, b.quoted) }, m) { BlockView(b) }
+                }
                 else -> ProseView(remember(text) { Prose.parse(text) })
             }
         }
     }
     Box(Modifier.fillMaxWidth().testTag(if (lit) "lit" else "said"), if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Box(Modifier.padding(start = if (mine) 36.dp else 0.dp)) {
-            if (onQuote != null && !parting) SwipeReply({ onQuote(saidText(l)) }) { bubble() } else bubble()
+            bubble()
             DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
                 if (onQuote != null) MenuItem("Quote part") {
                     menu = false

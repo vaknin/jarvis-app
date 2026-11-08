@@ -215,11 +215,20 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
     )
     val talkTags = mapOf(10L to "Voice", 30L to "Phone app", 50L to "Voice")
 
-    /** The fold with its main chat (the tab called Jarvis) holding [talk]: what the move key works on. */
-    fun foldTalk(n: Int = 6): DeckState {
+    /**
+     * After [talk], when [bullets]: his message of raw lines (markup he typed, a blank line) and Jarvis's answer of a
+     * lead paragraph and three bullets, each line and bullet its own thing to swipe and quote.
+     */
+    val bulletTalk = listOf(
+        Entry.Yours("m7", "- **first** one\nsecond line\n\nthird", offset = 70, at = tonight(0, 51)),
+        Entry.Answer("m8", 80, "Two ways to make it calmer:\n- slower, at nine tenths\n- lower, two steps down\n- both together, softer", at = tonight(0, 51)),
+    )
+
+    /** The fold with its main chat (the tab called Jarvis) holding [talk]: what the move key works on; [bulletTalk] after it with [bullets]. */
+    fun foldTalk(n: Int = 6, bullets: Boolean = false): DeckState {
         val base = fold(n)
         val main = TileView("t0", 0, MAIN_NAME, model = "opus", effort = "medium")
-        return base.copy(tiles = listOf(main) + base.tiles, tabs = base.tabs + ("t0" to TabView(main, talk)))
+        return base.copy(tiles = listOf(main) + base.tiles, tabs = base.tabs + ("t0" to TabView(main, if (bullets) talk + bulletTalk else talk)))
     }
 
     /**

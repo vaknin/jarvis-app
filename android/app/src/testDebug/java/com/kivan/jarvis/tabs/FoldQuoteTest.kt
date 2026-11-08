@@ -48,8 +48,8 @@ class FoldQuoteTest {
     private val his = "and the voice should sound calmer"
     private val jarvis = "A calmer voice, slower and lower. Trying two."
 
-    private fun open(): FakeDeck {
-        val deck = FakeDeck(Fake.foldTalk())
+    private fun open(bullets: Boolean = false): FakeDeck {
+        val deck = FakeDeck(Fake.foldTalk(bullets = bullets))
         rule.mainClock.autoAdvance = false
         rule.setContent {
             TabsTheme(dark = true) {
@@ -61,7 +61,8 @@ class FoldQuoteTest {
         return deck
     }
 
-    private fun said(words: String): SemanticsNodeInteraction = rule.onAllNodesWithText(words)[0]
+    // Unmerged: the hold menu's press merges a whole message into one node, and a swipe goes on one part of it.
+    private fun said(words: String): SemanticsNodeInteraction = rule.onAllNodesWithText(words, useUnmergedTree = true)[0]
 
     private fun swipe(words: String) {
         said(words).performTouchInput {
@@ -163,5 +164,39 @@ class FoldQuoteTest {
         rule.onAllNodesWithText("Open thread")[0].performClick()
         rule.mainClock.advanceTimeBy(600)
         rule.onNodeWithTag("move-bar").assertExists()
+    }
+
+    @Test
+    fun swipeQuotesOneBullet() {
+        val deck = open(bullets = true)
+        // Jarvis's lead paragraph and three bullets: the second bullet alone is quoted, its place with it.
+        swipe("lower, two steps down")
+        assertEquals("lower, two steps down", strip())
+        assertEquals(listOf(QuoteMark(80, 2, "lower, two steps down")), deck.state.value.marks.getValue("t0"))
+        type("this one")
+        shot("fold-quote-swipe-bullet")
+        send()
+        assertEquals(listOf(Quoted(80, "lower, two steps down", "this one")), deck.sent().quotes)
+    }
+
+    @Test
+    fun swipeQuotesOneLineOfHis() {
+        val deck = open(bullets = true)
+        swipe("second line")
+        assertEquals("second line", strip())
+        assertEquals(1, deck.state.value.marks.getValue("t0").single().block)
+        type("yes")
+        send()
+        assertEquals(listOf(Quoted(70, "second line", "yes")), deck.sent().quotes)
+    }
+
+    @Test
+    fun hisLinesDrawRaw() {
+        open(bullets = true)
+        // As he typed them: the markup kept, each line its own, nothing joined.
+        listOf("- **first** one", "second line", "third").forEach { assertEquals(it, 1, rule.onAllNodesWithText(it, useUnmergedTree = true).fetchSemanticsNodes().size) }
+        listOf("first one", "- **first** one\nsecond line\n\nthird", "- **first** one second line").forEach {
+            assertEquals(it, 0, rule.onAllNodesWithText(it, useUnmergedTree = true).fetchSemanticsNodes().size)
+        }
     }
 }
