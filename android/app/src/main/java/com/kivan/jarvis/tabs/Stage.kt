@@ -163,13 +163,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
             deck.type(WALL, "")
         }
     }
-    // Auto in that box: the tab opens now, empty or with his words, and autopilot waits for them.
-    val startAuto = {
-        buzz.sent()
-        if (state.heard.isNotBlank()) deck.words(false)
-        deck.autoNew(said(wallWords, state.heard))
-        deck.type(WALL, "")
-    }
     val anyWork = state.tiles.any { it.working } || state.tabs.values.any { it.work != null }
     val anyLoading = open != null && state.tabs.values.any { it.loading }
     val glide = rememberGlide((anyWork || anyLoading) && state.online)
@@ -191,7 +184,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                 text = wallWords,
                 onText = { deck.type(WALL, it) },
                 onStart = startNew,
-                onAuto = startAuto,
                 onOpen = ::openTab,
                 onClose = { id ->
                     undo = ClosedTab(id, state.tiles.firstOrNull { it.id == id }?.name.orEmpty())
@@ -228,7 +220,6 @@ fun Stage(deck: Deck, opening: Opening = Opening()) {
                     text = wallWords,
                     onText = { deck.type(WALL, it) },
                     onStart = startNew,
-                    onAuto = startAuto,
                     onHeard = { deck.edit() },
                     asking = asking,
                     onAsking = { asking = it },

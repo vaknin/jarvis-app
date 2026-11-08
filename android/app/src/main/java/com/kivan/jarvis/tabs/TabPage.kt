@@ -348,7 +348,6 @@ fun TabPage(
                 onStop = onStop.takeIf { tab.work != null },
                 tab = tab.tile.id,
                 ready = reply != null || marks.isNotEmpty() || tab.waiting,
-                autopilot = tab.tile.autopilot,
                 above = {
                     if (notice != null) NoticeBar(notice) { deck?.noticed() }
                     val r = reply

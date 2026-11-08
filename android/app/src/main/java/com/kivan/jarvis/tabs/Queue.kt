@@ -82,7 +82,6 @@ fun QueuePage(
     onText: (String) -> Unit,
     onStart: () -> Unit,
     onHeard: () -> Unit,
-    onAuto: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     asking: String? = null,
     onAsking: (String?) -> Unit = {},
@@ -129,7 +128,6 @@ fun QueuePage(
                 onSend = onStart,
                 heard = state.heard,
                 onHeard = onHeard,
-                onAuto = onAuto,
             )
         }
         if (card != null) {

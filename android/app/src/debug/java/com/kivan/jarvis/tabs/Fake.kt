@@ -289,9 +289,9 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
         if (id != null) say(id, text, quotes) else start(text)
     }
 
-    private fun start(text: String, auto: Boolean = false) {
+    private fun start(text: String) {
         val id = "t${++counter}"
-        val tile = TileView(id, (flow.value.tiles.maxOfOrNull { it.n } ?: 0) + 1, text.take(24), working = !(auto && text.isBlank()), model = "opus", effort = "medium", autopilot = auto)
+        val tile = TileView(id, (flow.value.tiles.maxOfOrNull { it.n } ?: 0) + 1, text.take(24), working = true, model = "opus", effort = "medium")
         flow.update {
             it.copy(
                 tiles = it.tiles + tile,
@@ -299,13 +299,7 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
                 opened = id,
             )
         }
-        if (text.isNotBlank() || !auto) say(id, text)
-    }
-
-    /** As the server: the tab opens, its autopilot on, waiting for his first words when there are none. */
-    override fun autoNew(text: String) {
-        flow.update { it.copy(attached = emptyList()) }
-        start(text, auto = true)
+        say(id, text)
     }
 
     private fun say(id: String, text: String, quotes: List<Quoted> = emptyList()) {
@@ -422,8 +416,6 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
         }
     }
 
-    /** As the server until autopilot is built: it says no. */
-    override fun autopilot(id: String, on: Boolean) = flow.update { it.copy(notice = Notice(id, "autopilot isn't built yet")) }
 
     override fun noticed() = flow.update { it.copy(notice = null) }
 

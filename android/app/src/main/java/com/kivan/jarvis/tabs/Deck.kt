@@ -16,7 +16,7 @@ data class TileView(
     val mode: String = "",
     val model: String = "",
     val effort: String = "",
-    /** Its autopilot runs: the Auto button is on. */
+    /** Its autopilot runs (one started before autopilot was dropped, running to done). */
     val autopilot: Boolean = false,
 )
 
@@ -293,10 +293,6 @@ interface Deck {
     fun answer(card: CardView, pick: Int?, note: String)
     /** His answers to a card of several questions, from [reply]: only what he tapped, the rest stay open. */
     fun answerEach(card: CardView, picks: List<UInt>, text: String)
-    /** The Auto button: tab [id]'s autopilot on or off. */
-    fun autopilot(id: String, on: Boolean)
-    /** Auto in the new-tab box: a tab now, with [text] and what's attached, its autopilot on once the server has it. */
-    fun autoNew(text: String)
     /** He read the [DeckState.notice]. */
     fun noticed()
 }
