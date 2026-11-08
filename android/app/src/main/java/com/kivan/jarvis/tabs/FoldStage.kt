@@ -432,6 +432,7 @@ private fun FoldThread(state: DeckState, deck: Deck, id: String, onBack: () -> U
         },
         onMode = { m, e -> deck.mode(id, m, e) },
         notice = state.notice?.takeIf { it.id == id }?.text,
+        now = threadNow(tab.tile, tab.issues),
         top = {
             ThreadTop(tab.tile.name, threadSteps(tab.tile, tab.issues).steps, threadBoard(tab.issues), threadPhase(tab.tile, tab.issues), onBack, tab.tile.needs)
         },

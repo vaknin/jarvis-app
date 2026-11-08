@@ -119,6 +119,8 @@ fun TabPage(
     notice: String? = null,
     /** The library fold's thread top in place of the tab's header; null keeps the header. */
     top: (@Composable () -> Unit)? = null,
+    /** The fold's current step: the header's bar says the steps, so no issues bar here, and the work line takes its colour. */
+    now: StepState? = null,
 ) {
     val deck = LocalDeck.current
     val notes = rememberNotes()
@@ -240,7 +242,7 @@ fun TabPage(
         onTaken()
     }
 
-    val bar = remember(tab.issues) { issuesBar(tab.issues) }
+    val bar = remember(tab.issues, now) { issuesBar(tab.issues).takeIf { now == null } }
     var issuesOpen by remember { mutableStateOf(false) }
     if (issuesOpen) IssuesSheet(tab.tile.name, tab.issues) { issuesOpen = false }
 
@@ -280,7 +282,7 @@ fun TabPage(
                         AskCard(c, notes[c.key].orEmpty(), { notes[c.key] = it }, { asking = c.key }, { answer(c, it) })
                     }
                     if (tab.work != null) {
-                        item(key = "work", contentType = "work") { WorkRow(tab.work, active && online) }
+                        item(key = "work", contentType = "work") { WorkRow(tab.work, active && online, now) }
                     }
                     if (bar != null) {
                         // 2.0: its issues' bar stands where the jobs line was.
@@ -862,7 +864,7 @@ private fun QuestionView(entry: Entry.Question) {
 
 /** Working: the line, what it's on, and after three seconds how long. */
 @Composable
-private fun WorkRow(work: WorkView, active: Boolean) {
+private fun WorkRow(work: WorkView, active: Boolean, step: StepState? = null) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(work.since, active) {
         while (active) {
@@ -875,12 +877,18 @@ private fun WorkRow(work: WorkView, active: Boolean) {
     // A turn with no step named yet is him writing, the first thing after a message lands.
     val said = work.what.ifEmpty { "Jarvis is writing" }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (!still) Box(Modifier.fillMaxWidth().height(2.dp).workLine(look.working, LocalGlide.current, segment = 0.18f))
+        val line = when (step) {
+            null -> look.working
+            StepState.Needs -> look.stepNeed
+            StepState.Done -> look.stepDone
+            else -> look.stepRun
+        }
+        if (!still) Box(Modifier.fillMaxWidth().height(2.dp).workLine(line, LocalGlide.current, segment = 0.18f))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 said,
                 Modifier.weight(1f),
-                look.soft,
+                if (step == StepState.Needs) look.stepNeed else look.soft,
                 style = Words.small,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

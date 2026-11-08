@@ -12,7 +12,7 @@ object Fold {
     private const val PREFS = "fold"
     private const val ON = "threads-on"
 
-    /** The off switch: false until the switch stage turns it on (`am start ... --ez fold true`). */
+    /** The switch as the server last said it (`~/.jarvis/fold/threads-on` there), so the app opens on the right screen. */
     fun on(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ON, false)
 
     fun set(context: Context, on: Boolean) {
@@ -49,6 +49,13 @@ fun threadSteps(tile: TileView, issues: List<IssueView>): ThreadSteps {
         else -> ""
     }
     return ThreadSteps(steps, words, tile.needs)
+}
+
+/** The current step's state, for the line above the box: waiting on him, running, or done. */
+fun threadNow(tile: TileView, issues: List<IssueView>): StepState = when {
+    tile.needs -> StepState.Needs
+    tile.working || issues.any { it.open } -> StepState.Running
+    else -> StepState.Done
 }
 
 /** Where a thread is, for its top: needs you, its open issue's step, working, or Done once all are. */

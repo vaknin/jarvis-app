@@ -29,6 +29,13 @@ class FoldTest {
         assertEquals("", threadSteps(tile("a"), emptyList()).words)
     }
 
+    @Test fun theLineAboveTheBoxTakesTheStepsColours() {
+        val issues = listOf(issue(1, 4), issue(2, 2))
+        assertEquals(StepState.Running, threadNow(tile("a", working = true), issues))
+        assertEquals(StepState.Needs, threadNow(tile("a", needs = true, working = true), issues))
+        assertEquals(StepState.Done, threadNow(tile("a"), listOf(issue(1, 4))))
+    }
+
     @Test fun phaseAndBoard() {
         val issues = listOf(issue(1, 4), issue(2, 2, "Testing"))
         assertEquals("Testing", threadPhase(tile("a", working = true), issues))
