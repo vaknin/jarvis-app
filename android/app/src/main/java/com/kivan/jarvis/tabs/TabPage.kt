@@ -570,19 +570,14 @@ private fun MarkableBlock(
     modifier: Modifier,
     content: @Composable () -> Unit = { BlockView(block) },
 ) {
-    val scope = rememberCoroutineScope()
-    val buzz = rememberBuzz()
     var holding by remember { mutableStateOf(false) }
     val lit = state != Paragraph.Plain
     val wash by animateFloatAsState(if (lit || holding) 1f else 0f, tween(Curves.QUICK), label = "mark")
     val washed = look.surface
     val bar = look.ink
-    val pull = remember { Animatable(0f) }
-    val swipe by rememberUpdatedState(onSwipe)
     val hold by rememberUpdatedState(onHold)
     val tap by rememberUpdatedState(onTap)
     val tappable by rememberUpdatedState(lit)
-    val reach = with(LocalDensity.current) { SWIPE.toPx() }
     Box(
         modifier
             .fillMaxWidth()
@@ -611,47 +606,17 @@ private fun MarkableBlock(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val slop = viewConfiguration.touchSlop
-                    // Before the hold: a tap, a swipe, or something that isn't ours.
-                    var swiping = false
+                    // Before the hold: a tap, or something that isn't ours (a swipe is [SwipeReply]'s, inside).
                     val quick = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                         while (true) {
                             val event = awaitPointerEvent()
                             val c = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
                             if (!c.pressed) return@withTimeoutOrNull !c.isConsumed
                             if (event.changes.size > 1 || c.isConsumed) return@withTimeoutOrNull false
-                            val moved = c.position - down.position
-                            if (moved.getDistance() > slop) {
-                                if (moved.x > 0 && abs(moved.x) > abs(moved.y) * 2) {
-                                    c.consume()
-                                    swiping = true
-                                }
-                                return@withTimeoutOrNull false
-                            }
+                            if ((c.position - down.position).getDistance() > slop) return@withTimeoutOrNull false
                         }
                         @Suppress("UNREACHABLE_CODE")
                         false
-                    }
-                    if (swiping) {
-                        var felt = false
-                        var past = false
-                        while (true) {
-                            val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                            if (!c.pressed) break
-                            c.consume()
-                            // It follows the finger, then drags behind it.
-                            val x = (c.position.x - down.position.x).coerceAtLeast(0f)
-                            val shown = if (x < reach) x else reach + (x - reach) / 3
-                            scope.launch { pull.snapTo(shown) }
-                            past = x >= reach
-                            if (past && !felt) {
-                                felt = true
-                                buzz.tick()
-                            }
-                        }
-                        scope.launch { pull.animateTo(0f, tween(Curves.QUICK)) }
-                        // Back under the line before letting go is changing his mind.
-                        if (past) swipe()
-                        return@awaitEachGesture
                     }
                     if (quick != null) {
                         if (quick && tappable) tap()
@@ -674,6 +639,66 @@ private fun MarkableBlock(
                     }
                 }
             },
+    ) {
+        SwipeReply(onSwipe, Modifier.fillMaxWidth()) { content() }
+    }
+}
+
+/**
+ * A swipe to the right replies to what's inside: it follows the finger, then drags behind it, a tick when it's
+ * past [SWIPE], and letting go past it replies; back under the line first is changing his mind. A sideways drag
+ * begins only well clear of a vertical one (twice as far across as down) and before the long-press time, so
+ * scrolling, a hold and a text selection are left be, and only a swipe is ever consumed.
+ */
+@Composable
+internal fun SwipeReply(onSwipe: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val buzz = rememberBuzz()
+    val pull = remember { Animatable(0f) }
+    val swipe by rememberUpdatedState(onSwipe)
+    val reach = with(LocalDensity.current) { SWIPE.toPx() }
+    Box(
+        modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val slop = viewConfiguration.touchSlop
+                val swiping = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val c = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                        if (!c.pressed || event.changes.size > 1 || c.isConsumed) return@withTimeoutOrNull false
+                        val moved = c.position - down.position
+                        if (moved.getDistance() > slop) {
+                            if (moved.x > 0 && abs(moved.x) > abs(moved.y) * 2) {
+                                c.consume()
+                                return@withTimeoutOrNull true
+                            }
+                            return@withTimeoutOrNull false
+                        }
+                    }
+                    @Suppress("UNREACHABLE_CODE")
+                    false
+                } ?: false
+                if (!swiping) return@awaitEachGesture
+                var felt = false
+                var past = false
+                while (true) {
+                    val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                    if (!c.pressed) break
+                    c.consume()
+                    val x = (c.position.x - down.position.x).coerceAtLeast(0f)
+                    val shown = if (x < reach) x else reach + (x - reach) / 3
+                    scope.launch { pull.snapTo(shown) }
+                    past = x >= reach
+                    if (past && !felt) {
+                        felt = true
+                        buzz.tick()
+                    }
+                }
+                scope.launch { pull.animateTo(0f, tween(Curves.QUICK)) }
+                if (past) swipe()
+            }
+        },
     ) {
         Glyph(
             R.drawable.lucide_corner_down_left,
@@ -723,7 +748,7 @@ private fun MarkTray(marks: List<QuoteMark>, onMarks: (List<QuoteMark>) -> Unit,
 
 /** The reply open in the box: what it quotes, Hold to keep it for the next message, and the way out. */
 @Composable
-private fun ReplyStrip(quote: String, typed: String, canHold: Boolean, onHold: () -> Unit, onCancel: () -> Unit) {
+internal fun ReplyStrip(quote: String, typed: String, canHold: Boolean, onHold: () -> Unit, onCancel: () -> Unit) {
     // His message waits in the box meanwhile, and goes along if he sends now.
     if (typed.isNotBlank()) {
         Text(typed, Modifier.padding(start = 8.dp, bottom = 4.dp), look.faint, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)

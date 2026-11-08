@@ -1,5 +1,12 @@
 package com.kivan.jarvis.tabs
 
+import android.content.ClipData
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -109,13 +116,17 @@ fun FoldStage(deck: Deck, tab: String? = null) {
 
     fun send(box: String) {
         val w = said(state.typed[box].orEmpty(), state.heard)
-        if (w.isEmpty() && state.attached.isEmpty()) return
-        buzz.sent()
-        if (state.heard.isNotBlank()) deck.words(false)
         // The main chat's words go to the main chat; a new thread's open one.
         val to = if (box == WALL) mainChat(state.tiles) else null
+        val quotes = to?.let { state.marks[it] }.orEmpty()
+        if (w.isEmpty() && state.attached.isEmpty() && quotes.isEmpty()) return
+        buzz.sent()
+        if (state.heard.isNotBlank()) deck.words(false)
         if (to == null) sentFrom = box
-        deck.send(to, w)
+        // As a thread's reply: one quote carries his words; several go each with none, his message after them.
+        if (quotes.size == 1) deck.send(to, "", listOf(Quoted(quotes[0].to, quotes[0].quote, w)))
+        else deck.send(to, w, quotes.map { Quoted(it.to, it.quote, "") })
+        if (to != null && quotes.isNotEmpty()) deck.marks(to, emptyList())
         deck.type(box, "")
     }
 
@@ -176,6 +187,21 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
     val rows = remember(lines) { lines.asReversed() }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // The reply he's writing: the message it quotes stands above the box until he sends or cancels it.
+    val reply = main?.let { state.marks[it] }?.lastOrNull()
+    val box = remember { FocusRequester() }
+    val quote = { m: QuoteMark ->
+        if (main != null) {
+            deck?.marks(main, listOf(m))
+            scope.launch { box.requestFocus() }
+        }
+        Unit
+    }
+    // Quote part: the message he's picking words from, selectable in place; back, a quote or a send ends it.
+    var parting by remember { mutableStateOf<String?>(null) }
+    if (parting != null) BackHandler { parting = null }
+    var copied by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboard.current
     val hidden by remember(rows) {
         derivedStateOf {
             val seen = list.layoutInfo.visibleItemsInfo.map { it.key }.toSet()
@@ -208,7 +234,22 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
                     when (l) {
                         is FoldLine.Report -> ReportLine(l) { onOpen(l.thread) }
                         is FoldLine.Card -> CardBlock(l.card, onAnswer = { deck?.answer(l.card, it, "") }, onOpen = { l.card.tabs.firstOrNull()?.let { t -> onOpen(t.id) } })
-                        is FoldLine.Said -> SaidLine(l, l.key in lit, onMove = if (main != null && l.offset != null && moving == null) ({ deck?.subject(main, l.offset) }) else null)
+                        is FoldLine.Said -> SaidLine(
+                            l,
+                            l.key in lit,
+                            parting = parting == l.key,
+                            onQuote = if (main != null && l.offset != null) ({ words ->
+                                parting = null
+                                quote(QuoteMark(l.offset, 0, words))
+                            }) else null,
+                            onPart = { parting = l.key },
+                            onPartDone = { parting = null },
+                            onCopy = {
+                                scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Jarvis", saidText(l)))) }
+                                copied = true
+                            },
+                            onMove = if (main != null && l.offset != null && moving == null) ({ deck?.subject(main, l.offset) }) else null,
+                        )
                     }
                 }
             }
@@ -219,26 +260,53 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
             }
         }
         state.notice?.let { NoticeBar(it.text) { deck?.noticed() } }
+        if (copied) NoticeBar("Copied") { copied = false }
         moving?.let { MoveBar(it, onMove = { deck?.moveSubject() }, onKeep = { deck?.keepSubject() }) }
         Dock(
-            hint = "Talk to Jarvis",
+            hint = if (reply != null) "Reply to this" else "Talk to Jarvis",
             text = state.typed[WALL].orEmpty(),
             onText = { deck?.type(WALL, it) },
-            onSend = onSend,
+            onSend = {
+                parting = null
+                onSend()
+            },
+            focus = box,
             heard = state.heard,
             onHeard = { deck?.edit() },
+            ready = reply != null,
+            above = reply?.let { r ->
+                { ReplyStrip(r.quote, "", canHold = false, onHold = {}, onCancel = { main?.let { deck?.marks(it, emptyList()) } }) }
+            },
         )
     }
 }
 
+/** A main chat message's words as he'd quote or copy them: his as typed, Jarvis's as read, without the marks. */
+private fun saidText(l: FoldLine.Said): String = when (val e = l.entry) {
+    is Entry.Yours -> e.text
+    is Entry.Answer -> Prose.parse(e.text).joinToString("\n\n") { it.quoted }
+    else -> ""
+}
+
 /**
- * A message of the main chat's talk: his words on a panel to the right, Jarvis's open on the page. A long-press offers
- * to move its subject into a thread ([onMove]; none while one is under way). Lit (the server named it as moving), it
- * takes the wall's look: a sky-blue edge and a raised fill.
+ * A message of the main chat's talk: his words on a panel to the right, Jarvis's open on the page. A swipe to the
+ * right quotes it in a reply ([onQuote]); a long-press opens the small menu: Quote part, Copy, Open thread. Quote
+ * part ([parting]) makes it selectable in place, and Quote this quotes only the words he picked. Open thread moves
+ * its subject into a thread ([onMove]; none while one is under way). Lit (the server named it as moving), it takes
+ * the wall's look: a sky-blue edge and a raised fill.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SaidLine(l: FoldLine.Said, lit: Boolean, onMove: (() -> Unit)?) {
+private fun SaidLine(
+    l: FoldLine.Said,
+    lit: Boolean,
+    parting: Boolean,
+    onQuote: ((String) -> Unit)?,
+    onPart: () -> Unit,
+    onPartDone: () -> Unit,
+    onCopy: () -> Unit,
+    onMove: (() -> Unit)?,
+) {
     var menu by remember { mutableStateOf(false) }
     val edge = look.stepRun
     val mine = l.entry is Entry.Yours
@@ -247,41 +315,85 @@ private fun SaidLine(l: FoldLine.Said, lit: Boolean, onMove: (() -> Unit)?) {
         is Entry.Answer -> e.text
         else -> ""
     }
-    val press = if (onMove == null) Modifier else Modifier.combinedClickable(
-        onLongClickLabel = "Move this subject to a thread",
+    val press = if (parting) Modifier else Modifier.combinedClickable(
+        onLongClickLabel = "Quote, copy or open a thread",
         onLongClick = { menu = true },
         onClick = {},
     )
     val shape = RoundedCornerShape(if (mine) 18.dp else 10.dp)
-    val panel = lit || mine
+    val panel = lit || mine || parting
     val fill = when {
         lit -> look.raised
-        mine -> look.surface
+        mine || parting -> look.surface
         else -> Color.Transparent
+    }
+    val bubble = @Composable {
+        Box(
+            Modifier
+                .clip(shape)
+                .then(press)
+                .background(fill, shape)
+                .then(if (lit) Modifier.drawBehind { drawRect(edge, Offset.Zero, size.copy(width = 3.dp.toPx())) } else Modifier)
+                .padding(start = if (panel) 16.dp else 4.dp, end = if (panel) 14.dp else 4.dp, top = if (panel) 10.dp else 2.dp, bottom = if (panel) 10.dp else 2.dp)
+                .semantics { if (lit) contentDescription = "Moves with the subject" },
+        ) {
+            when {
+                parting && onQuote != null -> QuotePart(remember(l) { saidText(l) }, onQuote, onPartDone)
+                mine -> Text(text, color = look.ink, style = Words.yours)
+                else -> ProseView(remember(text) { Prose.parse(text) })
+            }
+        }
     }
     Box(Modifier.fillMaxWidth().testTag(if (lit) "lit" else "said"), if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Box(Modifier.padding(start = if (mine) 36.dp else 0.dp)) {
-            Box(
-                Modifier
-                    .clip(shape)
-                    .then(press)
-                    .background(fill, shape)
-                    .then(if (lit) Modifier.drawBehind { drawRect(edge, Offset.Zero, size.copy(width = 3.dp.toPx())) } else Modifier)
-                    .padding(start = if (panel) 16.dp else 4.dp, end = if (panel) 14.dp else 4.dp, top = if (panel) 10.dp else 2.dp, bottom = if (panel) 10.dp else 2.dp)
-                    .semantics { if (lit) contentDescription = "Moves with the subject" },
-            ) {
-                if (mine) Text(text, color = look.ink, style = Words.yours)
-                else ProseView(remember(text) { Prose.parse(text) })
-            }
+            if (onQuote != null && !parting) SwipeReply({ onQuote(saidText(l)) }) { bubble() } else bubble()
             DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
-                DropdownMenuItem(
-                    text = { Text("Move this subject to a thread", color = look.ink, style = Words.label) },
-                    onClick = {
-                        menu = false
-                        onMove?.invoke()
-                    },
-                )
+                if (onQuote != null) MenuItem("Quote part") {
+                    menu = false
+                    onPart()
+                }
+                MenuItem("Copy") {
+                    menu = false
+                    onCopy()
+                }
+                if (onMove != null) MenuItem("Open thread") {
+                    menu = false
+                    onMove()
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun MenuItem(words: String, onClick: () -> Unit) {
+    DropdownMenuItem(text = { Text(words, color = look.ink, style = Words.label) }, onClick = onClick)
+}
+
+/**
+ * Quote part: the message as words he can select in place (it reads, it doesn't type). With words picked, Quote this
+ * quotes just those; until then a line says what to do, and the x puts the message back.
+ */
+@Composable
+private fun QuotePart(words: String, onQuote: (String) -> Unit, onDone: () -> Unit) {
+    var value by remember(words) { mutableStateOf(TextFieldValue(words)) }
+    val picked = value.selection.let { if (it.collapsed) "" else words.substring(it.min, it.max).trim() }
+    Column {
+        BasicTextField(
+            value,
+            { value = it.copy(text = words) },
+            Modifier.testTag("quote-part"),
+            readOnly = true,
+            textStyle = Words.yours.copy(color = look.ink),
+            cursorBrush = SolidColor(Color.Transparent),
+        )
+        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (picked.isEmpty()) {
+                Text("Select the words to quote", Modifier.weight(1f), look.faint, style = Words.small)
+            } else {
+                Box(Modifier.weight(1f)) { Pill("Quote this") { onQuote(picked) } }
+            }
+            Round(R.drawable.lucide_x, "Stop quoting part", onDone, size = 38.dp)
         }
     }
 }

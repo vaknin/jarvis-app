@@ -58,5 +58,9 @@ added flow android-fold-progress-bars
   approved: 2026-11-07 "Progress bars for threads - let's go with 'A', but use protan colorblind friendly colors instead"
 
 added flow android-fold-move-to-thread
-  what: With the library fold on, a long-press on a message in the main chat offers "Move this subject to a thread": the messages of that subject light up as the server names them by their tags (a sky-blue edge and a raised fill; a subject said in between stays dark), and a bar asks "Move N messages on X into a new thread?" with Keep and Move. The wall's alt+s does the same from his newest message. The main chat shows its own talk among the reports and cards, and isn't listed as a thread.
+  what: With the library fold on, a long-press on a message in the main chat opens a small menu (Quote part, Copy, Open thread), and "Open thread" moves its subject into a thread: the messages of that subject light up as the server names them by their tags (a sky-blue edge and a raised fill; a subject said in between stays dark), and a bar asks "Move N messages on X into a new thread?" with Keep and Move. The wall's alt+s does the same from his newest message. The main chat shows its own talk among the reports and cards, and isn't listed as a thread.
   approved: 2026-11-07 "add that"
+
+added flow android-fold-quote
+  what: With the library fold on, a swipe to the right on any main chat message, his or Jarvis's, quotes it above the box, as a thread's paragraphs do; his words go as the reply to it, and the x cancels it. A long-press opens a small menu, in order: Quote part (the message turns selectable in place, and "Quote this" quotes only the words picked), Copy (the whole message, with a one-line "Copied"), and Open thread (the move key).
+  approved: 2026-11-08 "I swipe one of your messages or one of my messages to quote reply to it ... I just want a simpler and more efficient ux and UI"

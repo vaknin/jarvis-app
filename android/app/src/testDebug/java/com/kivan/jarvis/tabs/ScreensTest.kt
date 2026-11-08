@@ -95,14 +95,14 @@ class ScreensTest {
     private fun pressMove() {
         rule.onAllNodesWithText("and the voice should sound calmer")[0].performTouchInput { longClick() }
         rule.mainClock.advanceTimeBy(600)
-        rule.onAllNodesWithText("Move this subject to a thread")[0].performClick()
+        rule.onAllNodesWithText("Open thread")[0].performClick()
         rule.mainClock.advanceTimeBy(600)
     }
     // The menu is a popup of its own window, which Robolectric doesn't draw: the test holds that it's offered.
     @Test fun foldMoveMenu() = shot("fold-move-menu", capture = {
         rule.onAllNodesWithText("and the voice should sound calmer")[0].performTouchInput { longClick() }
         rule.mainClock.advanceTimeBy(600)
-        rule.onAllNodesWithText("Move this subject to a thread")[0].assertExists()
+        rule.onAllNodesWithText("Open thread")[0].assertExists()
     }) { Stage(FakeDeck(Fake.foldTalk()), Opening(fold = true)) }
     @Test fun foldMoveLit() = shot("fold-move-lit", capture = {
         pressMove()
