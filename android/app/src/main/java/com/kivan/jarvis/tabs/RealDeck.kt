@@ -31,6 +31,8 @@ import com.kivan.jarvis.core.tabsFile
 import com.kivan.jarvis.core.tabsHold
 import com.kivan.jarvis.core.tabsMode
 import com.kivan.jarvis.core.tabsMove
+import com.kivan.jarvis.core.tabsMoveSubject
+import com.kivan.jarvis.core.tabsSubject
 import com.kivan.jarvis.core.tabsRelease
 import com.kivan.jarvis.core.tabsReopen
 import com.kivan.jarvis.core.tabsSay
@@ -160,6 +162,28 @@ class RealDeck private constructor(
     }
 
     override fun noticed() = flow.update { it.copy(notice = null) }
+
+    // The move key: the server's answer is the only thing that lights up, on its own short link off the main thread.
+    override fun subject(id: String, at: Long?) {
+        val m = Moving(id, at)
+        flow.update { it.copy(moving = m, notice = null) }
+        scope.launch {
+            val got = tabsSubject(id, at?.toULong())
+            flow.update { s -> if (s.moving != m) s else s.subjected(m, got.name, got.offsets.map { it.toLong() }, got.why) }
+        }
+    }
+
+    override fun moveSubject() {
+        val m = flow.value.moving?.takeIf { it.lit } ?: return
+        val sent = m.copy(sent = true)
+        flow.update { it.copy(moving = sent) }
+        scope.launch {
+            val got = tabsMoveSubject(m.tab, m.at?.toULong(), m.offsets.map { it.toULong() })
+            flow.update { s -> s.split(m.tab, got.name, got.moved.toInt(), got.why) }
+        }
+    }
+
+    override fun keepSubject() = flow.update { it.copy(moving = null) }
 
     override fun show(ids: List<String>) = tabsShow(ids)
 
@@ -483,8 +507,10 @@ private fun entry(e: EntryRec): Entry = when (e) {
             Landing.REFUSED -> Sending.Refused
         },
         e.why,
+        e.offset?.toLong(),
+        e.at.toLong(),
     )
-    is EntryRec.Answer -> Entry.Answer(e.key, e.offset?.toLong(), e.text, e.files)
+    is EntryRec.Answer -> Entry.Answer(e.key, e.offset?.toLong(), e.text, e.files, e.at.toLong())
     is EntryRec.Report -> Entry.Report(e.key, e.from, e.line, e.text)
     is EntryRec.Question -> Entry.Question(e.key, e.text, e.closed)
     is EntryRec.Quiet -> Entry.Quiet(e.key, e.text)

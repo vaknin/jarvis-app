@@ -26,3 +26,5 @@
 {"tell":"event","id":"t1","event":{"offset":390,"at":1793430374000,"kind":"assumed","text":"picked sqlite"}}
 {"tell":"event","id":"t1","event":{"offset":395,"at":1793430374000,"kind":"quiet","to":380,"why":"default"}}
 {"tell":"event","id":"t1","event":{"offset":398,"at":1793430374000,"kind":"autopilot","ap":{"id":"ap1","words":"add dark mode","from":120,"criteria":[{"n":1,"what":"tests pass","check":{"how":"cmd","cmd":"cargo test","dir":"tabs"},"status":"pass","by":"check","evidence":"ok"}],"repos":["jarvis"],"spent":1200000,"idle":0,"strays":0,"rounds":1,"state":"review"}}}
+{"tell":"subject","id":"t1","name":"Voice","offsets":[10,20,50]}
+{"tell":"split","tab":{"n":2,"id":"t2","mirrored":true,"tile":{"name":"","line":"a line","needs":"which one?","amber":true,"unread":1,"open":{"w1":"Testing"},"session":"s1","seen":10,"end":40,"new":[40]}},"moved":3}

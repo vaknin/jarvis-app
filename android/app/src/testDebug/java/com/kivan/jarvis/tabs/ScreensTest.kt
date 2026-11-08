@@ -23,6 +23,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.swipeUp
 import com.github.takahirom.roborazzi.captureRoboImage
+import androidx.compose.ui.test.longClick
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -88,6 +90,47 @@ class ScreensTest {
     @Test fun foldThread() = shot("fold-thread") { Stage(FakeDeck(Fake.fold()), Opening(tab = "t1", fold = true)) }
     @Test fun foldThreadNeeds() = shot("fold-thread-needs") { Stage(FakeDeck(Fake.fold()), Opening(tab = "t2", fold = true)) }
     @Test fun foldHomeLight() = shot("fold-home-light", dark = false) { Stage(FakeDeck(Fake.fold()), Opening(fold = true)) }
+    // Fold 5e, the move key: a long-press on "and the voice should sound calmer" offers the move; the server's Voice
+    // messages light up (the dark-mode one said between stays dark) and the bar asks; Move puts them in a new thread.
+    private fun pressMove() {
+        rule.onAllNodesWithText("and the voice should sound calmer")[0].performTouchInput { longClick() }
+        rule.mainClock.advanceTimeBy(600)
+        rule.onAllNodesWithText("Move this subject to a thread")[0].performClick()
+        rule.mainClock.advanceTimeBy(600)
+    }
+    // The menu is a popup of its own window, which Robolectric doesn't draw: the test holds that it's offered.
+    @Test fun foldMoveMenu() = shot("fold-move-menu", capture = {
+        rule.onAllNodesWithText("and the voice should sound calmer")[0].performTouchInput { longClick() }
+        rule.mainClock.advanceTimeBy(600)
+        rule.onAllNodesWithText("Move this subject to a thread")[0].assertExists()
+    }) { Stage(FakeDeck(Fake.foldTalk()), Opening(fold = true)) }
+    @Test fun foldMoveLit() = shot("fold-move-lit", capture = {
+        pressMove()
+        assertEquals(4, rule.onAllNodesWithTag("lit").fetchSemanticsNodes().size)
+        rule.onAllNodesWithText("Move 4 messages on Voice into a new thread?")[0].assertExists()
+    }) { Stage(FakeDeck(Fake.foldTalk()), Opening(fold = true)) }
+    @Test fun foldMoveLitLight() = shot("fold-move-lit-light", dark = false, capture = { pressMove() }) { Stage(FakeDeck(Fake.foldTalk()), Opening(fold = true)) }
+    @Test fun foldMoved() {
+        val deck = FakeDeck(Fake.foldTalk())
+        shot("fold-moved", capture = {
+            pressMove()
+            rule.onNodeWithTag("move").performClick()
+            rule.mainClock.advanceTimeBy(600)
+        }) { Stage(deck, Opening(fold = true)) }
+        assertEquals(0, rule.onAllNodesWithTag("lit").fetchSemanticsNodes().size)
+        assertEquals("Voice", deck.state.value.tiles.last().name)
+        assertEquals("4 messages moved into the thread \"Voice\".", deck.state.value.notice?.text)
+    }
+    @Test fun foldMoveKept() {
+        val deck = FakeDeck(Fake.foldTalk())
+        shot("fold-move-kept", capture = {
+            pressMove()
+            rule.onAllNodesWithText("Keep")[0].performClick()
+            rule.mainClock.advanceTimeBy(600)
+        }) { Stage(deck, Opening(fold = true)) }
+        assertEquals(0, rule.onAllNodesWithTag("lit").fetchSemanticsNodes().size)
+        assertEquals(Fake.foldTalk().tiles.size, deck.state.value.tiles.size)
+    }
     @Test fun dialog() = shot("ask-dialog") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[0].key)) }
     @Test fun dialogThree() = shot("ask-dialog-3") { Stage(FakeDeck(Fake.deck(9)), Opening(asking = Fake.cards[2].key)) }
     // t116: an autopilot's intake is one card with all its questions.

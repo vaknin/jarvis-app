@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -40,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -107,8 +112,10 @@ fun FoldStage(deck: Deck, tab: String? = null) {
         if (w.isEmpty() && state.attached.isEmpty()) return
         buzz.sent()
         if (state.heard.isNotBlank()) deck.words(false)
-        sentFrom = box
-        deck.send(null, w)
+        // The main chat's words go to the main chat; a new thread's open one.
+        val to = if (box == WALL) mainChat(state.tiles) else null
+        if (to == null) sentFrom = box
+        deck.send(to, w)
         deck.type(box, "")
     }
 
@@ -125,7 +132,9 @@ fun FoldStage(deck: Deck, tab: String? = null) {
                     when {
                         e.key == Key.L -> where = if (where == Where.List) Where.Home else Where.List
                         e.key == Key.N -> where = Where.New
-                        n >= 0 -> state.tiles.getOrNull(n)?.let { where = Where.Thread(it.id, false) } ?: return@onPreviewKeyEvent false
+                        // The wall's move key: the subject he's on, from his newest message with one.
+                        e.key == Key.S && where == Where.Home -> mainChat(state.tiles)?.let { deck.subject(it, null) } ?: return@onPreviewKeyEvent false
+                        n >= 0 -> foldThreads(state.tiles).getOrNull(n)?.let { where = Where.Thread(it.id, false) } ?: return@onPreviewKeyEvent false
                         else -> return@onPreviewKeyEvent false
                     }
                     true
@@ -157,7 +166,12 @@ private val NUMBERS = listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Ke
 @Composable
 private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -> Unit, onSend: () -> Unit) {
     val deck = LocalDeck.current
-    val lines = remember(state.digest, state.cards, state.tiles) { foldLines(state) }
+    val main = mainChat(state.tiles)
+    LaunchedEffect(main) { if (main != null) deck?.show(listOf(main)) }
+    val lines = remember(state.digest, state.cards, state.tiles, state.tabs) { foldLines(state) }
+    val moving = state.moving?.takeIf { it.tab == main }
+    val lit = remember(lines, moving) { lit(lines, moving) }
+    if (moving != null) BackHandler { deck?.keepSubject() }
     // Newest at the bottom, where he types: the list runs from the bottom up.
     val rows = remember(lines) { lines.asReversed() }
     val list = rememberLazyListState()
@@ -194,6 +208,7 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
                     when (l) {
                         is FoldLine.Report -> ReportLine(l) { onOpen(l.thread) }
                         is FoldLine.Card -> CardBlock(l.card, onAnswer = { deck?.answer(l.card, it, "") }, onOpen = { l.card.tabs.firstOrNull()?.let { t -> onOpen(t.id) } })
+                        is FoldLine.Said -> SaidLine(l, l.key in lit, onMove = if (main != null && l.offset != null && moving == null) ({ deck?.subject(main, l.offset) }) else null)
                     }
                 }
             }
@@ -204,6 +219,7 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
             }
         }
         state.notice?.let { NoticeBar(it.text) { deck?.noticed() } }
+        moving?.let { MoveBar(it, onMove = { deck?.moveSubject() }, onKeep = { deck?.keepSubject() }) }
         Dock(
             hint = "Talk to Jarvis",
             text = state.typed[WALL].orEmpty(),
@@ -212,6 +228,97 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
             heard = state.heard,
             onHeard = { deck?.edit() },
         )
+    }
+}
+
+/**
+ * A message of the main chat's talk: his words on a panel to the right, Jarvis's open on the page. A long-press offers
+ * to move its subject into a thread ([onMove]; none while one is under way). Lit (the server named it as moving), it
+ * takes the wall's look: a sky-blue edge and a raised fill.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SaidLine(l: FoldLine.Said, lit: Boolean, onMove: (() -> Unit)?) {
+    var menu by remember { mutableStateOf(false) }
+    val edge = look.stepRun
+    val mine = l.entry is Entry.Yours
+    val text = when (val e = l.entry) {
+        is Entry.Yours -> e.text
+        is Entry.Answer -> e.text
+        else -> ""
+    }
+    val press = if (onMove == null) Modifier else Modifier.combinedClickable(
+        onLongClickLabel = "Move this subject to a thread",
+        onLongClick = { menu = true },
+        onClick = {},
+    )
+    val shape = RoundedCornerShape(if (mine) 18.dp else 10.dp)
+    val panel = lit || mine
+    val fill = when {
+        lit -> look.raised
+        mine -> look.surface
+        else -> Color.Transparent
+    }
+    Box(Modifier.fillMaxWidth().testTag(if (lit) "lit" else "said"), if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+        Box(Modifier.padding(start = if (mine) 36.dp else 0.dp)) {
+            Box(
+                Modifier
+                    .clip(shape)
+                    .then(press)
+                    .background(fill, shape)
+                    .then(if (lit) Modifier.drawBehind { drawRect(edge, Offset.Zero, size.copy(width = 3.dp.toPx())) } else Modifier)
+                    .padding(start = if (panel) 16.dp else 4.dp, end = if (panel) 14.dp else 4.dp, top = if (panel) 10.dp else 2.dp, bottom = if (panel) 10.dp else 2.dp)
+                    .semantics { if (lit) contentDescription = "Moves with the subject" },
+            ) {
+                if (mine) Text(text, color = look.ink, style = Words.yours)
+                else ProseView(remember(text) { Prose.parse(text) })
+            }
+            DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
+                DropdownMenuItem(
+                    text = { Text("Move this subject to a thread", color = look.ink, style = Words.label) },
+                    onClick = {
+                        menu = false
+                        onMove?.invoke()
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The move key's question, as the wall's bar asks it: how many messages on which subject, Keep or Move. Asking the
+ * server and moving, it says so and waits; nothing lights up until the server has named them.
+ */
+@Composable
+private fun MoveBar(m: Moving, onMove: () -> Unit, onKeep: () -> Unit) {
+    val edge = look.stepRun
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(look.surface)
+            .drawBehind { drawRect(edge, Offset.Zero, size.copy(width = 3.dp.toPx())) }
+            .padding(start = 15.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+            .testTag("move-bar"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val words = when {
+            m.sent -> "Moving them into a new thread…"
+            m.lit -> moveAsk(m)
+            else -> "Finding the subject…"
+        }
+        Text(words, Modifier.weight(1f), if (m.lit) look.ink else look.soft, style = Words.small.copy(fontWeight = if (m.lit) FontWeight.W600 else FontWeight.Normal))
+        if (!m.sent) Pill("Keep", onKeep)
+        if (m.lit) {
+            Box(Modifier.width(8.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(16.dp)).background(edge).clickable(onClickLabel = "Move them into a new thread", onClick = onMove)
+                    .heightIn(min = 36.dp).padding(horizontal = 14.dp).testTag("move"),
+                Alignment.Center,
+            ) { Text("Move", color = look.canvas, style = Words.small.copy(fontWeight = FontWeight.W600)) }
+        }
     }
 }
 
@@ -314,8 +421,9 @@ private fun ThreadList(state: DeckState, onBack: () -> Unit, onNew: () -> Unit, 
         }
         if (!state.online) OfflineBar()
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("threads"), contentPadding = PaddingValues(bottom = 16.dp)) {
-            if (state.tiles.isEmpty()) item { Text("No threads yet.", Modifier.padding(Space.margin), look.faint, style = Words.small) }
-            itemsIndexed(state.tiles, key = { _, t -> t.id }) { i, t ->
+            val threads = foldThreads(state.tiles)
+            if (threads.isEmpty()) item { Text("No threads yet.", Modifier.padding(Space.margin), look.faint, style = Words.small) }
+            itemsIndexed(threads, key = { _, t -> t.id }) { i, t ->
                 val s = threadSteps(t, state.tabs[t.id]?.issues.orEmpty())
                 Column(
                     Modifier.fillMaxWidth().clickable(onClickLabel = "Open ${t.name}") { onOpen(t.id) }

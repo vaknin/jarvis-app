@@ -200,6 +200,49 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
             digest = digest + DigestView("t4", "Lisbon trip", tonight(0, 41), 1, "done", "Fixed and landed, screenshot inside."),
         )
     }
+
+    /**
+     * The main chat's own talk, two subjects interleaved: Voice, then the phone's dark mode, then Voice again. Each of
+     * his messages carries the subject the server tagged it with on arrival ([talkTags], by record offset).
+     */
+    val talk = listOf(
+        Entry.Yours("m1", "the voice call cuts out after a minute", offset = 10, at = tonight(0, 45)),
+        Entry.Answer("m2", 20, "The call's buffer fills up and drops. Fixing it now.", at = tonight(0, 45)),
+        Entry.Yours("m3", "also, the phone app's dark mode is too grey", offset = 30, at = tonight(0, 47)),
+        Entry.Answer("m4", 40, "Dark mode gets a deeper black on the phone.", at = tonight(0, 47)),
+        Entry.Yours("m5", "and the voice should sound calmer", offset = 50, at = tonight(0, 49)),
+        Entry.Answer("m6", 60, "A calmer voice, slower and lower. Trying two.", at = tonight(0, 49)),
+    )
+    val talkTags = mapOf(10L to "Voice", 30L to "Phone app", 50L to "Voice")
+
+    /** The fold with its main chat (the tab called Jarvis) holding [talk]: what the move key works on. */
+    fun foldTalk(n: Int = 6): DeckState {
+        val base = fold(n)
+        val main = TileView("t0", 0, MAIN_NAME, model = "opus", effort = "medium")
+        return base.copy(tiles = listOf(main) + base.tiles, tabs = base.tabs + ("t0" to TabView(main, talk)))
+    }
+
+    /**
+     * As the tab server's library answers the move key (the jarvis repo's `tabs/src/server/library.rs` subject): the
+     * subject of his message at [at] (a reply: his message before it), else his newest tagged one; his messages with
+     * that tag and Jarvis's replies to each. By the tags alone.
+     */
+    fun subjectOf(entries: List<Entry>, tags: Map<Long, String>, at: Long?): Pair<String, List<Long>> {
+        val said = entries.mapNotNull { e ->
+            when (e) {
+                is Entry.Yours -> e.offset?.let { Triple(it, true, e) }
+                is Entry.Answer -> e.offset?.let { Triple(it, false, e) }
+                else -> null
+            }
+        }
+        val anchor = said.filter { (o, his) -> his && (at == null || o <= at) }.asReversed().firstNotNullOfOrNull { tags[it.first] } ?: return "" to emptyList()
+        var on = false
+        val offsets = said.mapNotNull { (o, his) ->
+            if (his) on = tags[o] == anchor
+            o.takeIf { on }
+        }
+        return anchor to offsets
+    }
 }
 
 /** The screens with no server: answers are made up here, so everything can be tried by hand. */
@@ -383,4 +426,21 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
     override fun autopilot(id: String, on: Boolean) = flow.update { it.copy(notice = Notice(id, "autopilot isn't built yet")) }
 
     override fun noticed() = flow.update { it.copy(notice = null) }
+
+    /** As the server: the subject by the tags of [Fake.talkTags]. */
+    override fun subject(id: String, at: Long?) {
+        val m = Moving(id, at)
+        val (name, offsets) = Fake.subjectOf(flow.value.tabs[id]?.entries.orEmpty(), Fake.talkTags, at)
+        flow.update { it.copy(moving = m).subjected(m, name, offsets, "") }
+    }
+
+    /** As the server: a new thread on the subject; the messages stay in the main chat's scrollback. */
+    override fun moveSubject() {
+        val m = flow.value.moving?.takeIf { it.lit } ?: return
+        val id = "t${++counter}"
+        val tile = TileView(id, (flow.value.tiles.maxOfOrNull { it.n } ?: 0) + 1, m.name, model = "opus", effort = "medium")
+        flow.update { s -> s.copy(tiles = s.tiles + tile, tabs = s.tabs + (id to TabView(tile))).split(m.tab, m.name, m.offsets.size, "") }
+    }
+
+    override fun keepSubject() = flow.update { it.copy(moving = null) }
 }

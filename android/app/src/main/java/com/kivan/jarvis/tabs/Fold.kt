@@ -81,6 +81,9 @@ sealed interface FoldLine {
 
     /** A card still waiting for his answer: the orange-edged block. */
     data class Card(override val key: String, override val at: Long, val card: CardView) : FoldLine
+
+    /** A message of the main chat's own talk: his words or Jarvis's reply. [offset] is where it is on the record. */
+    data class Said(override val key: String, override val at: Long, val entry: Entry, val offset: Long?) : FoldLine
 }
 
 /**
@@ -97,7 +100,15 @@ fun foldLines(state: DeckState): List<FoldLine> {
             FoldLine.Report("r/$id", d.at, id, d.name, d.line, d.what == "done", id in unread)
         }
     val cards = state.cards.map { FoldLine.Card("c/${it.key}", it.at, it) }
-    return (reports + cards).sortedBy { it.at }
+    // What's still on its way has no time yet: it's the newest.
+    val said = mainChat(state.tiles)?.let { state.tabs[it] }?.entries.orEmpty().mapNotNull { e ->
+        when (e) {
+            is Entry.Yours -> FoldLine.Said("m/${e.key}", e.at.takeIf { it > 0 } ?: Long.MAX_VALUE, e, e.offset)
+            is Entry.Answer -> FoldLine.Said("m/${e.key}", e.at.takeIf { it > 0 } ?: Long.MAX_VALUE, e, e.offset)
+            else -> null
+        }
+    }
+    return (reports + cards + said).sortedBy { it.at }
 }
 
 /** How many threads are working, for the main chat's top line; null with none. */
@@ -109,3 +120,46 @@ fun chipWords(waiting: Int): String? = when {
     waiting == 1 -> "1 question"
     else -> "$waiting questions"
 }
+
+/** The main chat's name until Home is bound, as on the wall (the jarvis repo's `tabs/tui/src/fold.rs`). */
+const val MAIN_NAME = "Jarvis"
+
+/** The main chat: the tab called Jarvis, else the first in his order; the wall's rule, so both mean the same tab. */
+fun mainChat(tiles: List<TileView>): String? = (tiles.firstOrNull { it.name.equals(MAIN_NAME, ignoreCase = true) } ?: tiles.minByOrNull { it.n })?.id
+
+/** Every tab but the main chat: the threads. */
+fun foldThreads(tiles: List<TileView>): List<TileView> = mainChat(tiles).let { main -> tiles.filter { it.id != main } }
+
+/**
+ * The fold's move key under way (stage 5e) in the main chat [tab], pressed on the message at record offset [at]: the
+ * server's subject [name] and the record [offsets] of the messages that would move. Empty [name]: still asking.
+ * [sent]: he confirmed and the server is moving them.
+ */
+@Immutable
+data class Moving(val tab: String, val at: Long?, val name: String = "", val offsets: List<Long> = emptyList(), val sent: Boolean = false) {
+    /** The server answered with something to move, and he hasn't confirmed yet: the bar asks. */
+    val lit get() = name.isNotEmpty() && offsets.isNotEmpty() && !sent
+}
+
+/** What lights up: exactly the lines at the offsets the server named, never guessed from where a line sits. */
+fun lit(lines: List<FoldLine>, moving: Moving?): Set<String> {
+    val at = moving?.takeIf { it.name.isNotEmpty() }?.offsets?.toSet() ?: return emptySet()
+    return lines.filterIsInstance<FoldLine.Said>().filter { it.offset != null && it.offset in at }.map { it.key }.toSet()
+}
+
+/** The bar's question, as the wall asks it. */
+fun moveAsk(m: Moving): String = "Move ${m.offsets.size} message${if (m.offsets.size == 1) "" else "s"} on ${m.name} into a new thread?"
+
+/** The server's answer to the move key: lit up, or nothing to move, or its no, said as a notice. Stale answers change nothing. */
+fun DeckState.subjected(m: Moving, name: String, offsets: List<Long>, why: String): DeckState = when {
+    moving != m -> this
+    why.isNotEmpty() -> copy(moving = null, notice = Notice(m.tab, why))
+    offsets.isEmpty() -> copy(moving = null, notice = Notice(m.tab, "Nothing here has a subject to move yet."))
+    else -> copy(moving = m.copy(name = name, offsets = offsets))
+}
+
+/** The move went through, or the server said no: either way nothing stays lit, and a line says which. */
+fun DeckState.split(tab: String, name: String, moved: Int, why: String): DeckState = copy(
+    moving = null,
+    notice = Notice(tab, why.ifEmpty { "$moved message${if (moved == 1) "" else "s"} moved into the thread \"$name\"." }),
+)

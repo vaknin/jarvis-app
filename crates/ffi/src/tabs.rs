@@ -143,8 +143,9 @@ pub enum Landing {
 
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum EntryRec {
-    Yours { key: String, text: String, voice: bool, quotes: Vec<QuoteRec>, files: Vec<String>, state: Landing, why: String },
-    Answer { key: String, offset: Option<u64>, text: String, files: Vec<String> },
+    /// `offset`: where it is on the record, none while it's on its way; `at`: when it landed (ms), 0 until then.
+    Yours { key: String, offset: Option<u64>, at: u64, text: String, voice: bool, quotes: Vec<QuoteRec>, files: Vec<String>, state: Landing, why: String },
+    Answer { key: String, offset: Option<u64>, at: u64, text: String, files: Vec<String> },
     Report { key: String, from: String, line: String, text: String },
     Question { key: String, text: String, closed: bool },
     Quiet { key: String, text: String },
@@ -359,6 +360,8 @@ impl Hold {
                 let quotes = replies.iter().map(|r| QuoteRec { to: r.to, quote: r.quote.clone(), text: r.text.clone() }).collect();
                 Some(EntryRec::Yours {
                     key,
+                    offset: Some(e.offset),
+                    at: e.at,
                     text: text.clone(),
                     voice: *via == Some(Via::Voice),
                     quotes,
@@ -370,7 +373,7 @@ impl Hold {
             Body::Said { text, files, .. } => {
                 // The words that were arriving become these: same key, so the screen just goes on.
                 let key = self.live.take().map_or_else(key, |(_, k, _)| k);
-                Some(EntryRec::Answer { key, offset: Some(e.offset), text: text.clone(), files: names(files) })
+                Some(EntryRec::Answer { key, offset: Some(e.offset), at: e.at, text: text.clone(), files: names(files) })
             }
             Body::Delivered { upto } => {
                 if *upto >= self.waiting {
@@ -437,6 +440,8 @@ impl Hold {
         let done = self.items[from.min(self.items.len())..].iter().map(|(_, e)| e.clone());
         let waiting = self.pending.iter().map(|p| EntryRec::Yours {
             key: p.key.clone(),
+            offset: None,
+            at: 0,
             text: p.text.clone(),
             voice: false,
             quotes: p.replies.iter().map(|r| QuoteRec { to: r.to, quote: r.quote.clone(), text: r.text.clone() }).collect(),
@@ -444,7 +449,7 @@ impl Hold {
             state: if p.failed.is_some() { Landing::Refused } else { Landing::Sending },
             why: p.failed.clone().unwrap_or_default(),
         });
-        let live = self.live.iter().map(|(_, key, text)| EntryRec::Answer { key: key.clone(), offset: None, text: text.clone(), files: vec![] });
+        let live = self.live.iter().map(|(_, key, text)| EntryRec::Answer { key: key.clone(), offset: None, at: 0, text: text.clone(), files: vec![] });
         done.chain(waiting).chain(live).collect()
     }
 
@@ -1310,6 +1315,80 @@ pub fn tabs_answer_now(id: String, q: String, picks: Vec<u32>, text: String) -> 
     r.unwrap_or_else(|e| Some(format!("{e:#}")))
 }
 
+/// The main chat's subject (the library fold's move key, stage 5e), as the server said it: its name and the record
+/// offsets of the messages that would move, oldest first; none with nothing to move. `why`: the server's no.
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct SubjectRec {
+    pub name: String,
+    pub offsets: Vec<u64>,
+    pub why: String,
+}
+
+/// The subject moved: `moved` messages into the new thread `tab`, called `name`. `why`: the server's no, nothing moved.
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct SplitRec {
+    pub tab: String,
+    pub name: String,
+    pub moved: u32,
+    pub why: String,
+}
+
+/// The answer to `Ask::Subject` for tab `id` among what the server says: the subject, or its no.
+fn subject_told(id: &str, tell: Tell) -> Option<SubjectRec> {
+    match tell {
+        Tell::Subject { id: got, name, offsets } if got == id => Some(SubjectRec { name, offsets, why: String::new() }),
+        Tell::Refused { why, .. } => Some(SubjectRec { why, ..Default::default() }),
+        _ => None,
+    }
+}
+
+/// The answer to `Ask::MoveSubject`: the new thread, or the server's no.
+fn split_told(tell: Tell) -> Option<SplitRec> {
+    match tell {
+        Tell::Split { tab, moved } => Some(SplitRec { tab: tab.id, name: tab.tile.name, moved: moved as u32, why: String::new() }),
+        Tell::Refused { why, .. } => Some(SplitRec { why, ..Default::default() }),
+        _ => None,
+    }
+}
+
+/// One ask on its own short link, and the first frame `answer` reads as its answer. Blocks: call it off the main thread.
+fn ask_now<T>(ask: Ask, answer: impl Fn(Tell) -> Option<T> + Send + 'static) -> Result<T>
+where
+    T: Send + 'static,
+{
+    let run = async move {
+        let forum::Stream { mut send, recv, .. } = forum::open_stream(TABS_HANDSHAKE, false).await?;
+        write_async(&mut send, &ask).await.context("write")?;
+        let mut recv = tokio::io::BufReader::new(recv);
+        loop {
+            match read_async::<Tell>(&mut recv).await {
+                Ok(t) => {
+                    if let Some(got) = answer(t) {
+                        return Ok(got);
+                    }
+                }
+                Err(jarvis_tabs_wire::FrameError::Bad(_)) => {}
+                Err(e) => anyhow::bail!("{e}"),
+            }
+        }
+    };
+    RT.block_on(async { tokio::time::timeout(Duration::from_secs(30), run).await.unwrap_or_else(|_| anyhow::bail!("no answer in 30 s")) })
+}
+
+/// The move key, pressed on the main chat's message at record offset `at` (none: his newest with a subject): the
+/// server's subject and the messages that would move. Never guessed here: only the server's offsets light up.
+#[uniffi::export]
+pub fn tabs_subject(id: String, at: Option<u64>) -> SubjectRec {
+    let want = id.clone();
+    ask_now(Ask::Subject { id, at }, move |t| subject_told(&want, t)).unwrap_or_else(|e| SubjectRec { why: format!("{e:#}"), ..Default::default() })
+}
+
+/// He confirmed: exactly the `offsets` that lit up move into a new thread. The server refuses if the subject changed.
+#[uniffi::export]
+pub fn tabs_move_subject(id: String, at: Option<u64>, offsets: Vec<u64>) -> SplitRec {
+    ask_now(Ask::MoveSubject { id, at, offsets }, split_told).unwrap_or_else(|e| SplitRec { why: format!("{e:#}"), ..Default::default() })
+}
+
 #[uniffi::export]
 pub fn tabs_move(id: String, to: u32) {
     with_desk(|d| d.out.push(Ask::Move { id, to: to as usize }));
@@ -1346,6 +1425,21 @@ mod tests {
         assert!(d.online);
         d.disconnected();
         assert!(!d.online);
+    }
+
+    #[test]
+    fn the_move_key_reads_only_the_servers_subject_and_split() {
+        let subject = |o: &[u64]| Tell::Subject { id: "t1".into(), name: "Voice".into(), offsets: o.to_vec() };
+        // Interleaved subjects: the server lit 10, 30 and 50, and 20 and 40 stay; the screen takes those offsets whole.
+        assert_eq!(subject_told("t1", subject(&[10, 30, 50])), Some(SubjectRec { name: "Voice".into(), offsets: vec![10, 30, 50], why: String::new() }));
+        assert_eq!(subject_told("t2", subject(&[10])), None, "another tab's subject isn't this one's");
+        assert_eq!(subject_told("t1", Tell::Done), None);
+        assert_eq!(subject_told("t1", Tell::Refused { id: "t1".into(), why: "not the main chat".into() }).unwrap().why, "not the main chat");
+        assert_eq!(subject_told("t1", subject(&[])).unwrap().offsets, Vec::<u64>::new(), "nothing has a subject yet");
+        let split = split_told(Tell::Split { tab: info("t7", 3, 40), moved: 4 }).unwrap();
+        assert_eq!((split.tab.as_str(), split.moved, split.why.as_str()), ("t7", 4, ""));
+        assert_eq!(split_told(Tell::Refused { id: "t1".into(), why: "the subject changed".into() }).unwrap().why, "the subject changed");
+        assert_eq!(split_told(Tell::Tabs { tabs: vec![], fold: true }), None);
     }
 
     #[test]

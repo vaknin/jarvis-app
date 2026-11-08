@@ -40,6 +40,22 @@ pub enum Ask {
     Mode { id: String, mode: String },
     /// A closed tab opens again with its whole record, at the end of the row: answered by `Opened`.
     Reopen { id: String },
+    /// The library fold's move-to-thread key (stage 5e), in the main chat `id`: the subject he's on (of his message at
+    /// record offset `at`, else his newest one with a subject) and the messages that would move with it. Answered by
+    /// `Subject`.
+    Subject {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<u64>,
+    },
+    /// He confirmed: the subject's messages move into a new thread. `offsets` are the ones that lit up; if the subject
+    /// has more or fewer now, nothing moves and it's refused. Answered by `Split`.
+    MoveSubject {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<u64>,
+        offsets: Vec<u64>,
+    },
     /// Every closed tab, newest first: answered by `Closed`. Their records stay, so they can be
     /// found by name and followed; a follow of one sends the record, then `Ended`.
     Closed,
@@ -293,6 +309,17 @@ pub enum Tell {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         digest: Vec<DigestLine>,
     },
+    /// The main chat's subject (`Ask::Subject`): its name, and the record offsets of the messages that would move,
+    /// oldest first. None: nothing he said there has a subject yet.
+    Subject {
+        id: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        offsets: Vec<u64>,
+    },
+    /// The subject moved (`Ask::MoveSubject`): `moved` messages, into the new thread `tab`.
+    Split { tab: Info, moved: usize },
     /// The ask went through and has nothing else to say.
     Done,
     #[serde(other)]

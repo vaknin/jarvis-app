@@ -101,6 +101,9 @@ sealed interface Entry {
         val files: List<String> = emptyList(),
         val state: Sending = Sending.Sent,
         val why: String = "",
+        /** Where it is on the record, null while it's on its way; when it landed (ms), 0 until then. */
+        val offset: Long? = null,
+        val at: Long = 0,
     ) : Entry
 
     /** [offset] is where a reply points; null while it's still arriving. */
@@ -109,6 +112,8 @@ sealed interface Entry {
         val offset: Long?,
         val text: String,
         val files: List<String> = emptyList(),
+        /** When it landed (ms), 0 while it's still arriving. */
+        val at: Long = 0,
     ) : Entry
 
     data class Report(
@@ -218,6 +223,8 @@ data class DeckState(
     val notice: Notice? = null,
     /** The library fold's switch, as the server last said it (`~/.jarvis/fold/threads-on`): main chat and threads instead of the wall. */
     val fold: Boolean = false,
+    /** The fold's move key under way in the main chat: what the server said lights up, until he moves it or keeps it. */
+    val moving: Moving? = null,
 )
 
 /** The key of the wall's own box in [DeckState.typed]. */
@@ -247,6 +254,15 @@ interface Deck {
     fun words(send: Boolean)
     /** A tap on what he said: the mic stops and his words go into the box, for him to edit and send. */
     fun edit()
+    /**
+     * The fold's move key, long-pressed on the main chat [id]'s message at record offset [at]: the server says the
+     * subject and which messages would move, into [DeckState.moving]. Its no comes back as a notice.
+     */
+    fun subject(id: String, at: Long?)
+    /** He confirmed: exactly what lit up moves into a new thread. */
+    fun moveSubject()
+    /** He kept them: nothing lights up and nothing moves. */
+    fun keepSubject()
     /** Stops what the tab is writing; what's written stays. */
     fun stop(id: String)
     /**

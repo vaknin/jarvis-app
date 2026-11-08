@@ -27,3 +27,7 @@
 {"ask":"queue"}
 {"ask":"autopilot","id":"t1","op":"check","text":"cargo test passed","n":2}
 {"ask":"note","id":"t1","from":"job-x-1","line":"done","text":"landed","micro_usd":420000}
+{"ask":"subject","id":"t1"}
+{"ask":"subject","id":"t1","at":120}
+{"ask":"movesubject","id":"t1","offsets":[10,20,50]}
+{"ask":"movesubject","id":"t1","at":120,"offsets":[120,180]}
