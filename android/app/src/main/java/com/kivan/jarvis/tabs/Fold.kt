@@ -124,8 +124,13 @@ fun chipWords(waiting: Int): String? = when {
 /** The main chat's name until Home is bound, as on the wall (the jarvis repo's `tabs/tui/src/fold.rs`). */
 const val MAIN_NAME = "Jarvis"
 
-/** The main chat: the tab called Jarvis, else the first in his order; the wall's rule, so both mean the same tab. */
-fun mainChat(tiles: List<TileView>): String? = (tiles.firstOrNull { it.name.equals(MAIN_NAME, ignoreCase = true) } ?: tiles.minByOrNull { it.n })?.id
+/**
+ * The main chat: the tab the server names (or, from a server that doesn't, the tab called Jarvis), never his first
+ * tab: that old rule made a subject's tab the main chat. Null while it isn't on the wall: the link asks the server
+ * for it, which brings a parked one back.
+ */
+fun mainChat(tiles: List<TileView>): String? =
+    (tiles.firstOrNull { it.main } ?: tiles.filter { it.name.trim().equals(MAIN_NAME, ignoreCase = true) }.minByOrNull { it.n })?.id
 
 /** Every tab but the main chat: the threads. */
 fun foldThreads(tiles: List<TileView>): List<TileView> = mainChat(tiles).let { main -> tiles.filter { it.id != main } }

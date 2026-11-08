@@ -271,11 +271,14 @@ pub struct Info {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "tell", rename_all = "lowercase")]
 pub enum Tell {
-    /// The wall's tabs; `fold` while the library fold's switch is on (`~/.jarvis/fold/threads-on`).
+    /// The wall's tabs; `fold` while the library fold's switch is on (`~/.jarvis/fold/threads-on`); `main` the tab that
+    /// is the main chat (`~/.jarvis/main-chat`), on the wall or not, so the wall and the phone never pick different ones.
     Tabs {
         tabs: Vec<Info>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fold: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        main: Option<String>,
     },
     /// The closed tabs, newest first. `n` is the number each last had.
     Closed { tabs: Vec<Info> },

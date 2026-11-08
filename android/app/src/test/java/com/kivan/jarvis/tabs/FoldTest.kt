@@ -87,11 +87,15 @@ class FoldTest {
         return DeckState(tiles = listOf(tile("t1"), main, tile("t2")), tabs = mapOf("t0" to TabView(main, talk)), moving = moving)
     }
 
-    @Test fun theMainChatIsTheTabCalledJarvisElseTheFirstAndIsNoThread() {
+    @Test fun theMainChatIsTheServersElseTheTabCalledJarvisNeverTheFirstAndIsNoThread() {
         val s = talking()
         assertEquals("t0", mainChat(s.tiles))
         assertEquals(listOf("t1", "t2"), foldThreads(s.tiles).map { it.id })
-        assertEquals("a", mainChat(listOf(TileView("b", 2, "B"), TileView("a", 1, "A"))))
+        // Task 943: his first tab, a subject's, is never taken for it.
+        assertNull(mainChat(listOf(TileView("b", 2, "B"), TileView("a", 1, "IMAGES BOOK"))))
+        assertEquals("j", mainChat(listOf(TileView("a", 1, "IMAGES BOOK"), TileView("j", 5, " jarvis "))))
+        // The server's word wins over a name.
+        assertEquals("h", mainChat(listOf(TileView("j", 1, MAIN_NAME), TileView("h", 3, "Home", main = true))))
         assertNull(mainChat(emptyList()))
     }
 

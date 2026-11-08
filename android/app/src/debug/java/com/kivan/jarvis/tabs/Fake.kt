@@ -223,6 +223,21 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
     }
 
     /**
+     * As on his phone (task 943): his first tab is a subject's, IMAGES BOOK, and the main chat is a later tab the server
+     * names, here not even called Jarvis. The main chat shows [talk]; IMAGES BOOK stays a thread with its own words.
+     */
+    fun foldBookFirst(n: Int = 6): DeckState {
+        val base = fold(n)
+        val book = base.tiles.first().copy(name = "IMAGES BOOK")
+        val main = TileView("t313", 40, "Home", model = "opus", effort = "medium", main = true)
+        val bookTalk = TabView(book, listOf(Entry.Yours("b1", "make the cover darker", offset = 5, at = tonight(0, 30)), Entry.Answer("b2", 9, "Darker cover, trying three.", at = tonight(0, 30))))
+        return base.copy(
+            tiles = listOf(book) + base.tiles.drop(1) + main,
+            tabs = base.tabs + (book.id to bookTalk) + ("t313" to TabView(main, talk)),
+        )
+    }
+
+    /**
      * As the tab server's library answers the move key (the jarvis repo's `tabs/src/server/library.rs` subject): the
      * subject of his message at [at] (a reply: his message before it), else his newest tagged one; his messages with
      * that tag and Jarvis's replies to each. By the tags alone.

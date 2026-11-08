@@ -50,6 +50,8 @@ const QUICK_FOR: Duration = Duration::from_secs(30);
 const QUICK: Duration = Duration::from_secs(1);
 /// How long the link outlives the screens: coming back from a picker or a glance elsewhere finds it up.
 const AWAY: Duration = Duration::from_secs(30);
+/// The main chat's name, as the tab server and the wall know it (the jarvis repo's `tabs/src/fold.rs`).
+const MAIN_NAME: &str = "Jarvis";
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TileRec {
@@ -66,6 +68,8 @@ pub struct TileRec {
     pub effort: String,
     /// Its autopilot is on, as the server reads it (`autopilot_on`).
     pub autopilot: bool,
+    /// It is the library fold's main chat ([`Desk::main_chat`]): the screen never guesses it from the order.
+    pub main: bool,
 }
 
 /// One tab a card's question stands in: what an answer names.
@@ -504,13 +508,17 @@ struct Desk {
     answered: Vec<(String, String)>,
     /// The fold's switch as the screen last heard it: none yet on this run.
     fold: Option<bool>,
+    /// The main chat as the server names it in its list; none from a server that doesn't say.
+    main: Option<String>,
+    /// The main chat was asked for on this connection: a second ask would open a second one.
+    main_asked: bool,
 }
 
 impl Desk {
     /// The pipe is open, which says nothing yet: the gate opens it before it knows the server is
     /// there. Online comes with the first frame.
     fn connected(&mut self) {
-        (self.fresh, self.wall_touched) = (true, true);
+        (self.fresh, self.wall_touched, self.main_asked) = (true, true, false);
         self.out.extend([Ask::List, Ask::Closed, Ask::Follow { id: WALL.into(), after: self.wall_end }, Ask::Queue]);
     }
 
@@ -564,12 +572,14 @@ impl Desk {
         self.wall_touched |= !self.online;
         (self.online, self.quiet_until) = (true, None);
         match tell {
-            Tell::Tabs { tabs, fold } => {
+            Tell::Tabs { tabs, fold, main } => {
                 if self.fold != Some(fold) {
                     self.fold = Some(fold);
                     self.told.push(Told::Fold(fold));
                 }
-                self.listed(tabs)
+                self.main = main;
+                self.listed(tabs);
+                self.ask_main();
             }
             Tell::Closed { tabs } => {
                 self.closed = tabs;
@@ -892,6 +902,29 @@ impl Desk {
         self.out.push(Ask::Open { want: None, name });
     }
 
+    /// The library fold's main chat: the tab the server names, else the open tab called Jarvis (the first in his
+    /// order), as the wall reads it (the jarvis repo's `tabs/tui/src/fold.rs`). Never his first tab: that was the old
+    /// rule, and it made a subject's tab the main chat. None while it isn't on the wall.
+    fn main_chat(&self) -> Option<&str> {
+        let open = |id: &&String| self.tabs.get(*id).is_some_and(|t| !t.closed);
+        if let Some(m) = self.main.as_ref().filter(|m| self.order.contains(m)).filter(open) {
+            return Some(m);
+        }
+        let named = self.order.iter().filter(open).filter(|id| self.tabs[*id].tile.name.trim().eq_ignore_ascii_case(MAIN_NAME));
+        named.min_by_key(|id| self.tabs[*id].n).map(String::as_str)
+    }
+
+    /// The fold is on and its main chat isn't on the wall (parked, closed, or never opened): the server is asked for it
+    /// once a connection, by name, and it brings back the one it has or opens it. Its answer comes as any open does.
+    fn ask_main(&mut self) {
+        if self.main_asked || self.fold != Some(true) || self.main_chat().is_some() {
+            return;
+        }
+        self.main_asked = true;
+        self.opening.push_back(None);
+        self.out.push(Ask::Open { want: None, name: MAIN_NAME.into() });
+    }
+
     fn reopen(&mut self, id: String) {
         self.opening.push_back(None);
         self.out.push(Ask::Reopen { id });
@@ -918,6 +951,7 @@ impl Desk {
             model: jarvis_tabs_wire::mode::parts(&t.tile.mode).0.to_string(),
             effort: jarvis_tabs_wire::mode::parts(&t.tile.mode).1.to_string(),
             autopilot: autopilot_on(&t.tile),
+            main: self.main_chat() == Some(id),
         }
     }
 
@@ -1421,7 +1455,7 @@ mod tests {
         let mut d = Desk::default();
         d.connected();
         assert!(!d.online);
-        d.tell(Tell::Tabs { tabs: vec![], fold: false });
+        d.tell(Tell::Tabs { tabs: vec![], fold: false, main: None });
         assert!(d.online);
         d.disconnected();
         assert!(!d.online);
@@ -1439,7 +1473,7 @@ mod tests {
         let split = split_told(Tell::Split { tab: info("t7", 3, 40), moved: 4 }).unwrap();
         assert_eq!((split.tab.as_str(), split.moved, split.why.as_str()), ("t7", 4, ""));
         assert_eq!(split_told(Tell::Refused { id: "t1".into(), why: "the subject changed".into() }).unwrap().why, "the subject changed");
-        assert_eq!(split_told(Tell::Tabs { tabs: vec![], fold: true }), None);
+        assert_eq!(split_told(Tell::Tabs { tabs: vec![], fold: true, main: None }), None);
     }
 
     #[test]
@@ -1447,18 +1481,59 @@ mod tests {
         let mut d = Desk::default();
         d.connected();
         let folds = |d: &mut Desk| d.take().into_iter().filter_map(|t| if let Told::Fold(on) = t { Some(on) } else { None }).collect::<Vec<_>>();
-        d.tell(Tell::Tabs { tabs: vec![], fold: false });
+        d.tell(Tell::Tabs { tabs: vec![], fold: false, main: None });
         assert_eq!(folds(&mut d), [false], "the first listing says where it stands");
-        d.tell(Tell::Tabs { tabs: vec![], fold: false });
+        d.tell(Tell::Tabs { tabs: vec![], fold: false, main: None });
         assert!(folds(&mut d).is_empty());
-        d.tell(Tell::Tabs { tabs: vec![], fold: true });
+        d.tell(Tell::Tabs { tabs: vec![], fold: true, main: None });
         assert_eq!(folds(&mut d), [true]);
+    }
+
+    /// Task 943: the phone took his first tab (IMAGES BOOK, a subject's) for the main chat. Now the main chat is the
+    /// tab the server names, else the open tab called Jarvis; with neither on the wall (parked) the server is asked for
+    /// it once a connection, and the tab that answers is it.
+    #[test]
+    fn the_main_chat_is_the_servers_or_the_tab_called_jarvis_never_the_first() {
+        let named = |id: &str, n: u32, name: &str| {
+            let mut i = info(id, n, 10);
+            i.tile.name = name.into();
+            i
+        };
+        let mains = |d: &mut Desk| {
+            d.take().into_iter().filter_map(|t| if let Told::Wall(tiles, ..) = t { Some(tiles) } else { None }).last().unwrap().into_iter().filter(|t| t.main).map(|t| t.id).collect::<Vec<_>>()
+        };
+        let opens = |d: &Desk| d.out.iter().filter(|a| matches!(a, Ask::Open { name, .. } if name == "Jarvis")).count();
+        let book = named("t277", 1, "IMAGES BOOK");
+        let mut d = Desk::default();
+        d.connected();
+        // Jarvis parked: no main chat, and it is asked for once.
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden")], fold: true, main: Some("t313".into()) });
+        assert!(mains(&mut d).is_empty(), "never his first tab");
+        assert_eq!(opens(&d), 1);
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden")], fold: true, main: Some("t313".into()) });
+        assert_eq!(opens(&d), 1, "not twice");
+        // The server brings it back.
+        d.tell(Tell::Opened { tab: named("t313", 3, "Jarvis") });
+        assert_eq!(mains(&mut d), ["t313"]);
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden"), named("t313", 3, "Jarvis")], fold: true, main: Some("t313".into()) });
+        assert_eq!(mains(&mut d), ["t313"]);
+        // The server's word wins over a name; an older server's list goes by the name alone.
+        d.tell(Tell::Tabs { tabs: vec![named("t9", 1, "Jarvis"), named("t313", 3, "Home")], fold: true, main: Some("t313".into()) });
+        assert_eq!(mains(&mut d), ["t313"]);
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t313", 3, " jarvis ")], fold: true, main: None });
+        assert_eq!(mains(&mut d), ["t313"]);
+        // With the fold off nothing is opened, even without one.
+        let mut d = Desk::default();
+        d.connected();
+        d.tell(Tell::Tabs { tabs: vec![book], fold: false, main: None });
+        assert!(mains(&mut d).is_empty());
+        assert_eq!(opens(&d), 0);
     }
 
     fn up(tabs: &[(&str, u64)]) -> Desk {
         let mut d = Desk::default();
         d.connected();
-        d.tell(Tell::Tabs { tabs: tabs.iter().enumerate().map(|(i, (id, end))| info(id, i as u32 + 1, *end)).collect(), fold: false });
+        d.tell(Tell::Tabs { tabs: tabs.iter().enumerate().map(|(i, (id, end))| info(id, i as u32 + 1, *end)).collect(), fold: false, main: None });
         d
     }
 
@@ -1474,7 +1549,7 @@ mod tests {
             d.settle();
             assert_eq!(d.out, [Ask::List, Ask::Closed], "{kind}");
         }
-        d.tell(Tell::Tabs { tabs: vec![info("t3", 1, 10), info("t2", 2, 10)], fold: false });
+        d.tell(Tell::Tabs { tabs: vec![info("t3", 1, 10), info("t2", 2, 10)], fold: false, main: None });
         let told = d.take();
         let tiles = told.iter().find_map(|t| if let Told::Wall(tiles, ..) = t { Some(tiles) } else { None }).expect("the wall");
         let row: Vec<(&str, u32)> = tiles.iter().map(|t| (t.id.as_str(), t.n)).collect();
@@ -1697,7 +1772,7 @@ mod tests {
         assert!(texts(&tab(&{ d.tabs.get_mut("t1").unwrap().tail(); d.take() }, "t1")).contains(&"third, half".to_string()), "the reply mid-way stays");
 
         d.connected();
-        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 30)], fold: false });
+        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 30)], fold: false, main: None });
         assert!(d.out.contains(&Ask::Follow { id: "t1".into(), after: 20 }), "{:?}", d.out);
         // The new server sends the live block whole, and the old follow's last line crosses the new one's.
         d.tell(Tell::Text { id: "t1".into(), block: 1, from: 0, text: "third, half way".into() });
@@ -1942,7 +2017,7 @@ mod tests {
         d.disconnected();
         d.connected();
         d.out.clear();
-        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 10), info("t2", 2, 40)], fold: false });
+        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 10), info("t2", 2, 40)], fold: false, main: None });
         assert_eq!(d.out, [Ask::Follow { id: "t1".into(), after: 10 }, Ask::Follow { id: "t2".into(), after: 40 }]);
         event(&mut d, "t1", said(10, Who::Aviv, "hi"));
         assert_eq!(d.tabs["t1"].items.len(), 1);

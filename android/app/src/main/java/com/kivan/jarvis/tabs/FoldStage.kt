@@ -118,6 +118,8 @@ fun FoldStage(deck: Deck, tab: String? = null) {
         val w = said(state.typed[box].orEmpty(), state.heard)
         // The main chat's words go to the main chat; a new thread's open one.
         val to = if (box == WALL) mainChat(state.tiles) else null
+        // The main chat isn't on the wall yet (the server is bringing it back): his words wait in the box, never a new thread.
+        if (box == WALL && to == null) return
         val quotes = to?.let { state.marks[it] }.orEmpty()
         if (w.isEmpty() && state.attached.isEmpty() && quotes.isEmpty()) return
         buzz.sent()

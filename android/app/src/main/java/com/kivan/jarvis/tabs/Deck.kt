@@ -18,6 +18,8 @@ data class TileView(
     val effort: String = "",
     /** Its autopilot runs (one started before autopilot was dropped, running to done). */
     val autopilot: Boolean = false,
+    /** It is the fold's main chat, as the server names it ([mainChat]). */
+    val main: Boolean = false,
 )
 
 /** How hard a question reaches him. Urgent is the only amber left; low never reaches his phone's notifications. */

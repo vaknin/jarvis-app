@@ -87,6 +87,16 @@ class ScreensTest {
         rule.onAllNodesWithText("Threads")[0].performClick()
         rule.mainClock.advanceTimeBy(600)
     }) { Stage(FakeDeck(Fake.fold()), Opening(fold = true)) }
+    // Task 943: his first tab is IMAGES BOOK; the main chat is the tab the server names, and IMAGES BOOK is a thread.
+    @Test fun foldMainNotFirst() = shot("fold-main-not-first", capture = {
+        rule.onAllNodesWithText("and the voice should sound calmer")[0].assertExists()
+        assertEquals(0, rule.onAllNodesWithText("make the cover darker").fetchSemanticsNodes().size)
+    }) { Stage(FakeDeck(Fake.foldBookFirst()), Opening(fold = true)) }
+    @Test fun foldMainNotFirstThreads() = shot("fold-main-not-first-threads", capture = {
+        rule.onAllNodesWithText("Threads")[0].performClick()
+        rule.mainClock.advanceTimeBy(600)
+        rule.onAllNodesWithText("IMAGES BOOK")[0].assertExists()
+    }) { Stage(FakeDeck(Fake.foldBookFirst()), Opening(fold = true)) }
     @Test fun foldThread() = shot("fold-thread") { Stage(FakeDeck(Fake.fold()), Opening(tab = "t1", fold = true)) }
     @Test fun foldThreadNeeds() = shot("fold-thread-needs") { Stage(FakeDeck(Fake.fold()), Opening(tab = "t2", fold = true)) }
     @Test fun foldHomeLight() = shot("fold-home-light", dark = false) { Stage(FakeDeck(Fake.fold()), Opening(fold = true)) }

@@ -456,7 +456,7 @@ internal fun DeckState.typedBack(id: String, text: String): DeckState {
     return copy(typed = typed + (id to if (now.isBlank()) text else "$text\n\n$now"))
 }
 
-private fun view(t: TileRec) = TileView(t.id, t.n.toInt(), t.name, t.needs, t.unread, t.working, t.mode, t.model, t.effort, t.autopilot)
+private fun view(t: TileRec) = TileView(t.id, t.n.toInt(), t.name, t.needs, t.unread, t.working, t.mode, t.model, t.effort, t.autopilot, main = t.main)
 
 internal fun card(c: CardRec) = CardView(
     c.tabs.map { CardTab(it.id, it.name, it.q) },
@@ -512,7 +512,7 @@ internal data class Saved(
     fun json(): String = JSONObject().apply {
         put("tiles", tiles.fold(org.json.JSONArray()) { a, t ->
             a.put(JSONObject().put("id", t.id).put("n", t.n).put("name", t.name).put("needs", t.needs)
-                .put("unread", t.unread))
+                .put("unread", t.unread).put("main", t.main))
         })
         put("typed", JSONObject(typed))
         put("drafts", JSONObject().also { all ->
@@ -557,7 +557,7 @@ internal data class Saved(
                 tiles = (0 until tiles.length()).map { i ->
                     val t = tiles.getJSONObject(i)
                     // A saved tile never shows work: it would glide with nothing behind it.
-                    TileView(t.getString("id"), t.getInt("n"), t.getString("name"), t.getBoolean("needs"), t.getBoolean("unread"), false)
+                    TileView(t.getString("id"), t.getInt("n"), t.getString("name"), t.getBoolean("needs"), t.getBoolean("unread"), false, main = t.optBoolean("main"))
                 },
                 typed = typed.keys().asSequence().associateWith { typed.getString(it) },
                 drafts = drafts.keys().asSequence().associate { key ->
