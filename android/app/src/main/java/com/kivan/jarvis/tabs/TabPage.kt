@@ -936,7 +936,7 @@ private fun ClosedBar(tab: String, onReopen: () -> Unit) {
         Modifier.padding(start = Space.margin - 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("This tab is closed", Modifier.weight(1f), look.faint, style = Words.label)
+        Text("This thread is closed", Modifier.weight(1f), look.faint, style = Words.label)
         Box(
             Modifier
                 .height(Space.target)
