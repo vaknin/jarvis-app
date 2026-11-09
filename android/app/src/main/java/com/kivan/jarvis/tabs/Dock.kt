@@ -52,7 +52,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -118,9 +120,33 @@ fun Dock(
         ) {
             leading?.invoke(this)
             WordsBox(hint, text, onText, onSend, Modifier.weight(1f), focus, showSend, heard, onHeard, onStop, talk, ready, onHold)
+            // Hold stands beside Send for any message with words, quoted or not; the reply strip has none of its own,
+            // so there's one Hold on screen. The long press on Send holds too.
+            AnimatedVisibility(
+                onHold != null && showSend && (text.isNotBlank() || heard.isNotBlank()),
+                enter = fadeIn(tween(Curves.QUICK)) + scaleIn(tween(Curves.QUICK), 0.6f),
+                exit = fadeOut(tween(Curves.QUICK)) + scaleOut(tween(Curves.QUICK), 0.6f),
+            ) {
+                HoldPill { onHold?.invoke() }
+            }
             if (talk) CallButton(tab)
         }
     }
+}
+
+/** Hold: what's in the box waits, quiet, for the next send or send-all. The box's height, so the row lines up. */
+@Composable
+private fun HoldPill(onHold: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(24.dp))
+            .background(look.surface)
+            .clickable(onClickLabel = "Hold, send later", onClick = onHold)
+            .semantics { role = Role.Button }
+            .heightIn(min = Space.target)
+            .padding(horizontal = 16.dp),
+        Alignment.Center,
+    ) { Text("Hold", color = look.ink, style = Words.small) }
 }
 
 /** A call in this tab. With one going on elsewhere it comes here; with one here it opens it. */

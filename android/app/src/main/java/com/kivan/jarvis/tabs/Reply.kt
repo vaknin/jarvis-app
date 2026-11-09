@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -31,9 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kivan.jarvis.R
@@ -171,13 +167,13 @@ class ReplyBox internal constructor(private val scope: CoroutineScope, private v
         }
     }
 
-    /** What stands on the box: the marks waiting, then the reply open with its Hold and its way out. */
+    /** What stands on the box: the marks waiting, then the reply open and its way out. Its Hold is the box's own, beside Send. */
     @Composable
     fun Above() {
         val r = reply
         MarkTray(marks.filterNot { r != null && it.same(r) }, onMarks) { open(it) }
         if (r != null) {
-            ReplyStrip(r.quote, typed, canHold = !writing.isNullOrBlank(), onHold = { hold() }, onCancel = { cancel() })
+            ReplyStrip(r.quote, typed, onCancel = { cancel() })
         }
     }
 }
@@ -258,9 +254,12 @@ internal fun MarkTray(marks: List<QuoteMark>, onMarks: (List<QuoteMark>) -> Unit
     }
 }
 
-/** The reply open in the box: what it quotes, Hold to keep it for the next message, and the way out. */
+/**
+ * The reply open in the box: what it quotes and the way out. Hold is the box's one pill beside Send, there for any
+ * message with words, quoted or not.
+ */
 @Composable
-internal fun ReplyStrip(quote: String, typed: String, canHold: Boolean, onHold: () -> Unit, onCancel: () -> Unit) {
+internal fun ReplyStrip(quote: String, typed: String, onCancel: () -> Unit) {
     // His message waits in the box meanwhile, and goes along if he sends now.
     if (typed.isNotBlank()) {
         Text(typed, Modifier.padding(start = 8.dp, bottom = 4.dp), look.faint, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -271,19 +270,6 @@ internal fun ReplyStrip(quote: String, typed: String, canHold: Boolean, onHold: 
     ) {
         Box(Modifier.padding(start = 8.dp).width(2.dp).fillMaxHeight().background(look.ink, RoundedCornerShape(1.dp)))
         Text(quote, Modifier.weight(1f).padding(start = 10.dp).testTag("replying"), look.soft, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (canHold) {
-            Box(
-                Modifier
-                    .padding(start = 8.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(look.surface)
-                    .clickable(onClick = onHold)
-                    .semantics { role = Role.Button }
-                    .heightIn(min = 38.dp)
-                    .padding(horizontal = 14.dp),
-                Alignment.Center,
-            ) { Text("Hold", color = look.ink, style = Words.small) }
-        }
         Round(R.drawable.lucide_x, "Cancel this reply", onCancel, size = 38.dp)
     }
 }

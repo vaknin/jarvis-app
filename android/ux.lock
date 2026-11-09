@@ -68,3 +68,7 @@ added flow android-fold-quote
 added flow android-fold-main-chat-as-thread
   what: With the library fold on, the main chat's box is the Jarvis thread's own reply box: a swipe quotes the one paragraph, bullet or line under the finger and any other marks stay; the Hold pill on an open reply keeps it greyed in the marks tray above the box; a long-press on Send holds plain words quiet on the server (bulk); Send with the box empty lets what he held go in. Nothing new drawn: the same Hold pill and marks tray as a thread.
   approved: 2026-11-09 "when I open the Jarvis thread it does work as expected and then I can swipe only specific bullet points or paragraphs and the bulk mode is suddenly working again ... I think you can merge them into a single one which is basically fixing the main chat"
+
+added flow android-hold-any
+  what: A Hold pill stands beside Send for any message with words, in a thread or the main chat, quoted or not; it shows once there are words (typed or heard) and goes with them. On an open reply it keeps the reply greyed in the marks tray; on plain words they wait quiet on the server (bulk) and show in the chat, the box emptied. The reply strip has no Hold of its own any more, so there is one Hold on screen; the long-press on Send still holds too.
+  approved: 2026-11-09 "I cannot use bulk mode if I'm not replying to some message / so basically I don't have a hold button if I'm not replying to some message"
