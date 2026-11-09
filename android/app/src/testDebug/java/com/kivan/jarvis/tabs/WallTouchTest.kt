@@ -28,7 +28,8 @@ class WallTouchTest {
 
     private fun wall() {
         rule.mainClock.autoAdvance = false
-        rule.setContent { TabsTheme(dark = true) { Stage(deck) } }
+        // The wall itself: the app opens on Needs you, the wall stays behind it.
+        rule.setContent { TabsTheme(dark = true) { Stage(deck, Opening(list = false)) } }
         rule.mainClock.advanceTimeBy(1200)
     }
 

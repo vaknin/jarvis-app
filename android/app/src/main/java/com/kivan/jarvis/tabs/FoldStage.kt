@@ -114,22 +114,15 @@ fun FoldStage(deck: Deck, tab: String? = null) {
     }
     LaunchedEffect(where) { if (where !is Where.Thread) deck.here(null) }
 
-    fun send(box: String) {
-        val w = said(state.typed[box].orEmpty(), state.heard)
-        // The main chat's words go to the main chat; a new thread's open one.
-        val to = if (box == WALL) mainChat(state.tiles) else null
-        // The main chat isn't on the wall yet (the server is bringing it back): his words wait in the box, never a new thread.
-        if (box == WALL && to == null) return
-        val quotes = to?.let { state.marks[it] }.orEmpty()
-        if (w.isEmpty() && state.attached.isEmpty() && quotes.isEmpty()) return
+    // A new thread's box opens one; the main chat sends through its own reply box, as a thread does.
+    fun sendNew() {
+        val w = said(state.typed[NEW].orEmpty(), state.heard)
+        if (w.isEmpty() && state.attached.isEmpty()) return
         buzz.sent()
         if (state.heard.isNotBlank()) deck.words(false)
-        if (to == null) sentFrom = box
-        // As a thread's reply: one quote carries his words; several go each with none, his message after them.
-        if (quotes.size == 1) deck.send(to, "", listOf(Quoted(quotes[0].to, quotes[0].quote, w)))
-        else deck.send(to, w, quotes.map { Quoted(it.to, it.quote, "") })
-        if (to != null && quotes.isNotEmpty()) deck.marks(to, emptyList())
-        deck.type(box, "")
+        sentFrom = NEW
+        deck.send(null, w, emptyList())
+        deck.type(NEW, "")
     }
 
     val anyWork = state.tiles.any { it.working } || state.tabs.values.any { it.work != null || it.loading }
@@ -154,14 +147,14 @@ fun FoldStage(deck: Deck, tab: String? = null) {
                 },
         ) {
             when (val w = where) {
-                Where.Home -> FoldHome(state, onThreads = { where = Where.List }, onOpen = { where = Where.Thread(it, false) }, onSend = { send(WALL) })
+                Where.Home -> FoldHome(state, onThreads = { where = Where.List }, onOpen = { where = Where.Thread(it, false) })
                 Where.List -> {
                     BackHandler { where = Where.Home }
                     ThreadList(state, onBack = { where = Where.Home }, onNew = { where = Where.New }, onOpen = { where = Where.Thread(it, true) })
                 }
                 Where.New -> {
                     BackHandler { where = Where.Home }
-                    NewThread(state, onBack = { where = Where.Home }, onSend = { send(NEW) })
+                    NewThread(state, onBack = { where = Where.Home }, onSend = { sendNew() })
                 }
                 is Where.Thread -> {
                     val back = { where = if (w.fromList) Where.List else Where.Home }
@@ -177,7 +170,7 @@ private val NUMBERS = listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Ke
 
 /** The main chat: its lines, the jump chip for cards scrolled away, and the box. */
 @Composable
-private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -> Unit, onSend: () -> Unit) {
+private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -> Unit) {
     val deck = LocalDeck.current
     val main = mainChat(state.tiles)
     LaunchedEffect(main) { if (main != null) deck?.show(listOf(main)) }
@@ -189,16 +182,39 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
     val rows = remember(lines) { lines.asReversed() }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    // The reply he's writing: the message it quotes stands above the box until he sends or cancels it.
-    val reply = main?.let { state.marks[it] }?.lastOrNull()
-    val box = remember { FocusRequester() }
-    val quote = { m: QuoteMark ->
-        if (main != null) {
-            deck?.marks(main, listOf(m))
-            scope.launch { box.requestFocus() }
-        }
-        Unit
-    }
+    // The thread's own reply box, on the main tab: a swipe opens a reply in it, Hold and a long press on Send hold,
+    // an empty Send lets go of what he held, and the marks wait above it. With no main chat yet nothing goes: his
+    // words wait in the box, never in a new thread.
+    val focus = remember { FocusRequester() }
+    val box = rememberReplyBox(
+        typed = state.typed[WALL].orEmpty(),
+        heard = state.heard,
+        marks = main?.let { state.marks[it] }.orEmpty(),
+        waiting = main?.let { state.tabs[it]?.waiting } == true,
+        onMarks = { m -> main?.let { deck?.marks(it, m) } },
+        onSend = { words, quotes ->
+            if (main != null) {
+                if (state.heard.isNotBlank()) deck?.words(false)
+                deck?.send(main, words, quotes)
+                deck?.marks(main, emptyList())
+                deck?.type(WALL, "")
+            }
+        },
+        onHoldWords = { words, quotes ->
+            if (main != null) {
+                if (state.heard.isNotBlank()) deck?.words(false)
+                deck?.hold(main, words, quotes)
+                deck?.type(WALL, "")
+            }
+        },
+        onRelease = { main?.let { deck?.release(it) } },
+        onTaken = { deck?.words(false) },
+        focus = focus,
+        // Newest at the bottom: his message, sent or held, comes into view as in a thread.
+        onSent = { scope.launch { list.animateScrollToItem(0) } },
+    )
+    val reply = box.reply
+    val quote = { m: QuoteMark -> if (main != null) box.open(m) }
     // Quote part: the message he's picking words from, selectable in place; back, a quote or a send ends it.
     var parting by remember { mutableStateOf<String?>(null) }
     if (parting != null) BackHandler { parting = null }
@@ -229,7 +245,8 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
                 Modifier.fillMaxSize().testTag("fold-home"),
                 state = list,
                 reverseLayout = true,
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                // With the jump chip up, the newest line sits above it (chip 34 dp + its 10 dp margin + 8), never under it.
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = if (hidden.isNotEmpty()) 52.dp else 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(rows, key = { it.key }) { l ->
@@ -266,19 +283,18 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
         moving?.let { MoveBar(it, onMove = { deck?.moveSubject() }, onKeep = { deck?.keepSubject() }) }
         Dock(
             hint = if (reply != null) "Reply to this" else "Talk to Jarvis",
-            text = state.typed[WALL].orEmpty(),
-            onText = { deck?.type(WALL, it) },
+            text = box.writing ?: state.typed[WALL].orEmpty(),
+            onText = { if (reply != null) box.write(it) else deck?.type(WALL, it) },
             onSend = {
                 parting = null
-                onSend()
+                if (main != null) box.send()
             },
-            focus = box,
-            heard = state.heard,
+            onHold = { if (main != null) box.holdAll() },
+            focus = focus,
+            heard = if (reply != null) "" else state.heard,
             onHeard = { deck?.edit() },
-            ready = reply != null,
-            above = reply?.let { r ->
-                { ReplyStrip(r.quote, "", canHold = false, onHold = {}, onCancel = { main?.let { deck?.marks(it, emptyList()) } }) }
-            },
+            ready = box.ready,
+            above = { box.Above() },
         )
     }
 }

@@ -64,3 +64,7 @@ added flow android-fold-move-to-thread
 added flow android-fold-quote
   what: With the library fold on, a swipe to the right on any main chat message, his or Jarvis's, quotes it above the box, as a thread's paragraphs do; his words go as the reply to it, and the x cancels it. A long-press opens a small menu, in order: Quote part (the message turns selectable in place, and "Quote this" quotes only the words picked), Copy (the whole message, with a one-line "Copied"), and Open thread (the move key).
   approved: 2026-11-08 "I swipe one of your messages or one of my messages to quote reply to it ... I just want a simpler and more efficient ux and UI"
+
+added flow android-fold-main-chat-as-thread
+  what: With the library fold on, the main chat's box is the Jarvis thread's own reply box: a swipe quotes the one paragraph, bullet or line under the finger and any other marks stay; the Hold pill on an open reply keeps it greyed in the marks tray above the box; a long-press on Send holds plain words quiet on the server (bulk); Send with the box empty lets what he held go in. Nothing new drawn: the same Hold pill and marks tray as a thread.
+  approved: 2026-11-09 "when I open the Jarvis thread it does work as expected and then I can swipe only specific bullet points or paragraphs and the bulk mode is suddenly working again ... I think you can merge them into a single one which is basically fixing the main chat"

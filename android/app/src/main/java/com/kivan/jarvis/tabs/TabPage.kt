@@ -130,11 +130,9 @@ fun TabPage(
         notes.remove(c.key)
         asking = null
     }
-    val attached = LocalTalk.current.attached.isNotEmpty()
     val rows = remember(tab.entries) { tab.entries.asReversed() }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val buzz = rememberBuzz()
     val question = remember(tab.entries) { tab.entries.lastOrNull { it is Entry.Question && !it.closed } as Entry.Question? }
     val questionHidden by remember(question) {
         derivedStateOf {
@@ -159,88 +157,23 @@ fun TabPage(
         if (tall > room) list.scrollToItem(i, tall - room)
     }
 
-    // The reply being written: the box writes into it until he sends, holds or drops it. It stays in
-    // [marks] as he types, so it's saved like the rest; [replyBefore] is what a cancel goes back to.
-    var reply by remember { mutableStateOf<QuoteMark?>(null) }
-    var replyBefore by remember { mutableStateOf<QuoteMark?>(null) }
-    val writing = reply?.let { r -> marks.firstOrNull { it.same(r) }?.text.orEmpty() }
+    // The reply being written and what Send, Hold and a long press on Send do: the main chat runs on the same box.
     val ask = remember { FocusRequester() }
-    val open = { m: QuoteMark ->
-        val was = marks.firstOrNull { it.same(m) }
-        // Another reply left open keeps its words, as the laptop's does.
-        reply = was ?: m
-        replyBefore = was
-        scope.launch { ask.requestFocus() }
-        Unit
-    }
-    fun write(words: String) {
-        val r = reply ?: return
-        // Being written, it isn't quiet: only Hold makes it go by itself, so a half-done edit never goes.
-        onMarks(if (words.isBlank()) marks.without(r) else marks.with(r.copy(text = words, quiet = false)))
-    }
-    /** Leaves the box. Kept words stay held; a cancel, or nothing written, goes back to what was there. */
-    fun closed(keep: Boolean): List<QuoteMark> {
-        val r = reply ?: return marks
-        val before = replyBefore
-        reply = null
-        replyBefore = null
-        // Emptying a held reply and sending takes it back; only Cancel returns the words.
-        if (keep && (writing?.isNotBlank() == true || before?.held == true)) return marks
-        return if (before != null) marks.with(before) else marks.without(r)
-    }
-    val send = {
-        val words = said(typed, if (reply == null) heard else "")
-        val all = closed(keep = true)
-        if (words.isNotEmpty() || attached || all.isNotEmpty()) {
-            buzz.sent()
-            // As on the laptop: each goes as a quote with its own words, or none; his message after them.
-            onSend(words, all.map { Quoted(it.to, it.quote, it.text.trim()) })
-            scope.launch { list.animateScrollToItem(0) }
-        } else if (tab.waiting) {
-            // Nothing typed: what he held goes in now, as the laptop's ctrl+enter.
-            buzz.sent()
-            onRelease()
-        }
-    }
-    /**
-     * Hold: the reply stays here, his to open and edit, and goes quiet by itself at the end of the
-     * tab's turn or when he leaves the app, as the laptop's enter; Send takes it along sooner. Held
-     * again after an edit, it's the same one: it goes once, with its last words.
-     */
-    val hold = {
-        val r = reply
-        val words = writing?.trim().orEmpty()
-        if (r != null && words.isNotEmpty()) {
-            reply = null
-            replyBefore = null
-            onMarks(marks.with(r.copy(text = words, quiet = true)))
-            buzz.sent()
-        }
-    }
-    /**
-     * A long press on Send holds, whatever is in the box: an open reply stays here as Hold keeps it; his own
-     * words wait on the server, with what he marked, for send-all or a turn that runs anyway. Before, Hold
-     * showed only on an open reply with words in it, so a plain message had no quiet way out (t104).
-     */
-    val holdAll = {
-        if (reply != null) {
-            hold()
-        } else {
-            val words = said(typed, heard)
-            if (words.isNotEmpty()) {
-                val plain = marks.filterNot { it.held }
-                onHoldWords(words, plain.map { Quoted(it.to, it.quote, "") })
-                if (plain.isNotEmpty()) onMarks(marks.filter { it.held })
-                buzz.sent()
-            }
-        }
-    }
-    // With a reply open his spoken words write into it.
-    LaunchedEffect(heard, reply) {
-        if (heard.isBlank() || reply == null) return@LaunchedEffect
-        write(if (writing.isNullOrBlank()) heard else "$writing $heard")
-        onTaken()
-    }
+    val box = rememberReplyBox(
+        typed = typed,
+        heard = heard,
+        marks = marks,
+        waiting = tab.waiting,
+        onMarks = onMarks,
+        onSend = onSend,
+        onHoldWords = onHoldWords,
+        onRelease = onRelease,
+        onTaken = onTaken,
+        focus = ask,
+        onSent = { scope.launch { list.animateScrollToItem(0) } },
+    )
+    val reply = box.reply
+    val open = { m: QuoteMark -> box.open(m) }
 
     val bar = remember(tab.issues, now) { issuesBar(tab.issues).takeIf { now == null } }
     var issuesOpen by remember { mutableStateOf(false) }
@@ -338,23 +271,19 @@ fun TabPage(
                     question != null -> "Type your answer to this"
                     else -> "Message ${tab.tile.name}".trim()
                 },
-                text = writing ?: typed,
-                onText = { if (reply != null) write(it) else onType(it) },
-                onSend = { send() },
-                onHold = { holdAll() },
+                text = box.writing ?: typed,
+                onText = { if (reply != null) box.write(it) else onType(it) },
+                onSend = { box.send() },
+                onHold = { box.holdAll() },
                 focus = ask,
                 heard = if (reply != null) "" else heard,
                 onHeard = onHeard,
                 onStop = onStop.takeIf { tab.work != null },
                 tab = tab.tile.id,
-                ready = reply != null || marks.isNotEmpty() || tab.waiting,
+                ready = box.ready,
                 above = {
                     if (notice != null) NoticeBar(notice) { deck?.noticed() }
-                    val r = reply
-                    MarkTray(marks.filterNot { r != null && it.same(r) }, onMarks, open)
-                    if (r != null) {
-                        ReplyStrip(r.quote, typed, canHold = !writing.isNullOrBlank(), onHold = { hold() }, onCancel = { onMarks(closed(keep = false)) })
-                    }
+                    box.Above()
                 },
             )
         }
@@ -710,69 +639,6 @@ internal fun SwipeReply(onSwipe: () -> Unit, modifier: Modifier = Modifier, cont
             },
         )
         Box(Modifier.graphicsLayer { translationX = pull.value }) { content() }
-    }
-}
-
-/** What's waiting, on the box: how many of each, like the laptop's line, and each with a way out. */
-@Composable
-private fun MarkTray(marks: List<QuoteMark>, onMarks: (List<QuoteMark>) -> Unit, onOpen: (QuoteMark) -> Unit) {
-    if (marks.isEmpty()) return
-    val quiet = marks.count { it.held }
-    val line = listOfNotNull(
-        "● ${marks.size - quiet} marked".takeIf { quiet < marks.size },
-        "↩ $quiet".takeIf { quiet > 0 },
-    ).joinToString("  ")
-    Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(line, Modifier.padding(start = 8.dp).testTag("marked"), look.soft, style = Words.small, maxLines = 1)
-        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (m in marks) key(m.to, m.quote) {
-                Row(
-                    Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(look.surface)
-                        .then(if (m.held) Modifier.clickable(onClickLabel = "Edit this reply") { onOpen(m) } else Modifier)
-                        .padding(start = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.widthIn(max = 180.dp)) {
-                        // Held, it's greyed: waiting, not gone (Aviv, t104).
-                        Text(m.quote, color = if (m.held) look.faint else look.soft, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (m.held) Text(m.text, color = look.soft, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Round(R.drawable.lucide_x, "Remove the quote: ${m.quote.take(40)}", { onMarks(marks.without(m)) }, size = 38.dp)
-                }
-            }
-        }
-    }
-}
-
-/** The reply open in the box: what it quotes, Hold to keep it for the next message, and the way out. */
-@Composable
-internal fun ReplyStrip(quote: String, typed: String, canHold: Boolean, onHold: () -> Unit, onCancel: () -> Unit) {
-    // His message waits in the box meanwhile, and goes along if he sends now.
-    if (typed.isNotBlank()) {
-        Text(typed, Modifier.padding(start = 8.dp, bottom = 4.dp), look.faint, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-    Row(
-        Modifier.padding(bottom = 6.dp).fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.padding(start = 8.dp).width(2.dp).fillMaxHeight().background(look.ink, RoundedCornerShape(1.dp)))
-        Text(quote, Modifier.weight(1f).padding(start = 10.dp).testTag("replying"), look.soft, style = Words.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (canHold) {
-            Box(
-                Modifier
-                    .padding(start = 8.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(look.surface)
-                    .clickable(onClick = onHold)
-                    .semantics { role = Role.Button }
-                    .heightIn(min = 38.dp)
-                    .padding(horizontal = 14.dp),
-                Alignment.Center,
-            ) { Text("Hold", color = look.ink, style = Words.small) }
-        }
-        Round(R.drawable.lucide_x, "Cancel this reply", onCancel, size = 38.dp)
     }
 }
 

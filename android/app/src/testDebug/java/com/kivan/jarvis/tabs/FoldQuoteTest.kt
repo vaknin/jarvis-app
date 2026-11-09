@@ -18,6 +18,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -28,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -198,5 +201,77 @@ class FoldQuoteTest {
         listOf("first one", "- **first** one\nsecond line\n\nthird", "- **first** one second line").forEach {
             assertEquals(it, 0, rule.onAllNodesWithText(it, useUnmergedTree = true).fetchSemanticsNodes().size)
         }
+    }
+
+    // The main chat runs on the thread's reply box (Aviv: "when I open the Jarvis thread it does work as expected").
+
+    private fun FakeDeck.yours() = state.value.tabs.getValue("t0").entries.count { it is Entry.Yours }
+
+    private fun FakeDeck.waiting() = state.value.tabs.getValue("t0").waiting
+
+    private fun holdPill() {
+        rule.onNodeWithText("Hold").performClick()
+        rule.mainClock.advanceTimeBy(300)
+    }
+
+    private fun longSend() {
+        rule.onNodeWithContentDescription("Send").performTouchInput { longClick(durationMillis = 800) }
+        rule.mainClock.advanceTimeBy(300)
+    }
+
+    @Test
+    fun mainChatHoldsReply() {
+        val deck = open(bullets = true)
+        val before = deck.yours()
+        swipe("lower, two steps down")
+        type("this one")
+        holdPill()
+        assertEquals(listOf(QuoteMark(80, 2, "lower, two steps down", "this one", quiet = true)), deck.state.value.marks.getValue("t0"))
+        assertEquals("nothing goes yet", before, deck.yours())
+        assertEquals(0, rule.onAllNodesWithTag("replying").fetchSemanticsNodes().size)
+        rule.onNodeWithTag("marked").assertExists()
+    }
+
+    @Test
+    fun mainChatHoldsPlainWords() {
+        val deck = open()
+        type("later please")
+        longSend()
+        assertEquals("later please", deck.sent().text)
+        assertTrue("they wait for send-all", deck.waiting())
+        assertEquals("", deck.state.value.typed[WALL].orEmpty())
+    }
+
+    @Test
+    fun mainChatEmptySendReleases() {
+        val deck = open()
+        type("later please")
+        longSend()
+        assertTrue(deck.waiting())
+        val before = deck.yours()
+        send()
+        assertFalse("what he held goes in", deck.waiting())
+        assertEquals("nothing new sent", before, deck.yours())
+    }
+
+    @Test
+    fun mainChatSwipeKeepsOtherMarks() {
+        val deck = open(bullets = true)
+        swipe("lower, two steps down")
+        type("this one")
+        holdPill()
+        swipe("slower, at nine tenths")
+        assertEquals("slower, at nine tenths", strip())
+        assertEquals(
+            listOf(QuoteMark(80, 1, "slower, at nine tenths"), QuoteMark(80, 2, "lower, two steps down", "this one", quiet = true)),
+            deck.state.value.marks.getValue("t0"),
+        )
+        type("and this")
+        send()
+        assertEquals(
+            listOf(Quoted(80, "slower, at nine tenths", "and this"), Quoted(80, "lower, two steps down", "this one")),
+            deck.sent().quotes,
+        )
+        assertEquals(emptyList<QuoteMark>(), deck.state.value.marks["t0"].orEmpty())
     }
 }
