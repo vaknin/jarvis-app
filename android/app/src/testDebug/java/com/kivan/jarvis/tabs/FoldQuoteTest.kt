@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -51,8 +52,8 @@ class FoldQuoteTest {
     private val his = "and the voice should sound calmer"
     private val jarvis = "A calmer voice, slower and lower. Trying two."
 
-    private fun open(bullets: Boolean = false): FakeDeck {
-        val deck = FakeDeck(Fake.foldTalk(bullets = bullets))
+    private fun open(bullets: Boolean = false, quoted: Boolean = false): FakeDeck {
+        val deck = FakeDeck(Fake.foldTalk(bullets = bullets, quoted = quoted))
         rule.mainClock.autoAdvance = false
         rule.setContent {
             TabsTheme(dark = true) {
@@ -273,5 +274,41 @@ class FoldQuoteTest {
             deck.sent().quotes,
         )
         assertEquals(emptyList<QuoteMark>(), deck.state.value.marks["t0"].orEmpty())
+    }
+
+    // His quote-replies keep his words inside each quote, the message's own text empty (as the main chat's record has them).
+
+    @Test
+    fun quoteReplyShowsHisWords() {
+        open(quoted = true)
+        listOf("set that task as important as well", "set the planners task as urgent", "this could've been a tickmark", "what about the tick thread? is it being taken care of?", "that's a bug").forEach {
+            rule.onAllNodesWithText(it, useUnmergedTree = true)[0].assertIsDisplayed()
+        }
+        // The start of the line each one quotes, on its bar above it.
+        listOf("Planning only runs on the server today.", "24 of the 43 are paused on purpose", "Filed as \"Phone emulator", "--help").forEach {
+            rule.onAllNodesWithText(it, substring = true, useUnmergedTree = true)[0].assertIsDisplayed()
+        }
+        shot("fold-quote-replies")
+    }
+
+    @Test
+    fun quoteReplyCopiesHisWords() {
+        open(quoted = true)
+        hold("set the planners task as urgent")
+        rule.onAllNodesWithText("Copy")[0].performClick()
+        rule.mainClock.advanceTimeBy(300)
+        val clip = ApplicationProvider.getApplicationContext<Context>().getSystemService(ClipboardManager::class.java).primaryClip
+        assertEquals(
+            "set that task as important as well\nset the planners task as urgent\nthis could've been a tickmark\nwhat about the tick thread? is it being taken care of?",
+            clip?.getItemAt(0)?.text.toString(),
+        )
+    }
+
+    @Test
+    fun swipeQuotesHisReplyLine() {
+        val deck = open(quoted = true)
+        swipe("set the planners task as urgent")
+        assertEquals("set the planners task as urgent", strip())
+        assertEquals(listOf(QuoteMark(90, 1, "set the planners task as urgent")), deck.state.value.marks.getValue("t0"))
     }
 }

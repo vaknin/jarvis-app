@@ -373,6 +373,15 @@ private fun EntryView(
     }
 }
 
+/** The words a reply of his quotes: faint, at most four lines, behind a thin bar. A thread and the main chat draw it alike. */
+@Composable
+internal fun QuoteBar(q: Quoted) {
+    Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+        Box(Modifier.width(2.dp).fillMaxHeight().background(look.line, RoundedCornerShape(1.dp)))
+        Text(q.quote, Modifier.padding(start = 10.dp), look.soft, style = Words.small, maxLines = 4, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 /** Aviv's words sit on a panel to the right; Jarvis's are open prose on the page. */
 @Composable
 private fun YoursView(tab: String, entry: Entry.Yours) {
@@ -387,10 +396,7 @@ private fun YoursView(tab: String, entry: Entry.Yours) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     for (q in entry.quotes) {
-                        Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-                            Box(Modifier.width(2.dp).fillMaxHeight().background(look.line, RoundedCornerShape(1.dp)))
-                            Text(q.quote, Modifier.padding(start = 10.dp), look.soft, style = Words.small, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                        }
+                        QuoteBar(q)
                         if (q.text.isNotEmpty()) Text(q.text, color = ink, style = Words.yours)
                     }
                     if (entry.text.isNotEmpty()) Text(entry.text, color = ink, style = Words.yours)

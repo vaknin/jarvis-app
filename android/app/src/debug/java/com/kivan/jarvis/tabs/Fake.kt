@@ -224,11 +224,34 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
         Entry.Answer("m8", 80, "Two ways to make it calmer:\n- slower, at nine tenths\n- lower, two steps down\n- both together, softer", at = tonight(0, 51)),
     )
 
-    /** The fold with its main chat (the tab called Jarvis) holding [talk]: what the move key works on; [bulletTalk] after it with [bullets]. */
-    fun foldTalk(n: Int = 6, bullets: Boolean = false): DeckState {
+    /**
+     * His quote-replies at 20:39 and 20:41 in the main chat's record, verbatim: the message's own text empty, his words
+     * inside each quote. Jarvis's lines they quote are cut to their first sentence here; his words are exact.
+     */
+    val quotedTalk = listOf(
+        Entry.Yours(
+            "m9",
+            "",
+            offset = 90,
+            at = tonight(20, 39),
+            quotes = listOf(
+                Quoted(558506, "Planning only runs on the server today.", "set that task as important as well"),
+                Quoted(558506, "24 of the 43 are paused on purpose, by me.", "set the planners task as urgent"),
+                Quoted(558506, "Filed as \"Phone emulator on the lent laptop\".", "this could've been a tickmark\nwhat about the tick thread? is it being taken care of?"),
+            ),
+        ),
+        Entry.Yours("m10", "", offset = 100, at = tonight(20, 41), quotes = listOf(Quoted(561016, "--help", "that's a bug"))),
+    )
+
+    /**
+     * The fold with its main chat (the tab called Jarvis) holding [talk]: what the move key works on; [bulletTalk] after
+     * it with [bullets]; his quote-replies [quotedTalk] last with [quoted].
+     */
+    fun foldTalk(n: Int = 6, bullets: Boolean = false, quoted: Boolean = false): DeckState {
         val base = fold(n)
         val main = TileView("t0", 0, MAIN_NAME, model = "opus", effort = "medium")
-        return base.copy(tiles = listOf(main) + base.tiles, tabs = base.tabs + ("t0" to TabView(main, if (bullets) talk + bulletTalk else talk)))
+        val entries = talk + (if (bullets) bulletTalk else emptyList()) + (if (quoted) quotedTalk else emptyList())
+        return base.copy(tiles = listOf(main) + base.tiles, tabs = base.tabs + ("t0" to TabView(main, entries)))
     }
 
     /**

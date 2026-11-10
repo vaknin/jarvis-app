@@ -301,7 +301,8 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
 
 /** A main chat message's words as he'd quote or copy them: his as typed, Jarvis's as read, without the marks. */
 private fun saidText(l: FoldLine.Said): String = when (val e = l.entry) {
-    is Entry.Yours -> e.text
+    // His quote-replies keep their words in each quote (the message's own text is often empty): each reply, then the rest.
+    is Entry.Yours -> (e.quotes.map { it.text } + e.text).filter { it.isNotEmpty() }.joinToString("\n")
     is Entry.Answer -> Prose.parse(e.text).joinToString("\n\n") { it.quoted }
     else -> ""
 }
@@ -361,11 +362,19 @@ private fun SaidLine(
             when {
                 parting && onQuote != null -> QuotePart(remember(l) { saidText(l) }, { onQuote(0, it) }, onPartDone)
                 // His lines as typed, never parsed: each its own Text, stacked as one Text would draw them.
-                mine -> Column {
-                    remember(text) { text.split('\n') }.forEachIndexed { i, line ->
-                        val drawn = @Composable { Text(line, color = look.ink, style = Words.yours) }
-                        if (swipes && line.isNotBlank()) SwipeReply({ onQuote?.invoke(i, line) }) { drawn() } else drawn()
+                // Each quote of a quote-reply first, as a thread draws it (the bar isn't a swipe target), then his words to it;
+                // his lines are numbered in one run, as Copy and Quote part read them.
+                mine -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val quotes = (l.entry as Entry.Yours).quotes
+                    var first = 0
+                    for (q in quotes) {
+                        QuoteBar(q)
+                        if (q.text.isNotEmpty()) {
+                            HisLines(q.text, first, swipes, onQuote)
+                            first += q.text.split('\n').size
+                        }
                     }
+                    if (quotes.isEmpty() || text.isNotEmpty()) HisLines(text, first, swipes, onQuote)
                 }
                 swipes -> ProseView(remember(text) { Prose.parse(text) }) { i, b, m ->
                     SwipeReply({ onQuote?.invoke(i, b.quoted) }, m) { BlockView(b) }
@@ -391,6 +400,17 @@ private fun SaidLine(
                     onMove()
                 }
             }
+        }
+    }
+}
+
+/** His lines as typed, never parsed: each its own Text, stacked as one Text would draw them, each swipeable on its own. */
+@Composable
+private fun HisLines(text: String, first: Int, swipes: Boolean, onQuote: ((Int, String) -> Unit)?) {
+    Column {
+        remember(text) { text.split('\n') }.forEachIndexed { i, line ->
+            val drawn = @Composable { Text(line, color = look.ink, style = Words.yours) }
+            if (swipes && line.isNotBlank()) SwipeReply({ onQuote?.invoke(first + i, line) }) { drawn() } else drawn()
         }
     }
 }
