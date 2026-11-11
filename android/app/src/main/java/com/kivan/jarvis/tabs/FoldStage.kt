@@ -184,7 +184,8 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     // A list keeps its place by key, so his new message, added at the bottom after Send, would land just out of
-    // sight. Send notes the newest row then; when a newer row of his own comes, the list follows it to the bottom.
+    // sight. Send at the newest notes the newest row then; when a newer row of his own comes, the list follows it to
+    // the bottom. Sent while scrolled up, nothing follows: he stays where he reads, as on the laptop.
     // Nothing else moves him: a reload or a server copy swapped in under a new key leaves him where he reads.
     val newest = rows.firstOrNull()
     val newestNow by rememberUpdatedState(newest?.key)
@@ -224,11 +225,11 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
         onRelease = { main?.let { deck?.release(it) } },
         onTaken = { deck?.words(false) },
         focus = focus,
-        // Newest at the bottom: his message, sent or held, comes into view as in a thread.
+        // As in a thread: scrolled up, the view stays where he reads; at the newest, it follows to his message,
+        // sent or held, once it's in the record.
         onSent = {
             sentAfter = newestNow
-            following = true
-            scope.launch { list.animateScrollToItem(0) }
+            following = atNewest(list)
         },
     )
     val reply = box.reply

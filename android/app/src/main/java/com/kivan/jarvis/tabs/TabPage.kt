@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -58,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -139,10 +141,11 @@ fun TabPage(
             question != null && list.layoutInfo.visibleItemsInfo.none { it.key == question.key }
         }
     }
-    val atEnd by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 40 } }
+    val atEnd by remember { derivedStateOf { atNewest(list) } }
     var seenEnd by remember { mutableStateOf(rows.firstOrNull()?.key) }
     if (atEnd) seenEnd = rows.firstOrNull()?.key
-    val hasNew = !atEnd && rows.firstOrNull()?.key != seenEnd
+    // His own message, sent while he reads further up, is no new answer: only Jarvis's lines call him down.
+    val hasNew = !atEnd && rows.firstOrNull()?.key != seenEnd && rows.firstOrNull() !is Entry.Yours
     val hasWork = tab.work != null
     // Coming to a new answer taller than the screen, start at its first line, not its last.
     val wasNew = remember { tab.tile.unread }
@@ -170,7 +173,7 @@ fun TabPage(
         onRelease = onRelease,
         onTaken = onTaken,
         focus = ask,
-        onSent = { scope.launch { list.animateScrollToItem(0) } },
+        onSent = rememberSendFollow(list, rows.firstOrNull()?.key),
     )
     val reply = box.reply
     val open = { m: QuoteMark -> box.open(m) }
@@ -819,5 +822,30 @@ private fun ClosedBar(tab: String, onReopen: () -> Unit) {
             Alignment.Center,
         ) { Text("Reopen", color = look.ink, style = Words.label) }
     }
+    }
+}
+
+/** At the newest line of a bottom-up list, or within a hair of it. */
+internal fun atNewest(list: LazyListState) = list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 40
+
+/**
+ * What Send does to a bottom-up list, as on the laptop: the view stays where he is reading; at the newest already,
+ * it follows to his message once it's in the record. [newest] is the newest line's key; the returned call is Send's.
+ * A scroll of his own before his message lands drops the follow, so nothing pulls him away later.
+ */
+@Composable
+internal fun rememberSendFollow(list: LazyListState, newest: Any?): () -> Unit {
+    var follow by remember { mutableStateOf(false) }
+    var sentOn by remember { mutableStateOf<Any?>(null) }
+    LaunchedEffect(list) { snapshotFlow { list.isScrollInProgress }.collect { if (it) follow = false } }
+    LaunchedEffect(newest) {
+        if (follow && newest != sentOn) {
+            follow = false
+            list.animateScrollToItem(0)
+        }
+    }
+    return {
+        sentOn = newest
+        follow = atNewest(list)
     }
 }
