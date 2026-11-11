@@ -197,7 +197,9 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
                 cards[0].copy(at = tonight(0, 42)),
                 cards[2].copy(at = tonight(0, 44)),
             ),
-            digest = digest + DigestView("t4", "Lisbon trip", tonight(0, 41), 1, "done", "Fixed and landed, screenshot inside."),
+            // No report named Jarvis from a thread: in the fold, Jarvis is the main chat, never a thread row.
+            digest = digest.filter { it.name != MAIN_NAME } +
+                DigestView("t4", "Lisbon trip", tonight(0, 41), 1, "done", "Fixed and landed, screenshot inside."),
         )
     }
 
@@ -251,7 +253,13 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
         val base = fold(n)
         val main = TileView("t0", 0, MAIN_NAME, model = "opus", effort = "medium")
         val entries = talk + (if (bullets) bulletTalk else emptyList()) + (if (quoted) quotedTalk else emptyList())
-        return base.copy(tiles = listOf(main) + base.tiles, tabs = base.tabs + ("t0" to TabView(main, entries)))
+        // The main chat's own report, as on his phone (page 33470): it must stay out of the thread rows.
+        val own = DigestView("t0", MAIN_NAME, tonight(0, 43), 1, "report", "Landed: Memory board")
+        return base.copy(
+            tiles = listOf(main) + base.tiles,
+            tabs = base.tabs + ("t0" to TabView(main, entries)),
+            digest = base.digest + own,
+        )
     }
 
     /**

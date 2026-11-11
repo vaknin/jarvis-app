@@ -88,12 +88,14 @@ sealed interface FoldLine {
 
 /**
  * The main chat's lines from today's data: only the latest report per thread, so lines never pile up,
- * and every card waiting for his answer. Oldest first, as a chat reads.
+ * and every card waiting for his answer. Oldest first, as a chat reads. The main chat's own reports never show as a
+ * thread row: it isn't a thread (with or without the server's main field, as [mainChat] picks it).
  */
 fun foldLines(state: DeckState): List<FoldLine> {
+    val main = mainChat(state.tiles)
     val unread = state.tiles.filter { it.unread }.map { it.id }.toSet()
     val reports = state.digest
-        .filter { it.what == "done" || it.what == "report" }
+        .filter { (it.what == "done" || it.what == "report") && it.id != main }
         .groupBy { it.id }
         .map { (id, lines) ->
             val d = lines.maxBy { it.at }
@@ -101,7 +103,7 @@ fun foldLines(state: DeckState): List<FoldLine> {
         }
     val cards = state.cards.map { FoldLine.Card("c/${it.key}", it.at, it) }
     // What's still on its way has no time yet: it's the newest.
-    val said = mainChat(state.tiles)?.let { state.tabs[it] }?.entries.orEmpty().mapNotNull { e ->
+    val said = main?.let { state.tabs[it] }?.entries.orEmpty().mapNotNull { e ->
         when (e) {
             is Entry.Yours -> FoldLine.Said("m/${e.key}", e.at.takeIf { it > 0 } ?: Long.MAX_VALUE, e, e.offset)
             is Entry.Answer -> FoldLine.Said("m/${e.key}", e.at.takeIf { it > 0 } ?: Long.MAX_VALUE, e, e.offset)

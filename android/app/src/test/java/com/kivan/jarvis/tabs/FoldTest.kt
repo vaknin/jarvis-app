@@ -147,4 +147,34 @@ class FoldTest {
         assertNull(refused.moving)
         assertEquals("the subject changed since it lit up; press the key again", refused.notice!!.text)
     }
+
+    /** His list (page 33470): the main chat's own digest report must never be drawn as a thread row. */
+    @Test fun mainChatsOwnReportIsNoThread() {
+        val others = listOf("t401" to "Daily Chapter", "t402" to "Home quieter", "t403" to "TERMINAL APP UX/UI", "t404" to "Quiet by code")
+        fun report(id: String, name: String, at: Long) = DigestView(id, name, at, 1, "report", "$name: a line")
+        fun reported(tiles: List<TileView>, extra: List<DigestView> = emptyList()) = foldLines(
+            DeckState(
+                tiles = tiles,
+                digest = listOf(report("t313", "Jarvis", 10)) + others.mapIndexed { i, (id, name) -> report(id, name, 20L + i) } + extra,
+            ),
+        ).filterIsInstance<FoldLine.Report>().map { it.thread }.toSet()
+        val threads = others.mapIndexed { i, (id, name) -> TileView(id, i + 2, name) }
+        val ids = others.map { it.first }.toSet()
+
+        // No main field: the tab called Jarvis is the main chat, and its report is left out.
+        val bare = reported(listOf(TileView("t313", 1, "Jarvis")) + threads)
+        assertTrue("t313" !in bare)
+        assertEquals(ids, bare)
+
+        // The server's main field: t313 named Home is the main chat; a tab called Jarvis is then just a thread.
+        val named = reported(
+            listOf(TileView("t313", 1, "Home", main = true), TileView("t500", 9, "Jarvis")) + threads,
+            listOf(report("t500", "Jarvis", 30)),
+        )
+        assertTrue("t313" !in named)
+        assertEquals(ids + "t500", named)
+
+        // No main chat at all: every report stays.
+        assertEquals(ids + "t313", reported(threads))
+    }
 }
