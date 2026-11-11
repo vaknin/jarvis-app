@@ -44,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -182,6 +183,19 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
     val rows = remember(lines) { lines.asReversed() }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // A list keeps its place by key, so his new message, added at the bottom after Send, would land just out of
+    // sight. Send notes the newest row then; when a newer row of his own comes, the list follows it to the bottom.
+    // Nothing else moves him: a reload or a server copy swapped in under a new key leaves him where he reads.
+    val newest = rows.firstOrNull()
+    val newestNow by rememberUpdatedState(newest?.key)
+    var sentAfter by remember { mutableStateOf<String?>(null) }
+    var following by remember { mutableStateOf(false) }
+    LaunchedEffect(newest?.key, following) {
+        if (!following || newest == null || newest.key == sentAfter) return@LaunchedEffect
+        if ((newest as? FoldLine.Said)?.entry !is Entry.Yours) return@LaunchedEffect
+        following = false
+        list.scrollToItem(0)
+    }
     // The thread's own reply box, on the main tab: a swipe opens a reply in it, Hold and a long press on Send hold,
     // an empty Send lets go of what he held, and the marks wait above it. With no main chat yet nothing goes: his
     // words wait in the box, never in a new thread.
@@ -211,7 +225,11 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
         onTaken = { deck?.words(false) },
         focus = focus,
         // Newest at the bottom: his message, sent or held, comes into view as in a thread.
-        onSent = { scope.launch { list.animateScrollToItem(0) } },
+        onSent = {
+            sentAfter = newestNow
+            following = true
+            scope.launch { list.animateScrollToItem(0) }
+        },
     )
     val reply = box.reply
     val quote = { m: QuoteMark -> if (main != null) box.open(m) }
@@ -255,6 +273,7 @@ private fun FoldHome(state: DeckState, onThreads: () -> Unit, onOpen: (String) -
                         is FoldLine.Card -> CardBlock(l.card, onAnswer = { deck?.answer(l.card, it, "") }, onOpen = { l.card.tabs.firstOrNull()?.let { t -> onOpen(t.id) } })
                         is FoldLine.Said -> SaidLine(
                             l,
+                            main,
                             l.key in lit,
                             parting = parting == l.key,
                             onQuote = if (main != null && l.offset != null) ({ part, words ->
@@ -314,12 +333,14 @@ private fun saidText(l: FoldLine.Said): String = when (val e = l.entry) {
  * the small menu: Quote part, Copy, Open thread. Quote
  * part ([parting]) makes it selectable in place, and Quote this quotes only the words he picked. Open thread moves
  * its subject into a thread ([onMove]; none while one is under way). Lit (the server named it as moving), it takes
- * the wall's look: a sky-blue edge and a raised fill.
+ * the wall's look: a sky-blue edge and a raised fill. Its pictures and files sit under it, on his side or Jarvis's,
+ * as a thread draws them ([tab]'s); a message that is only a picture is just the picture, no empty panel.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SaidLine(
     l: FoldLine.Said,
+    tab: String?,
     lit: Boolean,
     parting: Boolean,
     onQuote: ((Int, String) -> Unit)?,
@@ -336,6 +357,12 @@ private fun SaidLine(
         is Entry.Answer -> e.text
         else -> ""
     }
+    val files = when (val e = l.entry) {
+        is Entry.Yours -> e.files
+        is Entry.Answer -> e.files
+        else -> emptyList()
+    }
+    val worded = text.isNotBlank() || (l.entry as? Entry.Yours)?.quotes.orEmpty().isNotEmpty() || files.isEmpty() || parting
     val press = if (parting) Modifier else Modifier.combinedClickable(
         onLongClickLabel = "Quote, copy or open a thread",
         onLongClick = { menu = true },
@@ -385,7 +412,13 @@ private fun SaidLine(
     }
     Box(Modifier.fillMaxWidth().testTag(if (lit) "lit" else "said"), if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Box(Modifier.padding(start = if (mine) 36.dp else 0.dp)) {
-            bubble()
+            // The gap above a file is a thread's: his 8, Jarvis's 12 (TabPage's YoursView and AnswerView).
+            val gap = if (mine) 8.dp else 12.dp
+            // The words swipe and hold as before (inside the bubble); a file opens on a tap, as in a thread.
+            Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+                if (worded) bubble()
+                if (tab != null) for ((i, f) in files.withIndex()) FileCard(tab, f, Modifier.padding(top = if (worded || i > 0) gap else 0.dp))
+            }
             DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
                 if (onQuote != null) MenuItem("Quote part") {
                     menu = false

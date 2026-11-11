@@ -31,7 +31,7 @@ class TabsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        deck = (lastNonConfigurationInstance as? Deck) ?: trialDeck(intent) ?: RealDeck.get(this)
+        deck = (lastNonConfigurationInstance as? Deck) ?: trialDeck(this, intent) ?: RealDeck.get(this)
         // The library fold's switch comes from the server (DeckState.fold), never from his screen.
         setContent { TabsTheme { Stage(deck) } }
         (deck as? RealDeck)?.let { real ->

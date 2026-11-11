@@ -192,10 +192,7 @@ class RealDeck private constructor(
             if (id == null) tabsStart(text, out) else tabsSay(id, text, replies, out)
             return
         }
-        // The waiting card shows the phone's own copy until the record has it.
-        flow.update { s ->
-            s.copy(attached = emptyList(), files = if (id == null) s.files else s.files + going.associate { "$id/${it.name}" to it.path })
-        }
+        flow.update { it.sending(id, going) }
         if (id == null) opening = going
         // The files are read here, so off the main thread.
         scope.launch { if (id == null) tabsStart(text, out) else tabsSay(id, text, replies, out) }
@@ -478,6 +475,14 @@ internal fun card(c: CardRec) = CardView(
 internal fun needsYou(cards: List<CardView>) = cards.sortedWith(
     compareBy({ if (it.level == Level.Urgent) 0 else if (it.level == Level.Low) 2 else 1 }, { it.due ?: 0L }, { it.at }),
 )
+
+/**
+ * What a send with files leaves: the tray empty, and each file's phone copy under the tab it goes to, so his message
+ * shows the picture at once, before the server has it. A new tab ([id] null) gets them when it opens. Once landed,
+ * the record names each file as the server stored it; a name the phone has no copy under is fetched like any other.
+ */
+internal fun DeckState.sending(id: String?, going: List<Attached>): DeckState =
+    copy(attached = emptyList(), files = if (id == null) files else files + going.associate { "$id/${it.name}" to it.path })
 
 private fun entry(e: EntryRec): Entry = when (e) {
     is EntryRec.Yours -> Entry.Yours(

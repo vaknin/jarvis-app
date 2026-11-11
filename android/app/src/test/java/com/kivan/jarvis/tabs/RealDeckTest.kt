@@ -131,4 +131,23 @@ class RealDeckTest {
         val back = Saved.parse(Saved(emptyList(), emptyMap(), emptyMap(), emptyList(), mapOf("t1" to listOf(held, editing))).json())!!
         assertEquals(listOf(held, editing), back.marks["t1"])
     }
+
+    /**
+     * A picture he sends shows in his message at once: the tray empties and the phone's copy stands under the tab it
+     * goes to. Once landed, the record names it as the server stored it; the phone has no copy under that name, so its
+     * card asks the server for it, which is what shows it after a reload.
+     */
+    @Test
+    fun sentPictureShowsAtOnce() {
+        val shot = Attached("/cache/tray/Screenshot_20261108.png", "Screenshot_20261108.png", true)
+        val s = DeckState(attached = listOf(shot)).sending("t1", listOf(shot))
+        assertEquals(emptyList<Attached>(), s.attached)
+        assertEquals(shot.path, s.files["t1/Screenshot_20261108.png"])
+        // To a tab not open yet, nothing is seeded here: it gets them when it opens.
+        assertEquals(emptyMap<String, String>(), DeckState(attached = listOf(shot)).sending(null, listOf(shot)).files)
+        val landed = EntryRec.Yours("y1", 9u, 1794117294387u, "", false, emptyList(), listOf("1794117294387-0.png"), com.kivan.jarvis.core.Landing.SENT, "")
+        val after = s.with(tab(0u, landed))
+        assertEquals(listOf("1794117294387-0.png"), (after.tabs.getValue("t1").entries.single() as Entry.Yours).files)
+        assertNull(after.files["t1/1794117294387-0.png"])
+    }
 }

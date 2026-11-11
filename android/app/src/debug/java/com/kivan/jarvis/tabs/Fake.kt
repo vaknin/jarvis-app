@@ -263,6 +263,17 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
     }
 
     /**
+     * [state] with his last main chat message a picture alone, as he sends a screenshot from the phone: the record's
+     * name for it as the server stores it, and the phone's copy of it at [path].
+     */
+    fun sentPicture(state: DeckState, path: String): DeckState {
+        val name = "1794117294387-0.png"
+        val main = state.tabs.getValue("t0")
+        val his = Entry.Yours("m-pic", "", offset = 90, files = listOf(name), at = tonight(0, 50))
+        return state.copy(tabs = state.tabs + ("t0" to main.copy(entries = main.entries + his)), files = state.files + ("t0/$name" to path))
+    }
+
+    /**
      * As on his phone (task 943): his first tab is a subject's, IMAGES BOOK, and the main chat is a later tab the server
      * names, here not even called Jarvis. The main chat shows [talk]; IMAGES BOOK stays a thread with its own words.
      */
@@ -340,8 +351,9 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
     override fun file(id: String, name: String) {}
 
     override fun send(id: String?, text: String, quotes: List<Quoted>) {
-        flow.update { it.copy(attached = emptyList()) }
-        if (id != null) say(id, text, quotes) else start(text)
+        val going = flow.value.attached
+        flow.update { it.sending(id, going) }
+        if (id != null) say(id, text, quotes, going.map { it.name }) else start(text)
     }
 
     private fun start(text: String) {
@@ -357,11 +369,11 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
         say(id, text)
     }
 
-    private fun say(id: String, text: String, quotes: List<Quoted> = emptyList()) {
+    private fun say(id: String, text: String, quotes: List<Quoted> = emptyList(), files: List<String> = emptyList()) {
         val key = "y${++counter}"
         edit(id) { t ->
             val asked = t.entries.map { if (it is Entry.Question) it.copy(closed = true) else it }
-            t.copy(tile = t.tile.copy(needs = false), entries = asked + Entry.Yours(key, text, quotes = quotes, state = Sending.Sending))
+            t.copy(tile = t.tile.copy(needs = false), entries = asked + Entry.Yours(key, text, quotes = quotes, files = files, state = Sending.Sending))
         }
         flow.update { s -> s.copy(tiles = s.tiles.map { if (it.id == id) it.copy(needs = false) else it }) }
         scope.launch {
@@ -442,6 +454,9 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
     override fun openCall() {}
 
     override fun pick() {}
+
+    /** What the attach button would bring in, for a test that sends words first and a picture after. */
+    fun attach(a: Attached) = flow.update { s -> s.copy(attached = s.attached + a) }
 
     override fun detach(path: String) = flow.update { s -> s.copy(attached = s.attached.filterNot { it.path == path }) }
 
