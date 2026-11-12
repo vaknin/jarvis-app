@@ -42,6 +42,10 @@ impl AskKind {
     }
 }
 
+/// The last option of every card's question (intake, and every `jarvis ask` since t251), so the tab's options
+/// never stand between him and his own answer (E1's t81: none of the four was what he meant).
+pub const ELSE: &str = "Something else (write it)";
+
 /// One question of a card: its options, Jarvis's pick, and for money, irreversible, wall and ux the
 /// safe one (spends nothing, changes nothing, keeps what he has). Options are counted from 0.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -59,6 +63,13 @@ pub struct Item {
     pub loses: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub gets: String,
+    /// Under 2.0, the issue whose worker asked it (`jarvis issue ask`): his answer goes there as a comment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue: Option<u64>,
+    /// Under the library fold, the library's question (`iris ask`) this card shows: his answer settles it there and
+    /// reaches the conversation that asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<u64>,
 }
 
 /// Why a reply went to the digest screen and didn't light its tab (J3 writes these).
@@ -91,9 +102,11 @@ pub struct Autopilot {
     /// Spent so far, in millionths of a dollar: shown, never a cap.
     #[serde(default)]
     pub spent: u64,
-    /// Turns since the last progress.
-    #[serde(default)]
-    pub idle: u32,
+    /// Its one free nudge for these strays went in: the next stray raises the stuck card.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nudged: bool,
+    /// Turns in a row the server started that moved nothing and stopped without asking, finishing or
+    /// waiting: the one stall count (an old file's `idle` is ignored).
     #[serde(default)]
     pub strays: u32,
     #[serde(default)]
@@ -101,6 +114,17 @@ pub struct Autopilot {
     pub state: ApState,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub summary: String,
+    /// The commits its passing review listed, "REPO SHA subject": what must be live before "Done".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<String>,
+    /// His one line "Done: ...": false while its commits aren't live yet, true once posted, never again.
+    /// None for an autopilot done before the line existed, which never posts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub told: Option<bool>,
+    /// The one line he reads once it is live ("Done: " and this), written to him: checked by the server at
+    /// `done`, kept apart from `summary`, which is the reviewer's.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tell: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -114,6 +138,10 @@ pub struct Criterion {
     pub by: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub evidence: String,
+    /// The review couldn't judge it as written (unverifiable here, or it names code that's gone): the next
+    /// `done` waits for a `jarvis autopilot edit` of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
 }
 
 /// How a criterion is checked: a command run in a repo, or something to look at.

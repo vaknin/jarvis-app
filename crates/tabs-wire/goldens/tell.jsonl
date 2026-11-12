@@ -4,6 +4,7 @@
 {"tell":"closed","tabs":[]}
 {"tell":"opened","tab":{"n":2,"id":"t2","mirrored":true,"tile":{"name":"","line":"a line","needs":"which one?","amber":true,"unread":1,"open":{"w1":"Testing"},"session":"s1","seen":10,"end":40,"new":[40]}}}
 {"tell":"landed","id":"t1","offset":120}
+{"tell":"sent","msg":"m1k3","offset":88}
 {"tell":"event","id":"t1","event":{"offset":120,"at":1793430374000,"kind":"said","who":"aviv","text":"go ahead"}}
 {"tell":"event","id":"t1","event":{"offset":200,"at":1793430374000,"kind":"said","who":"jarvis","text":"Done.","via":"typed","files":[{"name":"chord.png","alt":"a chart"}]}}
 {"tell":"event","id":"t1","event":{"offset":300,"at":1793430374000,"kind":"needs","text":"which one?"}}
@@ -18,14 +19,17 @@
 {"tell":"done"}
 {"tell":"put","id":"t1","name":"chord.png","file":{"name":"1-0.png","alt":"chord.png"}}
 {"tell":"event","id":"t1","event":{"offset":400,"at":1793430374000,"kind":"jobs","jobs":["dark mode"],"queued":["a","b","c","d"],"line":"1 job running: dark mode. 4 queued: a, b, c, d"}}
-{"tell":"event","id":"t1","event":{"offset":350,"at":1793430374000,"kind":"level","level":"urgent","by":"aviv"}}
 {"tell":"raised","id":"t1","q":"q1793430374000"}
 {"tell":"queue","decide":[{"tabs":[{"id":"t1","name":"Piano","q":"q1793430374000","offset":350},{"id":"t2","q":"q1793430375000","offset":90}],"kind":"money","level":"urgent","items":[{"text":"Rent a GPU for $3?","options":["Rent","Don't"],"pick":0,"safe":1}],"blocks":true,"at":1793430374000}],"digest":[{"id":"t1","name":"Piano","at":1793430374000,"offset":400,"what":"done","line":"Dark mode landed"}]}
 {"tell":"event","id":"t1","event":{"offset":360,"at":1793430374000,"kind":"question","q":"q1793430374000","ask":"tie","level":"low","items":[{"text":"Blue or green?","options":["Blue","Green"],"pick":0}],"due":1793430374000}}
 {"tell":"event","id":"t1","event":{"offset":370,"at":1793430374000,"kind":"needs","text":"Rent a GPU for $3?","q":"q1793430375000"}}
 {"tell":"event","id":"t1","event":{"offset":380,"at":1793430374000,"kind":"answer","q":"q1793430374000","picks":[0],"by":"default","note":"4 h passed"}}
+{"tell":"event","id":"t1","event":{"offset":385,"at":1793430374000,"kind":"defaults","on":true,"by":"aviv","arm":[["q1793430374000",1793444774000]]}}
 {"tell":"event","id":"t1","event":{"offset":390,"at":1793430374000,"kind":"assumed","text":"picked sqlite"}}
 {"tell":"event","id":"t1","event":{"offset":395,"at":1793430374000,"kind":"quiet","to":380,"why":"default"}}
-{"tell":"event","id":"t1","event":{"offset":398,"at":1793430374000,"kind":"autopilot","ap":{"id":"ap1","words":"add dark mode","from":120,"criteria":[{"n":1,"what":"tests pass","check":{"how":"cmd","cmd":"cargo test","dir":"tabs"},"status":"pass","by":"check","evidence":"ok"}],"repos":["jarvis"],"spent":1200000,"idle":0,"strays":0,"rounds":1,"state":"review"}}}
+{"tell":"event","id":"t1","event":{"offset":398,"at":1793430374000,"kind":"autopilot","ap":{"id":"ap1","words":"add dark mode","from":120,"criteria":[{"n":1,"what":"tests pass","check":{"how":"cmd","cmd":"cargo test","dir":"tabs"},"status":"pass","by":"check","evidence":"ok"}],"repos":["jarvis"],"spent":1200000,"strays":0,"rounds":1,"state":"review"}}}
 {"tell":"subject","id":"t1","name":"Voice","offsets":[10,20,50]}
 {"tell":"split","tab":{"n":2,"id":"t2","mirrored":true,"tile":{"name":"","line":"a line","needs":"which one?","amber":true,"unread":1,"open":{"w1":"Testing"},"session":"s1","seen":10,"end":40,"new":[40]}},"moved":3}
+{"tell":"tabs","tabs":[],"bulk":false}
+{"tell":"tick","id":"t1","to":120,"text":"Filed as Phone emulator on the laptop."}
+{"tell":"watching","threads":[{"id":"t2","name":"Piano app","open":true,"at":1793430374000,"tasks":[{"id":1332,"title":"Dark mode","status":"Building","at":1793430374000}]}]}

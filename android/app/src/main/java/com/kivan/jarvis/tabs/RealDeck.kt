@@ -31,6 +31,7 @@ import com.kivan.jarvis.core.tabsMode
 import com.kivan.jarvis.core.tabsMove
 import com.kivan.jarvis.core.tabsMoveSubject
 import com.kivan.jarvis.core.tabsSubject
+import com.kivan.jarvis.core.tabsTick
 import com.kivan.jarvis.core.tabsRelease
 import com.kivan.jarvis.core.tabsReopen
 import com.kivan.jarvis.core.tabsSay
@@ -177,6 +178,17 @@ class RealDeck private constructor(
     }
 
     override fun keepSubject() = flow.update { it.copy(moving = null) }
+
+    // A tick's words: asked once, on its own short link off the main thread; the answer is kept for the app's run.
+    override fun tick(id: String, to: Long) {
+        var ask = false
+        flow.update { s -> s.tapTick(id, to).also { ask = it.second }.first }
+        if (!ask) return
+        scope.launch {
+            val got = tabsTick(id, to.toULong())
+            flow.update { it.ticked(id, to, got.text, got.why) }
+        }
+    }
 
     override fun show(ids: List<String>) = tabsShow(ids)
 
@@ -499,6 +511,7 @@ private fun entry(e: EntryRec): Entry = when (e) {
         e.why,
         e.offset?.toLong(),
         e.at.toLong(),
+        e.tick,
     )
     is EntryRec.Answer -> Entry.Answer(e.key, e.offset?.toLong(), e.text, e.files, e.at.toLong())
     is EntryRec.Report -> Entry.Report(e.key, e.from, e.line, e.text)

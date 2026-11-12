@@ -72,3 +72,7 @@ added flow android-fold-main-chat-as-thread
 added flow android-hold-any
   what: A Hold pill stands beside Send for any message with words, in a thread or the main chat, quoted or not; it shows once there are words (typed or heard) and goes with them. On an open reply it keeps the reply greyed in the marks tray; on plain words they wait quiet on the server (bulk) and show in the chat, the box emptied. The reply strip has no Hold of its own any more, so there is one Hold on screen; the long-press on Send still holds too.
   approved: 2026-11-09 "I cannot use bulk mode if I'm not replying to some message / so basically I don't have a hold button if I'm not replying to some message"
+
+added flow android-tap-ticks
+  what: Jarvis's ticks (✓ or ✓✓) show under his messages, in the main chat and in a thread. A tap on them shows what they stand for just above them (so the ticks stay under the finger), as the laptop's Space does; a second tap hides it. The server is asked once per message for the app's run; an old tick with no words says "No words were kept for this tick."
+  approved: 2026-11-11 "on the phone app I guess it'd be a tap on the ticks themselves"

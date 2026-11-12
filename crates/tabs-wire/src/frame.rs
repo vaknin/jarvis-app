@@ -21,6 +21,18 @@ pub const MAX_FRAME: usize = 64 << 20;
 /// The id that follows the wall's own record: tabs opened, closed and moved.
 pub const WALL: &str = "wall";
 
+/// The id a refused `Phone` comes back with: no tab's.
+pub const PHONE: &str = "phone";
+
+/// One message his own hands sent a tab, `secs` ago. `card`: his answer to a card, no words typed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Heard {
+    pub words: String,
+    pub secs: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub card: bool,
+}
+
 /// A client's ask.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "ask", rename_all = "lowercase")]
@@ -34,12 +46,55 @@ pub enum Ask {
         want: Option<u32>,
         #[serde(default)]
         name: String,
+        /// A mode from `mode::MODES`; none is the default.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        mode: String,
     },
     Close { id: String },
+    /// He renamed the tab: on the record as its name. Answered by `Done`.
+    Rename { id: String, name: String },
+    /// He hid the tab from the wall, or showed it again. Answered by `Done`.
+    Hide { id: String, hidden: bool },
+    /// He put the tab away for later, with a note if he wrote one. `Reopen` brings it back, and
+    /// nothing else but his own words. Answered by `Done`.
+    Park { id: String, note: String },
+    /// The tabs he parked: answered by `Parked`.
+    Parked,
     /// He chose a mode for the tab; its next session starts on it. Answered by `Done`.
     Mode { id: String, mode: String },
+    /// The tab's level, `low`, `default` or `urgent`. Urgent from his screens or his shell; a tab's
+    /// session may set its own tab low or default, and urgent only with `asked`: his words from the tab's
+    /// last half hour asking for it (`heard.rs`). Answered by `Done`.
+    Level {
+        id: String,
+        level: Urgency,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asked: Option<String>,
+    },
+    /// Whether the tab's cards may take their pick when he's silent, after the old wait for their level.
+    /// On from his screens or his shell, or from the tab's session with `asked`: a quote of his latest
+    /// message letting it decide (`heard::heard_defaults`). Off from anyone. Answered by `Done`.
+    Defaults {
+        id: String,
+        on: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asked: Option<String>,
+    },
+    /// The wall says which build it is, on connecting and after every restart: the server keeps it
+    /// where Jarvis can read it. Answered by `Done`.
+    Build {
+        /// The first twelve hex digits of the binary's sha256.
+        build: String,
+        /// Unix seconds this window started.
+        started: u64,
+        /// Tabs it has open.
+        tabs: u32,
+    },
     /// A closed tab opens again with its whole record, at the end of the row: answered by `Opened`.
     Reopen { id: String },
+    /// The library fold's switch-on (stage 5b): every running tab binds to its library thread now, as its start
+    /// would under `~/.jarvis/library-threads`. Answered by `Done`; `jarvis fold threads` checks the store after.
+    LibraryBind,
     /// The library fold's move-to-thread key (stage 5e), in the main chat `id`: the subject he's on (of his message at
     /// record offset `at`, else his newest one with a subject) and the messages that would move with it. Answered by
     /// `Subject`.
@@ -48,6 +103,9 @@ pub enum Ask {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<u64>,
     },
+    /// What Jarvis's ticks on his message at record offset `to` in tab `id` stand for: answered by `Tick`, read
+    /// off the record, no model call.
+    Tick { id: String, to: u64 },
     /// He confirmed: the subject's messages move into a new thread. `offsets` are the ones that lit up; if the subject
     /// has more or fewer now, nothing moves and it's refused. Answered by `Split`.
     MoveSubject {
@@ -59,6 +117,19 @@ pub enum Ask {
     /// Every closed tab, newest first: answered by `Closed`. Their records stay, so they can be
     /// found by name and followed; a follow of one sends the record, then `Ended`.
     Closed,
+    /// He pinned a tab to the top of the tab list, or took the pin off: on the wall's record, so it
+    /// lasts and every screen sees it. Answered by `Done`.
+    Pin { id: String, pinned: bool },
+    /// The pinned tabs, open or closed: answered by `Pins`.
+    Pins,
+    /// He follows a thread like a feed (alt+f), or stops (`on` false): on the wall's record, so it lasts
+    /// and every screen sees it. Not `Follow`, which is a client's record stream. Answered by `Watching`.
+    Watch { id: String, on: bool },
+    /// The threads he follows, with their tasks' news: answered by `Watching`.
+    Watching,
+    /// His one bulk switch, shared by laptop and phone: on, Enter holds his words for Ctrl+Enter or a running turn's
+    /// end; off, Enter sends now. Kept by the server (`~/.jarvis/fold/bulk-off` while off). Answered by `Done`.
+    Bulk { on: bool },
     /// He moved a tile to place `to`, counted from 0.
     Move { id: String, to: usize },
     /// His words: on the record first, then answered by `Landed`, then to the tab's Jarvis.
@@ -76,16 +147,27 @@ pub enum Ask {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         quiet: bool,
     },
+    /// A message from the tab whose session sends it, to another tab. The sender is never in the frame:
+    /// the server works it out from the connection (`msg.rs`). `fyi` waits for the tab's next turn
+    /// instead of starting one; `re` is the id of the message this answers. Answered by `Sent`.
+    Message {
+        to: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fyi: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        re: Option<String>,
+    },
+    /// What he last said in this tab by his own hands: the screen guard's question (cli/src/screenguard.rs).
+    /// Answered by `Asked`.
+    Asked { id: String },
     /// Stop the turn being written: what's written stays on the record. Claude Code stops the tab's
     /// helpers with it, and the record says so, while a background command goes on. Answered by
     /// `Done`, also when there was nothing to stop.
     Stop { id: String },
-    /// Send his quiet words that wait in this tab now: into the running turn, or wake a sleeping tab
-    /// for them. Answered by `Done`, also when there was nothing to send.
+    /// Wake a sleeping tab for his words that wait there, as one turn: ctrl+enter with nothing in the
+    /// box. Answered by `Done`, also when there was nothing to send.
     Release { id: String },
-    /// The tab's level, `low`, `default` or `urgent`. Urgent from his screens or his shell only; a tab's
-    /// session may set its own tab low or default. Answered by `Done`.
-    Level { id: String, level: Urgency },
     /// Every event after `after`, then each new one as it lands, and the live text. 0 is the start.
     Follow {
         id: String,
@@ -100,7 +182,10 @@ pub enum Ask {
     /// A file he attached, as base64 because frames are JSON: kept beside the record, for a `Say` to
     /// name. `name` is what he called it, and keeps its extension. Answered by `Put`.
     Put { id: String, name: String, data: String },
-    /// The tab's Jarvis truly can't go on (amber), or no longer needs him.
+    /// A screenshot of his phone, for the box: the server takes it over its own adb, and wakes nothing,
+    /// the phone's screen and Jarvis alike. Answered by `Phone`, or `Refused` with id `PHONE`.
+    Phone,
+    /// The tab's Jarvis truly can't go on (blocked), or no longer needs him.
     Needs {
         id: String,
         text: String,
@@ -115,16 +200,42 @@ pub enum Ask {
         text: String,
     },
     /// Another session's note for this tab: on the record like a report, and it starts a turn, the
-    /// tab asleep or not. Never his words: those are `Say`.
+    /// tab asleep or not. Never his words: those are `Say`. `text` is what the session reads; `body`,
+    /// if any, is what the record keeps instead.
     Note {
         id: String,
         from: String,
         line: String,
         text: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        body: String,
+        /// Between sessions: an `Aside` on the record, and so is the reply, unless it's marked for him.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        aside: bool,
+        /// A question for him, by way of the tab: the note stays an `Aside`, the reply is the asking.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        asks: bool,
         /// What the work behind it cost, in millionths of a dollar, for an autopilot's spend.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         micro_usd: Option<u64>,
     },
+    /// A job's report that landed nothing and asks nothing: on the record, and read with the tab's next
+    /// turn, without starting one (Aviv, 2026-11-04: "why did you wake up? that's a waste of usage").
+    /// Answered by `Done`.
+    Fyi {
+        id: String,
+        from: String,
+        line: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        micro_usd: Option<u64>,
+    },
+    /// The one line "Done: ..." for a job's work, once it's on main and runs on his devices, written by
+    /// code, not a session (Aviv, 2026-11-04: "i prefer a single time, once it's 100% in and tested and
+    /// on my phone/laptop"). Answered by `Done`.
+    DoneLine { id: String, text: String },
     /// The jobs this tab started that are running now, and those queued, whole: on the record if that
     /// changed. Answered by `Done`.
     Jobs {
@@ -140,6 +251,37 @@ pub enum Ask {
         #[serde(default)]
         word: bool,
     },
+    /// A bug he filed: code writes it down, no model hears of it. `quotes`: the paragraphs as he saw
+    /// them. Answered by `Bug`.
+    Bug {
+        id: String,
+        quotes: Vec<String>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<FileRef>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        build: String,
+    },
+    /// His words on mistake `n`, typed in the box F2 opens after filing it: they go with it in the
+    /// inbox, and on the tab's record for its session. Answered by `Done`.
+    BugNote { id: String, n: u32, text: String },
+    /// A reaction on the event at offset `to`, pressed again it comes off. `jarvis`: `jarvis react`, which
+    /// only a tab's session may run; anyone else not in a tab is him. His 👎 is answered by `Bug`, the
+    /// rest by `Done`.
+    React {
+        id: String,
+        to: u64,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        quote: String,
+        emoji: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        jarvis: bool,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        build: String,
+    },
+    /// Words to flash on his screen, off the session. Answered by `Done`.
+    Toast { id: String, text: String },
     /// A question for him, from a tab's own session only (`jarvis ask`): answered by `Raised` with its
     /// id, or `Refused` with why (`asks.rs` holds the form). `low` marks it below the tab's level; it
     /// can't go above: `suggest_urgent` is all a tab may do.
@@ -157,8 +299,8 @@ pub enum Ask {
         ap: Option<String>,
     },
     /// His answer to question `q` of the tab, from his screens only: `picks` per item, `text` his words
-    /// if he wrote any. It lands as his `said` replying to the question (and on a merged card, in each
-    /// tab), so it starts a turn there. Answered by `Landed`.
+    /// if he wrote any; `OPEN` for an item he left open before one he answered. It lands as his `said`
+    /// replying to the question (and on a merged card, in each tab), so it starts a turn there. Answered by `Landed`.
     Answer {
         id: String,
         q: String,
@@ -167,11 +309,39 @@ pub enum Ask {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         text: String,
     },
-    /// The tab decided instead of asking (`jarvis assume`), from its own session. Answered by `Done`.
-    Assume { id: String, text: String },
+    /// Question `q` of the tab is no longer needed: it leaves the Needs you list, on the record as taken
+    /// back. From the tab's own session, the main chat's session (any tab's card), or from outside every tab
+    /// (a job, his shell); never from another tab. `why`: how it was settled, kept on the record (and on the
+    /// library's question, for a library card); empty writes the old line. A library card must also cite what
+    /// settled it (task 1318): `page`, his own page after the question was asked, or `settled`, the state its
+    /// `--settled-when` shows; otherwise it is refused and stays. Answered by `Done`.
+    Withdraw {
+        id: String,
+        q: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        why: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<u64>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        settled: bool,
+    },
+    /// The tab decided instead of asking (`jarvis assume`), from its own session. Answered by `Done`. With
+    /// `boards`, a 2.0 board decided (its planner, a worker, the sweep: `route::digests`), from outside any tab
+    /// and only while 2.0 is on; `issue` is the issue it was about, for his 👎 to come back to.
+    Assume {
+        id: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        boards: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        issue: Option<u64>,
+    },
     /// The Needs you list and the digest: answered by `Queue`, and again on every change, until the
     /// connection closes or `Unfollow` with `QUEUE`.
     Queue,
+    /// What the digest reads beside the queue changed (the machine check's problems, a card past a day):
+    /// every `Queue` follower gets it again. Answered by `Done`.
+    Refresh,
     /// Autopilot: `on`, `off`, `accept` and `reopen` from his screens; the rest from the tab's session.
     Autopilot {
         id: String,
@@ -186,10 +356,10 @@ pub enum Ask {
 }
 
 /// The id `Unfollow` takes to stop the queue's updates.
-pub const QUEUE: &str = "queue";
-
 /// A pick for an item he left open, in `Ask::Answer`: the item stays open, never his.
 pub const OPEN: u32 = u32::MAX;
+
+pub const QUEUE: &str = "queue";
 
 /// One card of the Needs you list: one question, or the same question from several tabs, which one
 /// tap answers in each.
@@ -267,24 +437,73 @@ pub struct Info {
     pub tile: Tile,
 }
 
+/// A thread he follows, as the Following screen shows it. `at`: its latest news, ms since the epoch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Watched {
+    pub id: String,
+    pub name: String,
+    pub open: bool,
+    pub at: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<WatchedTask>,
+}
+
+/// One task of a followed thread: its current word only, one of the shared status words (Planning,
+/// Building, Landed, Live...), as a string so a client needs no other crate. `at`: its latest news, ms.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WatchedTask {
+    pub id: i64,
+    pub title: String,
+    pub status: String,
+    pub at: u64,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
 /// The server's word to a client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "tell", rename_all = "lowercase")]
 pub enum Tell {
-    /// The wall's tabs; `fold` while the library fold's switch is on (`~/.jarvis/fold/threads-on`); `main` the tab that
-    /// is the main chat (`~/.jarvis/main-chat`), on the wall or not, so the wall and the phone never pick different ones.
+    /// The wall's tabs; `fold` while the library fold's switch is on (`~/.jarvis/fold/threads-on`).
     Tabs {
         tabs: Vec<Info>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         fold: bool,
+        /// His bulk switch (`Ask::Bulk`): absent means on, so an old server reads as today's laptop.
+        #[serde(default = "yes", skip_serializing_if = "is_true")]
+        bulk: bool,
+        /// The phone's copy only: the tab that is the main chat (`~/.jarvis/main-chat`), on the wall or not, so the wall
+        /// and the phone never pick different ones (task 943). The server doesn't send it yet; the phone falls back.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         main: Option<String>,
     },
+    /// The tabs he put away for later, last parked first. `n` means nothing here.
+    Parked { tabs: Vec<Info> },
     /// The closed tabs, newest first. `n` is the number each last had.
     Closed { tabs: Vec<Info> },
+    /// The ids of the pinned tabs, the first pinned first.
+    Pins { ids: Vec<String> },
+    /// The threads he follows, latest news first.
+    Watching { threads: Vec<Watched> },
     Opened { tab: Info },
     /// His words are on the record, at this offset.
     Landed { id: String, offset: u64 },
+    /// A message is on the receiving tab's record, under this id.
+    Sent { msg: String, offset: u64 },
+    /// His latest words in the tab, `secs` old, none if those weren't his own hands. `said`: all his own
+    /// hands' words there from the last half hour, oldest first (tier.rs: a request two messages back counts).
+    Asked {
+        words: String,
+        secs: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        said: Vec<Heard>,
+    },
     /// An event of a followed tab, in the record's order, each once. `event.offset` is the resume point.
     Event { id: String, event: Event },
     /// A reply being written. `text` goes at byte `from` of block `block`; a new block starts empty.
@@ -298,12 +517,19 @@ pub enum Tell {
     File { id: String, name: String, data: String },
     /// A file is kept, as `file`: `name` is the one the `Put` gave, so a client can tell them apart.
     Put { id: String, name: String, file: FileRef },
+    /// His phone's screen, a PNG as base64, for the box to attach as a picture he pasted.
+    Phone { data: String },
     /// An ask that didn't work, and why.
     Refused {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         id: String,
         why: String,
     },
+    /// What the tab's session is doing now, in a few words, worked out by code from its own stream.
+    /// For clients, never the record. Empty: nothing to say, it's thinking.
+    Doing { id: String, what: String },
+    /// The bug is in the inbox, as number `n`.
+    Bug { id: String, n: u32 },
     /// The question is on the list, as `q` in its tab.
     Raised { id: String, q: String },
     /// The Needs you list, urgent first, then by deadline; and the digest's lines, newest first.
@@ -320,6 +546,14 @@ pub enum Tell {
         name: String,
         #[serde(default)]
         offsets: Vec<u64>,
+    },
+    /// What the ticks on his message at `to` stand for (`Ask::Tick`): the words they took the place of
+    /// (`event::tick_words`), empty when none were kept.
+    Tick {
+        id: String,
+        to: u64,
+        #[serde(default)]
+        text: String,
     },
     /// The subject moved (`Ask::MoveSubject`): `moved` messages, into the new thread `tab`.
     Split { tab: Info, moved: usize },
@@ -418,6 +652,15 @@ pub async fn write_async<T: Serialize>(w: &mut (impl tokio::io::AsyncWrite + Unp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reaction_is_one_of_the_set_with_or_without_its_variation() {
+        assert_eq!(crate::event::reaction("❤"), Some("❤\u{fe0f}"));
+        assert_eq!(crate::event::reaction("❤\u{fe0f}"), Some("❤\u{fe0f}"));
+        assert_eq!(crate::event::reaction("👍"), Some("👍"));
+        assert_eq!(crate::event::reaction("🤏"), None);
+        assert_eq!(crate::event::reaction(""), None);
+    }
     use crate::Body;
 
     #[test]
@@ -434,6 +677,55 @@ mod tests {
         assert_eq!(decode::<Ask>(br#"{"ask":"teleport"}"#).unwrap(), Ask::Other);
         // a field from the future is ignored
         assert_eq!(decode::<Tell>(br#"{"tell":"done","x":1}"#).unwrap(), Tell::Done);
+    }
+
+    /// An old window and a new server (and the reverse) must keep talking: a listing from before
+    /// the fields added since still reads, and an event kind a window doesn't know is skipped, not fatal.
+    #[test]
+    fn a_listing_and_an_event_across_builds_still_read() {
+        let old_tile = br#"{"name":"A","line":"","needs":"","amber":false,"unread":0,"open":{},"session":null,"seen":0,"end":0}"#;
+        let t = decode::<crate::Tile>(old_tile).unwrap();
+        assert!(t.jobs.is_empty() && t.mode.is_empty() && !t.hidden);
+        let future = br#"{"tell":"event","id":"t1","event":{"offset":3,"at":1,"kind":"hologram","x":[1,2]}}"#;
+        let Tell::Event { event, .. } = decode::<Tell>(future).unwrap() else { panic!("an event") };
+        assert_eq!(event.body, Body::Other);
+        let newer_tile = br#"{"name":"A","line":"","needs":"","amber":false,"unread":0,"open":{},"session":null,"seen":0,"end":0,"jobs":["x"],"mood":"calm"}"#;
+        assert_eq!(decode::<crate::Tile>(newer_tile).unwrap().jobs, vec!["x".to_string()]);
+    }
+
+    /// A picture on a quote: a build from before it reads the new reply and keeps every picture in
+    /// `files`; a build from after reads the old reply with none on it.
+    #[test]
+    fn a_reply_with_pictures_reads_in_an_older_build_and_an_older_reply_reads_in_a_newer_one() {
+        let old = br#"{"to":4,"quote":"the plan","text":""}"#;
+        let r = decode::<crate::Reply>(old).unwrap();
+        assert!(r.files.is_empty());
+        assert_eq!(String::from_utf8(serde_json::to_vec(&r).unwrap()).unwrap(), String::from_utf8(old.to_vec()).unwrap(), "nothing new on the wire when there is no picture");
+        let new = crate::Reply { to: 4, quote: "the plan".into(), text: String::new(), files: vec!["1-0.png".into()] };
+        #[derive(serde::Deserialize, Debug, PartialEq)]
+        struct Before {
+            to: u64,
+            quote: String,
+            text: String,
+        }
+        let seen: Before = serde_json::from_slice(&serde_json::to_vec(&new).unwrap()).unwrap();
+        assert_eq!(seen, Before { to: 4, quote: "the plan".into(), text: String::new() });
+    }
+
+    #[test]
+    fn bulk_switch_goes_both_ways() {
+        assert_eq!(String::from_utf8(serde_json::to_vec(&Ask::Bulk { on: false }).unwrap()).unwrap(), r#"{"ask":"bulk","on":false}"#);
+        assert_eq!(decode::<Ask>(br#"{"ask":"bulk","on":true}"#).unwrap(), Ask::Bulk { on: true });
+    }
+
+    /// An old server's listing has no `bulk`: it reads as on, today's laptop; on stays off the wire.
+    #[test]
+    fn bulk_absent_reads_as_on_and_on_is_not_written() {
+        assert_eq!(decode::<Tell>(br#"{"tell":"tabs","tabs":[]}"#).unwrap(), Tell::Tabs { tabs: vec![], fold: false, bulk: true, main: None });
+        assert_eq!(String::from_utf8(serde_json::to_vec(&Tell::Tabs { tabs: vec![], fold: false, bulk: true, main: None }).unwrap()).unwrap(), r#"{"tell":"tabs","tabs":[]}"#);
+        let off = Tell::Tabs { tabs: vec![], fold: false, bulk: false, main: None };
+        assert_eq!(String::from_utf8(serde_json::to_vec(&off).unwrap()).unwrap(), r#"{"tell":"tabs","tabs":[],"bulk":false}"#);
+        assert_eq!(decode::<Tell>(br#"{"tell":"tabs","tabs":[],"bulk":false}"#).unwrap(), off);
     }
 
     #[test]

@@ -106,6 +106,8 @@ sealed interface Entry {
         /** Where it is on the record, null while it's on its way; when it landed (ms), 0 until then. */
         val offset: Long? = null,
         val at: Long = 0,
+        /** Jarvis's tick on it, "✓" or "✓✓", empty with none: a tap on it shows what it stands for ([Deck.tick]). */
+        val tick: String = "",
     ) : Entry
 
     /** [offset] is where a reply points; null while it's still arriving. */
@@ -227,7 +229,44 @@ data class DeckState(
     val fold: Boolean = false,
     /** The fold's move key under way in the main chat: what the server said lights up, until he moves it or keeps it. */
     val moving: Moving? = null,
+    /** What the ticks on his messages stand for, by [tickKey]: asked once on a tap, kept for the app's run. */
+    val ticks: Map<String, TickWords> = emptyMap(),
 )
+
+/**
+ * What the ticks on one of his messages stand for, as the tap left it: [open] shows it under the ticks. [text] is the
+ * server's answer, kept for the app's run so a tap again never asks again (empty: no words were kept); null while the
+ * ask is on its way, or after it failed with [why], when the next tap that opens it asks again.
+ */
+@Immutable
+data class TickWords(val open: Boolean, val text: String? = null, val why: String = "")
+
+/** Where [DeckState.ticks] keeps the words of the ticks on tab [id]'s message at record offset [to]. */
+fun tickKey(id: String, to: Long) = "$id/$to"
+
+/**
+ * A tap on the ticks of tab [id]'s message at [to]: the first opens them and says to ask the server (the second of the
+ * pair), a second hides them, a third shows the kept words again. Only a first tap, or one after a failed ask, asks.
+ */
+fun DeckState.tapTick(id: String, to: Long): Pair<DeckState, Boolean> {
+    val key = tickKey(id, to)
+    val had = ticks[key]
+    val now = when {
+        had == null -> TickWords(open = true)
+        had.open -> had.copy(open = false)
+        else -> had.copy(open = true, why = "")
+    }
+    val ask = now.open && now.text == null && (had == null || had.why.isNotEmpty())
+    return copy(ticks = ticks + (key to now)) to ask
+}
+
+/** The server's answer to a tick ask: its words (empty when none were kept), or [why] it couldn't say. */
+fun DeckState.ticked(id: String, to: Long, text: String, why: String): DeckState {
+    val key = tickKey(id, to)
+    val had = ticks[key] ?: TickWords(open = false)
+    val now = if (why.isNotEmpty()) had.copy(text = null, why = why) else had.copy(text = text, why = "")
+    return copy(ticks = ticks + (key to now))
+}
 
 /** The key of the wall's own box in [DeckState.typed]. */
 const val WALL = ""
@@ -265,6 +304,8 @@ interface Deck {
     fun moveSubject()
     /** He kept them: nothing lights up and nothing moves. */
     fun keepSubject()
+    /** A tap on the ticks of tab [id]'s message at record offset [to]: shows or hides what they stand for ([tapTick]). */
+    fun tick(id: String, to: Long)
     /** Stops what the tab is writing; what's written stays. */
     fun stop(id: String)
     /**

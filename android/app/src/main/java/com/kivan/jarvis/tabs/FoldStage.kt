@@ -419,6 +419,7 @@ private fun SaidLine(
             Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
                 if (worded) bubble()
                 if (tab != null) for ((i, f) in files.withIndex()) FileCard(tab, f, Modifier.padding(top = if (worded || i > 0) gap else 0.dp))
+                if (tab != null && l.entry is Entry.Yours) Ticks(tab, l.entry)
             }
             DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
                 if (onQuote != null) MenuItem("Quote part") {

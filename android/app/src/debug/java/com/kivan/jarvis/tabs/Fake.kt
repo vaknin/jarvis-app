@@ -217,6 +217,15 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
     )
     val talkTags = mapOf(10L to "Voice", 30L to "Phone app", 50L to "Voice")
 
+    /** With `ticked`: Jarvis's ticks on two of his [talk] messages, by record offset; the second kept no words. */
+    val talkTicks = mapOf(30L to "✓✓", 50L to "✓")
+
+    /** As the tab server answers a tick ask (the jarvis repo's `tabs/wire` tick_words), by [tickKey]: none kept is empty. */
+    val tickWords = mapOf(
+        tickKey("t0", 30) to "Filed as Phone dark mode on the phone board.\n\nLanded: the dark mode is a deeper black, on your phone with the next update.",
+        tickKey("t0", 50) to "",
+    )
+
     /**
      * After [talk], when [bullets]: his message of raw lines (markup he typed, a blank line) and Jarvis's answer of a
      * lead paragraph and three bullets, each line and bullet its own thing to swipe and quote.
@@ -249,10 +258,11 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
      * The fold with its main chat (the tab called Jarvis) holding [talk]: what the move key works on; [bulletTalk] after
      * it with [bullets]; his quote-replies [quotedTalk] last with [quoted].
      */
-    fun foldTalk(n: Int = 6, bullets: Boolean = false, quoted: Boolean = false): DeckState {
+    fun foldTalk(n: Int = 6, bullets: Boolean = false, quoted: Boolean = false, ticked: Boolean = false): DeckState {
         val base = fold(n)
         val main = TileView("t0", 0, MAIN_NAME, model = "opus", effort = "medium")
-        val entries = talk + (if (bullets) bulletTalk else emptyList()) + (if (quoted) quotedTalk else emptyList())
+        val said = if (ticked) talk.map { e -> if (e is Entry.Yours) e.copy(tick = talkTicks[e.offset].orEmpty()) else e } else talk
+        val entries = said + (if (bullets) bulletTalk else emptyList()) + (if (quoted) quotedTalk else emptyList())
         // The main chat's own report, as on his phone (page 33470): it must stay out of the thread rows.
         val own = DigestView("t0", MAIN_NAME, tonight(0, 43), 1, "report", "Landed: Memory board")
         return base.copy(
@@ -506,4 +516,17 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
     }
 
     override fun keepSubject() = flow.update { it.copy(moving = null) }
+
+    /** Every tick ask that reached the "server": a tap that only shows or hides adds none. */
+    val tickAsks = mutableListOf<Pair<String, Long>>()
+
+    /** As the server: the words of [Fake.tickWords], or its no for a message it has none for. */
+    override fun tick(id: String, to: Long) {
+        var ask = false
+        flow.update { s -> s.tapTick(id, to).also { ask = it.second }.first }
+        if (!ask) return
+        tickAsks += id to to
+        val words = Fake.tickWords[tickKey(id, to)]
+        flow.update { it.ticked(id, to, words.orEmpty(), if (words == null) "no such message" else "") }
+    }
 }

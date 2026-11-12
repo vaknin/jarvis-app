@@ -145,7 +145,7 @@ class RealDeckTest {
         assertEquals(shot.path, s.files["t1/Screenshot_20261108.png"])
         // To a tab not open yet, nothing is seeded here: it gets them when it opens.
         assertEquals(emptyMap<String, String>(), DeckState(attached = listOf(shot)).sending(null, listOf(shot)).files)
-        val landed = EntryRec.Yours("y1", 9u, 1794117294387u, "", false, emptyList(), listOf("1794117294387-0.png"), com.kivan.jarvis.core.Landing.SENT, "")
+        val landed = EntryRec.Yours("y1", 9u, 1794117294387u, "", false, emptyList(), listOf("1794117294387-0.png"), com.kivan.jarvis.core.Landing.SENT, "", "")
         val after = s.with(tab(0u, landed))
         assertEquals(listOf("1794117294387-0.png"), (after.tabs.getValue("t1").entries.single() as Entry.Yours).files)
         assertNull(after.files["t1/1794117294387-0.png"])

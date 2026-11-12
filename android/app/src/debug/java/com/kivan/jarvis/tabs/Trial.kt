@@ -18,7 +18,7 @@ import java.io.File
 fun trialDeck(context: Context, intent: Intent): Deck? =
     intent.getIntExtra("tabs", -1).takeIf { it >= 0 }?.let {
         val fold = intent.getBooleanExtra("fold", false)
-        var state = if (fold) (if (intent.getBooleanExtra("book", false)) Fake.foldBookFirst(it) else Fake.foldTalk(it, bullets = intent.getBooleanExtra("bullets", false), quoted = intent.getBooleanExtra("quoted", false))) else Fake.deck(it, v2 = intent.getBooleanExtra("v2", false))
+        var state = if (fold) (if (intent.getBooleanExtra("book", false)) Fake.foldBookFirst(it) else Fake.foldTalk(it, bullets = intent.getBooleanExtra("bullets", false), quoted = intent.getBooleanExtra("quoted", false), ticked = intent.getBooleanExtra("ticks", false))) else Fake.deck(it, v2 = intent.getBooleanExtra("v2", false))
         if (fold && intent.getBooleanExtra("picture", false)) state = Fake.sentPicture(state, screenshot(context).path)
         FakeDeck(state)
     }

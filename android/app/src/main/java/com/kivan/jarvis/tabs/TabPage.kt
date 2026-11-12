@@ -412,6 +412,7 @@ private fun YoursView(tab: String, entry: Entry.Yours) {
             if (entry.state == Sending.Refused) {
                 Text(entry.why.ifEmpty { "Didn't send" }, Modifier.padding(top = 5.dp, end = 4.dp), look.urgentText, style = Words.small)
             }
+            Ticks(tab, entry)
         }
     }
 }

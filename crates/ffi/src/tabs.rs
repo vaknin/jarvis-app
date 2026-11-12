@@ -148,7 +148,8 @@ pub enum Landing {
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum EntryRec {
     /// `offset`: where it is on the record, none while it's on its way; `at`: when it landed (ms), 0 until then.
-    Yours { key: String, offset: Option<u64>, at: u64, text: String, voice: bool, quotes: Vec<QuoteRec>, files: Vec<String>, state: Landing, why: String },
+    /// `tick`: Jarvis's tick on it, "✓" or "✓✓", empty with none: a tap on it asks [`tabs_tick`] what it stands for.
+    Yours { key: String, offset: Option<u64>, at: u64, text: String, voice: bool, quotes: Vec<QuoteRec>, files: Vec<String>, state: Landing, why: String, tick: String },
     Answer { key: String, offset: Option<u64>, at: u64, text: String, files: Vec<String> },
     Report { key: String, from: String, line: String, text: String },
     Question { key: String, text: String, closed: bool },
@@ -325,6 +326,8 @@ struct Hold {
     live: Option<(u64, String, String)>,
     pending: Vec<Pending>,
     began: HashMap<String, u64>,
+    /// Jarvis's ticks standing on his messages, by their offset.
+    ticks: HashMap<u64, Vec<String>>,
     /// The last of his quiet words not gone in yet, 0 for none.
     waiting: u64,
     seen_sent: u64,
@@ -372,12 +375,17 @@ impl Hold {
                     files: names(files),
                     state: Landing::Sent,
                     why: String::new(),
+                    tick: String::new(),
                 })
             }
             Body::Said { text, files, .. } => {
                 // The words that were arriving become these: same key, so the screen just goes on.
                 let key = self.live.take().map_or_else(key, |(_, k, _)| k);
                 Some(EntryRec::Answer { key, offset: Some(e.offset), at: e.at, text: text.clone(), files: names(files) })
+            }
+            Body::React { to, quote, emoji, who: Who::Jarvis, off } if quote.is_empty() && (emoji == "✓" || emoji == "✓✓") => {
+                self.tick(*to, emoji, *off);
+                None
             }
             Body::Delivered { upto } => {
                 if *upto >= self.waiting {
@@ -424,6 +432,24 @@ impl Hold {
         }
     }
 
+    /// Jarvis's tick on his message at `to` went on or came off. It shows as the laptop's does (the jarvis repo's
+    /// `tabs/tui/src/record.rs` `ticked`): any ✓ or ✓✓ of his on the whole message; ✓✓ when that one stands.
+    fn tick(&mut self, to: u64, emoji: &str, off: bool) {
+        let Ok(at) = self.items.binary_search_by_key(&to, |(o, _)| *o) else { return };
+        let on = self.ticks.entry(to).or_default();
+        match off {
+            true => on.retain(|e| e != emoji),
+            false => on.push(emoji.to_string()),
+        }
+        let shown = if on.iter().any(|e| e == "✓✓") { "✓✓" } else if on.is_empty() { "" } else { "✓" };
+        if let (_, EntryRec::Yours { tick, .. }) = &mut self.items[at] {
+            if tick != shown {
+                *tick = shown.to_string();
+                self.moved(at);
+            }
+        }
+    }
+
     fn close_questions(&mut self) {
         let mut moved = None;
         for (i, (_, entry)) in self.items.iter_mut().enumerate().rev() {
@@ -452,6 +478,7 @@ impl Hold {
             files: p.files.iter().map(|f| f.name.clone()).collect(),
             state: if p.failed.is_some() { Landing::Refused } else { Landing::Sending },
             why: p.failed.clone().unwrap_or_default(),
+            tick: String::new(),
         });
         let live = self.live.iter().map(|(_, key, text)| EntryRec::Answer { key: key.clone(), offset: None, at: 0, text: text.clone(), files: vec![] });
         done.chain(waiting).chain(live).collect()
@@ -462,6 +489,7 @@ impl Hold {
         self.items = vec![];
         self.applied = BTreeSet::new();
         self.began.clear();
+        self.ticks.clear();
         self.waiting = 0;
         self.from = None;
     }
@@ -572,7 +600,7 @@ impl Desk {
         self.wall_touched |= !self.online;
         (self.online, self.quiet_until) = (true, None);
         match tell {
-            Tell::Tabs { tabs, fold, main } => {
+            Tell::Tabs { tabs, fold, main, .. } => {
                 if self.fold != Some(fold) {
                     self.fold = Some(fold);
                     self.told.push(Told::Fold(fold));
@@ -865,14 +893,14 @@ impl Desk {
 
     fn say_as(&mut self, id: String, text: String, quotes: Vec<QuoteRec>, files: Vec<Upload>, quiet: bool) {
         let Some(t) = self.tabs.get_mut(&id) else {
-            let replies = quotes.into_iter().map(|q| Reply { to: q.to, quote: q.quote, text: q.text }).collect();
+            let replies = quotes.into_iter().map(|q| Reply { to: q.to, quote: q.quote, text: q.text, files: vec![] }).collect();
             let words = as_typed(&Pending { text, replies, ..Pending::default() });
             self.back(String::new(), words, files.into_iter().map(|u| u.file).collect());
             return;
         };
         // What failed is back in the box, and this may well be it.
         t.pending.retain(|p| p.failed.is_none());
-        let replies: Vec<Reply> = quotes.into_iter().map(|q| Reply { to: q.to, quote: q.quote, text: q.text }).collect();
+        let replies: Vec<Reply> = quotes.into_iter().map(|q| Reply { to: q.to, quote: q.quote, text: q.text, files: vec![] }).collect();
         self.keys += 1;
         let (up, going) = (files.is_empty(), files.iter().map(|u| u.file.name.clone()).collect());
         let pending = Pending {
@@ -899,7 +927,7 @@ impl Desk {
         let from = if text.trim().is_empty() { files.first().map_or("", |u| u.file.name.as_str()) } else { &text };
         let name = from.split_whitespace().take(3).collect::<Vec<_>>().join(" ").chars().take(24).collect();
         self.opening.push_back(Some((text, files, auto)));
-        self.out.push(Ask::Open { want: None, name });
+        self.out.push(Ask::Open { want: None, name, mode: String::new() });
     }
 
     /// The library fold's main chat: the tab the server names, else the open tab called Jarvis (the first in his
@@ -922,7 +950,7 @@ impl Desk {
         }
         self.main_asked = true;
         self.opening.push_back(None);
-        self.out.push(Ask::Open { want: None, name: MAIN_NAME.into() });
+        self.out.push(Ask::Open { want: None, name: MAIN_NAME.into(), mode: String::new() });
     }
 
     fn reopen(&mut self, id: String) {
@@ -931,7 +959,7 @@ impl Desk {
     }
 
     fn seen(&mut self, id: String) {
-        let Some(t) = self.tabs.get_mut(&id).filter(|t| t.loaded && t.tile.blue()) else { return };
+        let Some(t) = self.tabs.get_mut(&id).filter(|t| t.loaded && t.tile.done()) else { return };
         let upto = t.end;
         if upto > t.seen_sent && t.tile.seen_moves(upto) {
             t.seen_sent = upto;
@@ -944,8 +972,8 @@ impl Desk {
             id: id.to_string(),
             n: t.n,
             name: t.tile.name.clone(),
-            needs: t.tile.amber,
-            unread: t.tile.blue(),
+            needs: t.tile.blocked,
+            unread: t.tile.done(),
             working: t.tile.working(),
             mode: t.tile.mode.clone(),
             model: jarvis_tabs_wire::mode::parts(&t.tile.mode).0.to_string(),
@@ -1423,6 +1451,32 @@ pub fn tabs_move_subject(id: String, at: Option<u64>, offsets: Vec<u64>) -> Spli
     ask_now(Ask::MoveSubject { id, at, offsets }, split_told).unwrap_or_else(|e| SplitRec { why: format!("{e:#}"), ..Default::default() })
 }
 
+/// What Jarvis's ticks on his message at record offset `to` in tab `id` stand for: the words they took the place of,
+/// read off the record by the server (no model call). `text` is empty when none were kept; `why`: the server's no,
+/// or the link's.
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct TickRec {
+    pub text: String,
+    pub why: String,
+}
+
+/// The answer to `Ask::Tick` for tab `id`'s message at `to` among what the server says: the words, or its no.
+fn tick_told(id: &str, to: u64, tell: Tell) -> Option<TickRec> {
+    match tell {
+        Tell::Tick { id: got, to: at, text } if got == id && at == to => Some(TickRec { text, why: String::new() }),
+        Tell::Refused { why, .. } => Some(TickRec { why, ..Default::default() }),
+        _ => None,
+    }
+}
+
+/// A tap on the ticks of his message at `to`: what they stand for, asked once on its own short link. Blocks: call
+/// it off the main thread. The screen keeps the answer, so it never asks twice.
+#[uniffi::export]
+pub fn tabs_tick(id: String, to: u64) -> TickRec {
+    let want = id.clone();
+    ask_now(Ask::Tick { id, to }, move |t| tick_told(&want, to, t)).unwrap_or_else(|e| TickRec { why: format!("{e:#}"), ..Default::default() })
+}
+
 #[uniffi::export]
 pub fn tabs_move(id: String, to: u32) {
     with_desk(|d| d.out.push(Ask::Move { id, to: to as usize }));
@@ -1455,7 +1509,7 @@ mod tests {
         let mut d = Desk::default();
         d.connected();
         assert!(!d.online);
-        d.tell(Tell::Tabs { tabs: vec![], fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: vec![], fold: false, bulk: true, main: None });
         assert!(d.online);
         d.disconnected();
         assert!(!d.online);
@@ -1473,7 +1527,7 @@ mod tests {
         let split = split_told(Tell::Split { tab: info("t7", 3, 40), moved: 4 }).unwrap();
         assert_eq!((split.tab.as_str(), split.moved, split.why.as_str()), ("t7", 4, ""));
         assert_eq!(split_told(Tell::Refused { id: "t1".into(), why: "the subject changed".into() }).unwrap().why, "the subject changed");
-        assert_eq!(split_told(Tell::Tabs { tabs: vec![], fold: true, main: None }), None);
+        assert_eq!(split_told(Tell::Tabs { tabs: vec![], fold: true, bulk: true, main: None }), None);
     }
 
     #[test]
@@ -1481,11 +1535,11 @@ mod tests {
         let mut d = Desk::default();
         d.connected();
         let folds = |d: &mut Desk| d.take().into_iter().filter_map(|t| if let Told::Fold(on) = t { Some(on) } else { None }).collect::<Vec<_>>();
-        d.tell(Tell::Tabs { tabs: vec![], fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: vec![], fold: false, bulk: true, main: None });
         assert_eq!(folds(&mut d), [false], "the first listing says where it stands");
-        d.tell(Tell::Tabs { tabs: vec![], fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: vec![], fold: false, bulk: true, main: None });
         assert!(folds(&mut d).is_empty());
-        d.tell(Tell::Tabs { tabs: vec![], fold: true, main: None });
+        d.tell(Tell::Tabs { tabs: vec![], fold: true, bulk: true, main: None });
         assert_eq!(folds(&mut d), [true]);
     }
 
@@ -1507,25 +1561,25 @@ mod tests {
         let mut d = Desk::default();
         d.connected();
         // Jarvis parked: no main chat, and it is asked for once.
-        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden")], fold: true, main: Some("t313".into()) });
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden")], fold: true, bulk: true, main: Some("t313".into()) });
         assert!(mains(&mut d).is_empty(), "never his first tab");
         assert_eq!(opens(&d), 1);
-        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden")], fold: true, main: Some("t313".into()) });
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden")], fold: true, bulk: true, main: Some("t313".into()) });
         assert_eq!(opens(&d), 1, "not twice");
         // The server brings it back.
         d.tell(Tell::Opened { tab: named("t313", 3, "Jarvis") });
         assert_eq!(mains(&mut d), ["t313"]);
-        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden"), named("t313", 3, "Jarvis")], fold: true, main: Some("t313".into()) });
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t2", 2, "Garden"), named("t313", 3, "Jarvis")], fold: true, bulk: true, main: Some("t313".into()) });
         assert_eq!(mains(&mut d), ["t313"]);
         // The server's word wins over a name; an older server's list goes by the name alone.
-        d.tell(Tell::Tabs { tabs: vec![named("t9", 1, "Jarvis"), named("t313", 3, "Home")], fold: true, main: Some("t313".into()) });
+        d.tell(Tell::Tabs { tabs: vec![named("t9", 1, "Jarvis"), named("t313", 3, "Home")], fold: true, bulk: true, main: Some("t313".into()) });
         assert_eq!(mains(&mut d), ["t313"]);
-        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t313", 3, " jarvis ")], fold: true, main: None });
+        d.tell(Tell::Tabs { tabs: vec![book.clone(), named("t313", 3, " jarvis ")], fold: true, bulk: true, main: None });
         assert_eq!(mains(&mut d), ["t313"]);
         // With the fold off nothing is opened, even without one.
         let mut d = Desk::default();
         d.connected();
-        d.tell(Tell::Tabs { tabs: vec![book], fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: vec![book], fold: false, bulk: true, main: None });
         assert!(mains(&mut d).is_empty());
         assert_eq!(opens(&d), 0);
     }
@@ -1533,7 +1587,7 @@ mod tests {
     fn up(tabs: &[(&str, u64)]) -> Desk {
         let mut d = Desk::default();
         d.connected();
-        d.tell(Tell::Tabs { tabs: tabs.iter().enumerate().map(|(i, (id, end))| info(id, i as u32 + 1, *end)).collect(), fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: tabs.iter().enumerate().map(|(i, (id, end))| info(id, i as u32 + 1, *end)).collect(), fold: false, bulk: true, main: None });
         d
     }
 
@@ -1549,7 +1603,7 @@ mod tests {
             d.settle();
             assert_eq!(d.out, [Ask::List, Ask::Closed], "{kind}");
         }
-        d.tell(Tell::Tabs { tabs: vec![info("t3", 1, 10), info("t2", 2, 10)], fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: vec![info("t3", 1, 10), info("t2", 2, 10)], fold: false, bulk: true, main: None });
         let told = d.take();
         let tiles = told.iter().find_map(|t| if let Told::Wall(tiles, ..) = t { Some(tiles) } else { None }).expect("the wall");
         let row: Vec<(&str, u32)> = tiles.iter().map(|t| (t.id.as_str(), t.n)).collect();
@@ -1772,7 +1826,7 @@ mod tests {
         assert!(texts(&tab(&{ d.tabs.get_mut("t1").unwrap().tail(); d.take() }, "t1")).contains(&"third, half".to_string()), "the reply mid-way stays");
 
         d.connected();
-        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 30)], fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 30)], fold: false, bulk: true, main: None });
         assert!(d.out.contains(&Ask::Follow { id: "t1".into(), after: 20 }), "{:?}", d.out);
         // The new server sends the live block whole, and the old follow's last line crosses the new one's.
         d.tell(Tell::Text { id: "t1".into(), block: 1, from: 0, text: "third, half way".into() });
@@ -1820,6 +1874,44 @@ mod tests {
         let EntryRec::Yours { key: landed, state: Landing::Sent, .. } = &r.entries[0] else { panic!() };
         assert_eq!(&key, landed);
         assert_eq!(r.entries.len(), 1);
+    }
+
+    fn react(offset: u64, to: u64, emoji: &str, who: Who, off: bool) -> Event {
+        Event { offset, at: 1000 + offset, body: Body::React { to, quote: String::new(), emoji: emoji.into(), who, off } }
+    }
+
+    fn tick_of(r: &TabRec, at: usize) -> String {
+        let EntryRec::Yours { tick, .. } = &r.entries[at] else { panic!("not his") };
+        tick.clone()
+    }
+
+    /// Task 1266: Jarvis's ticks on his message reach the screen as the laptop draws them: ✓, ✓✓ once it stands,
+    /// gone when taken back; his own reactions, Jarvis's other emoji and a tick on a quote are never a tick.
+    #[test]
+    fn jarvis_ticks_on_his_message_reach_the_screen() {
+        let mut d = up(&[("t1", 0)]);
+        d.show(vec!["t1".into()]);
+        event(&mut d, "t1", said(10, Who::Aviv, "do it"));
+        event(&mut d, "t1", react(20, 10, "👍", Who::Jarvis, false));
+        event(&mut d, "t1", react(21, 10, "✓", Who::Aviv, false));
+        assert_eq!(tick_of(&tab(&d.take(), "t1"), 0), "");
+        event(&mut d, "t1", react(30, 10, "✓", Who::Jarvis, false));
+        assert_eq!(tick_of(&tab(&d.take(), "t1"), 0), "✓");
+        event(&mut d, "t1", react(40, 10, "✓", Who::Jarvis, true));
+        event(&mut d, "t1", react(41, 10, "✓✓", Who::Jarvis, false));
+        let r = tab(&d.take(), "t1");
+        assert_eq!((r.from, tick_of(&r, 0)), (0, "✓✓".into()), "the message itself crosses again");
+        event(&mut d, "t1", react(50, 10, "✓✓", Who::Jarvis, true));
+        assert_eq!(tick_of(&tab(&d.take(), "t1"), 0), "");
+    }
+
+    #[test]
+    fn a_tick_ask_takes_only_its_own_answer() {
+        let words = |id: &str, to| Tell::Tick { id: id.into(), to, text: "Filed.".into() };
+        assert_eq!(tick_told("t1", 10, words("t1", 10)), Some(TickRec { text: "Filed.".into(), why: String::new() }));
+        assert_eq!(tick_told("t1", 10, words("t1", 11)), None);
+        assert_eq!(tick_told("t1", 10, words("t2", 10)), None);
+        assert_eq!(tick_told("t1", 10, Tell::Refused { id: "t1".into(), why: "no such tab".into() }).unwrap().why, "no such tab");
     }
 
     #[test]
@@ -1912,7 +2004,7 @@ mod tests {
         let mut d = up(&[]);
         d.out.clear();
         d.start("Plan the garden sensors please".into(), vec![], false);
-        assert_eq!(d.out, [Ask::Open { want: None, name: "Plan the garden".into() }]);
+        assert_eq!(d.out, [Ask::Open { want: None, name: "Plan the garden".into(), mode: String::new() }]);
         d.out.clear();
         d.tell(Tell::Opened { tab: info("t9", 1, 0) });
         assert!(d.out.contains(&Ask::Follow { id: "t9".into(), after: 0 }));
@@ -1925,7 +2017,7 @@ mod tests {
         let mut d = up(&[]);
         d.out.clear();
         d.start(String::new(), vec![], true);
-        assert_eq!(d.out, [Ask::Open { want: None, name: String::new() }]);
+        assert_eq!(d.out, [Ask::Open { want: None, name: String::new(), mode: String::new() }]);
         d.out.clear();
         d.tell(Tell::Opened { tab: info("t9", 1, 0) });
         assert!(d.out.iter().any(|a| matches!(a, Ask::Autopilot { id, op, .. } if id == "t9" && op == "on")), "{:?}", d.out);
@@ -1967,7 +2059,7 @@ mod tests {
         let mut d = up(&[]);
         d.out.clear();
         d.start("  ".into(), vec![up_file("garden plan.png")], false);
-        assert_eq!(d.out, [Ask::Open { want: None, name: "garden plan.png".into() }]);
+        assert_eq!(d.out, [Ask::Open { want: None, name: "garden plan.png".into(), mode: String::new() }]);
         d.out.clear();
         d.tell(Tell::Opened { tab: info("t9", 1, 0) });
         assert!(d.out.iter().any(|a| matches!(a, Ask::Put { id, name, .. } if id == "t9" && name == "garden plan.png")));
@@ -2017,7 +2109,7 @@ mod tests {
         d.disconnected();
         d.connected();
         d.out.clear();
-        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 10), info("t2", 2, 40)], fold: false, main: None });
+        d.tell(Tell::Tabs { tabs: vec![info("t1", 1, 10), info("t2", 2, 40)], fold: false, bulk: true, main: None });
         assert_eq!(d.out, [Ask::Follow { id: "t1".into(), after: 10 }, Ask::Follow { id: "t2".into(), after: 40 }]);
         event(&mut d, "t1", said(10, Who::Aviv, "hi"));
         assert_eq!(d.tabs["t1"].items.len(), 1);
@@ -2039,7 +2131,7 @@ mod tests {
         }
         assert!(!d.tabs["t0"].loaded && !d.tabs["t1"].loaded && d.tabs["t2"].loaded);
         event(&mut d, "t0", said(20, Who::Jarvis, "news"));
-        assert!(d.tabs["t0"].tile.blue());
+        assert!(d.tabs["t0"].tile.done());
         d.out.clear();
         d.show(vec!["t0".into()]);
         assert_eq!(d.out, [Ask::Follow { id: "t0".into(), after: 0 }]);

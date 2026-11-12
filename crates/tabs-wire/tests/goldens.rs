@@ -26,3 +26,17 @@ fn every_tell_reads_and_writes_back_the_same() {
         assert_eq!(serde_json::to_value(&tell).unwrap(), want);
     }
 }
+
+#[test]
+fn an_aside_is_a_kind_an_old_reader_can_skip() {
+    let e = jarvis_tabs_wire::event::parse(br#"{"at":1,"kind":"aside","from":"job:x","text":"landed"}"#).unwrap();
+    assert_eq!(e.body, jarvis_tabs_wire::event::Body::Aside { from: "job:x".into(), text: "landed".into() });
+    #[derive(serde::Deserialize, Debug, PartialEq)]
+    #[serde(tag = "kind", rename_all = "lowercase")]
+    enum Older {
+        Said,
+        #[serde(other)]
+        Other,
+    }
+    assert_eq!(serde_json::from_str::<Older>(r#"{"kind":"aside","from":"job:x","text":"landed"}"#).unwrap(), Older::Other);
+}
