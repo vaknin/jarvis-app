@@ -50,13 +50,13 @@ fun ClosedPage(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Round(R.drawable.lucide_arrow_left, "Back to the wall", onBack)
-            Text("Closed tabs", Modifier.padding(start = 4.dp), look.ink, style = Words.title)
+            Text("Earlier threads", Modifier.padding(start = 4.dp), look.ink, style = Words.title)
         }
         Box(Modifier.weight(1f).fillMaxWidth(), Alignment.BottomCenter) {
             if (found.isEmpty()) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text(
-                        if (closed.isEmpty()) "No closed tabs yet" else "Nothing closed by that name",
+                        if (closed.isEmpty()) "No earlier threads yet" else "No thread by that name",
                         color = look.faint,
                         style = Words.label,
                     )

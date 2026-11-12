@@ -170,7 +170,7 @@ Changed: the prompt's "Remind me" button is gone; "Later" does the same.
             closed = listOf(
                 ClosedTab("c1", "Dark mode for the piano app", "Done, on your phone"),
                 ClosedTab("c2", "Update prompt", "Fixed in version 214"),
-                ClosedTab("c3", "Chord colours", "You closed this on Tuesday"),
+                ClosedTab("c3", "Chord colours", "Tuesday"),
                 ClosedTab("c4", "Flight to Lisbon", "Booked"),
                 ClosedTab("c5", "Router firmware", "Updated"),
             ),
@@ -416,13 +416,14 @@ class FakeDeck(start: DeckState = Fake.deck()) : Deck {
 
     override fun close(id: String) = flow.update { s ->
         val t = s.tiles.firstOrNull { it.id == id } ?: return@update s
-        s.copy(tiles = s.tiles - t, closed = listOf(ClosedTab(id, t.name, "Just closed")) + s.closed)
+        val tabs = s.tabs[id]?.let { s.tabs + (id to it.copy(closed = true)) } ?: s.tabs
+        s.copy(tiles = s.tiles - t, closed = listOf(ClosedTab(id, t.name, "Just now")) + s.closed, tabs = tabs)
     }
 
     override fun reopen(id: String) = flow.update { s ->
         val c = s.closed.firstOrNull { it.id == id } ?: return@update s
         val tile = s.tabs[id]?.tile ?: TileView(id, (s.tiles.maxOfOrNull { it.n } ?: 0) + 1, c.name)
-        s.copy(tiles = s.tiles + tile, closed = s.closed - c, tabs = s.tabs + (id to (s.tabs[id] ?: TabView(tile))))
+        s.copy(tiles = s.tiles + tile, closed = s.closed - c, tabs = s.tabs + (id to (s.tabs[id]?.copy(closed = false) ?: TabView(tile))))
     }
 
     override fun move(id: String, to: Int) = flow.update { s ->

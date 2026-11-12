@@ -811,7 +811,7 @@ private fun ClosedBar(tab: String, onReopen: () -> Unit) {
         Modifier.padding(start = Space.margin - 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("This thread is closed", Modifier.weight(1f), look.faint, style = Words.label)
+        Text("Pick this thread up again", Modifier.weight(1f), look.faint, style = Words.label)
         Box(
             Modifier
                 .height(Space.target)
@@ -820,7 +820,7 @@ private fun ClosedBar(tab: String, onReopen: () -> Unit) {
                 .clickable(onClick = onReopen)
                 .padding(horizontal = 20.dp),
             Alignment.Center,
-        ) { Text("Reopen", color = look.ink, style = Words.label) }
+        ) { Text("Pick up", color = look.ink, style = Words.label) }
     }
     }
 }

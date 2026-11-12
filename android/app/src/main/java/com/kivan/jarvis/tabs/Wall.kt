@@ -183,7 +183,7 @@ private fun WallMenu(onClosedTabs: (() -> Unit)?, needs: Int, onList: () -> Unit
         Round(R.drawable.lucide_ellipsis_vertical, "More", { menu = true }, fill = look.surface, size = 48.dp)
         DropdownMenu(menu, { menu = false }, containerColor = look.raised) {
             item("Needs you $needs", onList)
-            if (onClosedTabs != null) item("Search closed tabs", onClosedTabs)
+            if (onClosedTabs != null) item("Search threads", onClosedTabs)
             item("Home") { deck?.home() }
             item("Forum") { deck?.forum() }
             // Which build this is, as the old home's menu says it; a tap looks for a newer one.
@@ -202,7 +202,7 @@ private fun UndoBar(undo: ClosedTab?, onUndo: () -> Unit) {
             .padding(start = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Closed ${undo?.name.orEmpty()}", Modifier.weight(1f), look.ink, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("Put away ${undo?.name.orEmpty()}", Modifier.weight(1f), look.ink, style = Words.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box(Modifier.height(Space.target).clickable(onClick = onUndo).padding(horizontal = 16.dp), Alignment.Center) {
             Text("Undo", color = look.ink, style = Words.label)
         }
